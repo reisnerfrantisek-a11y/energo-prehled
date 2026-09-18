@@ -51,3 +51,14 @@
 .effective-price{font-size:11px;color:var(--muted);font-weight:700}.effective-price strong{color:var(--text)}
 .finance-note{font-size:10px!important;line-height:1.35}
 @media(max-width:480px){.month-row{display:grid;grid-template-columns:1fr}.month-actions{max-width:none;justify-content:flex-start;margin-top:8px}.invoice-field input{width:82px}}
+
+.egd-panel{border-color:color-mix(in srgb,var(--accent) 32%,var(--border))}
+.egd-status{display:inline-flex;align-items:center;padding:6px 9px;border-radius:999px;background:var(--bg);border:1px solid var(--border);font-size:10px;font-weight:800;color:var(--muted);white-space:nowrap}
+.egd-status.ok{background:color-mix(in srgb,#2fb36d 12%,var(--surface));border-color:color-mix(in srgb,#2fb36d 35%,var(--border));color:#24945a}
+.egd-status.warn{background:color-mix(in srgb,#f0a23a 12%,var(--surface));border-color:color-mix(in srgb,#f0a23a 35%,var(--border));color:#c77a17}
+.egd-status.error{background:color-mix(in srgb,var(--danger) 10%,var(--surface));border-color:color-mix(in srgb,var(--danger) 32%,var(--border));color:var(--danger)}
+.egd-result{margin-top:12px;padding:11px 12px;border:1px solid var(--border);border-radius:12px;background:var(--bg);font-size:12px;line-height:1.45;color:var(--muted)}
+.egd-result strong{color:var(--text)}
+.egd-config{margin-top:4px}
+.month-source{display:inline-flex;align-items:center;margin-left:6px;padding:2px 6px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:9px;font-weight:800;vertical-align:1px}
+.month-quality{font-size:10px!important;margin-top:5px!important}
