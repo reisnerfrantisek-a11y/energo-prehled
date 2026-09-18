@@ -10,7 +10,7 @@ new Function(sw);
 
 for(const id of [
   'backupDataBtn','restoreDataBtn','backupFileInput','exportBtn','fileInput','replaceModal','monthsList','heroDelta',
-  'periodNavigator','periodPrev','periodNext','periodAnchorLabel','anchorMonthInput','customPeriodControls','customFrom','customTo','heroCard','daypartSubtitle','dashboardModeToggle','heroUnit','metricToggle','effectivePricePanel','effectivePriceChart'
+  'periodNavigator','periodPrev','periodNext','periodAnchorLabel','anchorMonthInput','customPeriodControls','customFrom','customTo','heroCard','daypartSubtitle','dashboardModeToggle','heroUnit','metricToggle','effectivePricePanel','effectivePriceChart','forceUpdateBtn','appVersionText'
 ]){
   assert.ok(index.includes(`id="${id}"`), `Missing UI element #${id}`);
 }
@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.3.1'"),'App version must be 1.3.0');
+assert.ok(app.includes("APP_VERSION = '1.3.2'"),'App version must be 1.3.2');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -66,6 +66,16 @@ assert.ok(app.includes("$('.dashboard-mode-btn').forEach"),'Dashboard mode must 
 assert.ok(app.includes("$('.metric-btn').forEach"),'Metric mode must bind all toggle buttons');
 assert.ok(!app.includes("\n  $('.dashboard-mode-btn').forEach"),'Dashboard mode incorrectly uses single-element selector');
 assert.ok(!app.includes("\n  $('.metric-btn').forEach"),'Metric mode incorrectly uses single-element selector');
+assert.ok(app.includes('async function forceUpdateApp'),'Safe force-update function missing');
+assert.ok(app.includes("k.startsWith('energo-prehled-beta-')"),'Force update must target beta cache only');
+assert.ok(!app.includes('indexedDB.deleteDatabase'),'Force update must not delete IndexedDB');
+assert.ok(!app.includes('localStorage.clear()'),'Force update must not clear localStorage');
+assert.ok(index.includes('app.js?v=1.3.2'),'App script must be cache-busted');
+assert.ok(index.includes('styles.css?v=1.3.2'),'Stylesheet must be cache-busted');
+const refresh=fs.readFileSync('refresh.html','utf8');
+assert.ok(refresh.includes("energo-prehled-beta-"),'Recovery page must clear beta cache');
+assert.ok(!refresh.includes('indexedDB.deleteDatabase'),'Recovery page must preserve IndexedDB');
+assert.ok(!refresh.includes('localStorage.clear()'),'Recovery page must preserve localStorage');
 
 const analyticsStart=app.indexOf('const val = r =>');
 const analyticsEnd=app.indexOf('// ---------- SVG charts ----------',analyticsStart);
@@ -113,4 +123,4 @@ assert.equal(periodTest.currentRange().length,2);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.3.1 smoke tests OK');
+console.log('Energo Přehled Beta 1.3.2 smoke tests OK');
