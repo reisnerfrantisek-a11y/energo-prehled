@@ -1,0 +1,37 @@
+name: Deploy Energo PWA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.deploy/site.tar.gz.b64'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unpack PWA
+        shell: bash
+        run: |
+          base64 -d .deploy/site.tar.gz.b64 > /tmp/energo-site.tar.gz
+          tar -xzf /tmp/energo-site.tar.gz -C .
+
+      - name: Commit deployed files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html styles.css app.js manifest.webmanifest sw.js icons _headers
+          if git diff --cached --quiet; then
+            echo "No deployment changes."
+          else
+            git commit -m "Deploy Energo Přehled PWA"
+            git push
+          fi
