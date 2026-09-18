@@ -14,7 +14,7 @@ const start=app.indexOf('const PRAGUE_DTF');
 const end=app.indexOf('function strictNumber',start);
 assert.ok(start>=0&&end>start,'Time validation block not found');
 const timeCode=app.slice(start,end);
-const run=new Function(`const localStorage={getItem:()=>null}; const location={pathname:'/'}; ${timeCode}
+const run=new Function(`const localStorage={getItem:()=>null}; const location={pathname:'/'}; const METRIC_KEY='metric'; ${timeCode}
 const make=(y,m)=>{const a=[];for(const [stamp,n] of expectedTimestampCounts(y,m))for(let i=0;i<n;i++)a.push({sourceTimestamp:stamp});return a};
 return { expectedTimestampCounts,validateMonthTimeline,make,parseCzTimestamp,pragueUtcCandidates };`)();
 
