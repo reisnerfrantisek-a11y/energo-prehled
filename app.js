@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.2.1';
+const APP_VERSION = '1.2.2';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -61,6 +61,16 @@ async function deleteMonth(monthKey){
     r.onsuccess=()=>{const c=r.result;if(c){c.delete();c.continue()}else months.delete(monthKey)};
   });
   state.resetExportRange=true; await reload(); showToast('Měsíc byl odstraněn');
+}
+async function setMonthEnabled(monthKey,enabled){
+  const month=state.months.find(m=>m.monthKey===monthKey);if(!month)return;
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction('months','readwrite'),store=tx.objectStore('months');
+    store.put({...month,enabled:!!enabled});
+    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+  });
+  state.resetExportRange=true;await reload();
+  showToast(`${monthLabel(monthKey)}: ${enabled?'aktivní':'vypnuto'}`);
 }
 async function persistImport(payload, replace=false){
   await new Promise((resolve,reject)=>{
@@ -166,13 +176,14 @@ async function parseReport(file){
   records.sort((a,b)=>a.sortKey-b.sortKey||a.id.localeCompare(b.id));
   const validation=validateMonthTimeline(records,year,month);if(!validation.complete)throw new Error(`Report není kompletní 15minutový měsíc. ${validation.issues.slice(0,4).join(' | ')}${validation.issues.length>4?' …':''}`);
   const label=`${MONTH_NAMES[month-1]} ${year}`;
-  return {records,month:{monthKey,label,year,month,ean,meter,count:records.length,expectedCount:validation.expectedCount,complete:true,incompleteDays:0,validationVersion:2,first:records[0].sourceTimestamp,last:records[records.length-1].sourceTimestamp,importedAt:new Date().toISOString(),fileName:file.name}};
+  return {records,month:{monthKey,label,year,month,ean,meter,count:records.length,expectedCount:validation.expectedCount,complete:true,incompleteDays:0,validationVersion:2,enabled:true,first:records[0].sourceTimestamp,last:records[records.length-1].sourceTimestamp,importedAt:new Date().toISOString(),fileName:file.name}};
 }
 
 // ---------- Analytics ----------
 const val = r => {const n=Number(r[state.metric]);return Number.isFinite(n)?n:0};
 const energy = r => val(r)*((Number(r.intervalMinutes)||15)/60);
-function sortedRecords(){return [...state.records].sort((a,b)=>a.sortKey-b.sortKey||a.id.localeCompare(b.id))}
+function monthEnabled(k){const m=state.months.find(x=>x.monthKey===k);return !m||m.enabled!==false}
+function sortedRecords(){return state.records.filter(r=>monthEnabled(r.monthKey)).sort((a,b)=>a.sortKey-b.sortKey||a.id.localeCompare(b.id))}
 function monthLabel(k){const [y,m]=String(k).split('-').map(Number);return y&&m?`${MONTH_NAMES[m-1]} ${y}`:'—'}
 function monthIndex(k){const [y,m]=String(k).split('-').map(Number);return Number.isFinite(y)&&Number.isFinite(m)?y*12+(m-1):null}
 function monthKeyFromIndex(idx){const y=Math.floor(idx/12),m=((idx%12)+12)%12+1;return `${y}-${String(m).padStart(2,'0')}`}
@@ -209,7 +220,7 @@ function sumEnergy(rs){return rs.reduce((s,r)=>s+energy(r),0)}
 function group(rs,keyFn,valFn=energy){const m=new Map();rs.forEach(r=>{const k=keyFn(r);m.set(k,(m.get(k)||0)+valFn(r))});return m}
 function groupAvg(rs,keyFn,valFn=val){const sum=new Map(),count=new Map();rs.forEach(r=>{const k=keyFn(r);sum.set(k,(sum.get(k)||0)+valFn(r));count.set(k,(count.get(k)||0)+1)});return new Map([...sum].map(([k,v])=>[k,v/count.get(k)]))}
 function selectedPeriodLabel(){
-  if(state.period==='all')return state.records.length?`${formatDateKey(earliestDateKey())} – ${formatDateKey(latestDateKey())}`:'Všechna data';
+  if(state.period==='all')return sortedRecords().length?`${formatDateKey(earliestDateKey())} – ${formatDateKey(latestDateKey())}`:'Žádná aktivní data';
   if(state.period==='custom')return `${formatDateKey(state.customFrom)} – ${formatDateKey(state.customTo)}`;
   const idx=anchorIndex();
   if(state.period==='month')return monthLabel(monthKeyFromIndex(idx));
@@ -233,7 +244,9 @@ function expectedPreviousMonthKeys(){
   if(state.period==='year'){const y=Math.floor(idx/12)-1;return Array.from({length:12},(_,i)=>`${y}-${String(i+1).padStart(2,'0')}`)}
   return [];
 }
-function monthIsComplete(k){const m=state.months.find(x=>x.monthKey===k);return !!m&&(m.complete===true||(m.complete===undefined&&m.incompleteDays===0))}
+function monthIsComplete(k){const m=state.months.find(x=>x.monthKey===k);return !!m&&m.enabled!==false&&(m.complete===true||(m.complete===undefined&&m.incompleteDays===0))}
+function monthIsDisabled(k){const m=state.months.find(x=>x.monthKey===k);return !!m&&m.enabled===false}
+function keysContainDisabled(keys){return keys.some(monthIsDisabled)}
 function keysComplete(keys){return keys.length>0&&keys.every(monthIsComplete)}
 function previousComparable(){
   const keys=expectedPreviousMonthKeys();if(!keys.length)return [];
@@ -301,13 +314,14 @@ function renderPeriodControls(){
   if(state.period==='all')allLabel.textContent=state.records.length?selectedPeriodLabel():'Všechna importovaná data';
 }
 function renderOverview(){
-  const monthly=group(state.records,r=>r.monthKey),md=[...monthly].sort().map(([k,v])=>({label:monthLabel(k),short:k.slice(5,7)+'/'+k.slice(2,4),value:v}));
+  const monthly=group(sortedRecords(),r=>r.monthKey),md=[...monthly].sort().map(([k,v])=>({label:monthLabel(k),short:k.slice(5,7)+'/'+k.slice(2,4),value:v}));
   barChart($('#monthlyChart'),md);
   $$('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
   const rs=currentRange();
   $('#heroPeriod').textContent=selectedPeriodLabel();
   if(!rs.length){
-    $('#heroKwh').textContent='—';$('#heroDelta').textContent='Pro zvolené období nejsou importována data';
+    const expected=expectedCurrentMonthKeys(),disabled=expected.length&&keysContainDisabled(expected);
+    $('#heroKwh').textContent='—';$('#heroDelta').textContent=disabled?'Zvolené období obsahuje vypnutá data':'Pro zvolené období nejsou aktivní data';
     lineChart($('#mainChart'),[],{hero:true});
     $('#avgDay').textContent='—';$('#maxPower').textContent='—';$('#maxPowerSub').textContent='kW';
     $('#bestDay').textContent='—';$('#bestDaySub').textContent='—';$('#baseLoad').textContent='—';
@@ -318,7 +332,8 @@ function renderOverview(){
   else if(state.period==='custom')$('#heroDelta').textContent='Vlastní zvolené období';
   else{
     const currentKeys=expectedCurrentMonthKeys(),prevKeys=expectedPreviousMonthKeys(),prev=previousComparable(),prevTotal=sumEnergy(prev);
-    if(!keysComplete(currentKeys))$('#heroDelta').textContent='Neúplné období · chybí importované měsíce';
+    if(keysContainDisabled(currentKeys))$('#heroDelta').textContent='Období obsahuje vypnutý měsíc';
+    else if(!keysComplete(currentKeys))$('#heroDelta').textContent='Neúplné období · chybí importované měsíce';
     else if(!keysComplete(prevKeys))$('#heroDelta').textContent='Předchozí srovnatelné období není kompletní';
     else if(prevTotal===0)$('#heroDelta').textContent='Předchozí období: 0 kWh';
     else{const delta=(total-prevTotal)/prevTotal*100;$('#heroDelta').textContent=`${delta>=0?'▲':'▼'} ${fmt.format(Math.abs(delta))} % proti předchozímu období`}
@@ -333,8 +348,9 @@ function renderOverview(){
 function renderAnalysis(){
   const rs=currentRange();
   if(!rs.length){
-    ['weekdayChart','hourlyChart','heatmap','daypartList','peaksList'].forEach(id=>$('#'+id).innerHTML='<div class="chart-empty">Pro zvolené období nejsou data</div>');
-    $('#daypartSubtitle').textContent='Pro zvolené období nejsou data';
+    const expected=expectedCurrentMonthKeys(),message=expected.length&&keysContainDisabled(expected)?'Zvolené období obsahuje vypnutá data':'Pro zvolené období nejsou aktivní data';
+    ['weekdayChart','hourlyChart','heatmap','daypartList','peaksList'].forEach(id=>$('#'+id).innerHTML=`<div class="chart-empty">${message}</div>`);
+    $('#daypartSubtitle').textContent=message;
     return;
   }
   const dateTotals=group(rs,r=>r.dateKey),dateWeek={};rs.forEach(r=>dateWeek[r.dateKey]=r.weekday);
@@ -357,7 +373,26 @@ function renderDayparts(rs){
   $('#daypartList').innerHTML=data.map(d=>{const width=average?d.avg/maxAvg*100:d.pct,value=average?`${fmt3.format(d.avg)} kWh/den`:`${fmt.format(d.pct)} %`;return `<div class="daypart-row"><div><strong>${d.name}</strong><div class="kpi-unit">${d.time}</div></div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(0,Math.min(100,width))}%"></div></div><div class="daypart-value">${value}</div></div>`}).join('');
 }
 function renderPeaks(rs){const peaks=[...rs].sort((a,b)=>val(b)-val(a)).slice(0,20);$('#peaksList').innerHTML=peaks.map((r,i)=>`<div class="peak-row"><div class="peak-main"><strong>${i+1}. ${r.displayTimestamp}</strong><div>${r.monthKey} · 15min interval</div></div><div class="peak-value">${fmt.format(val(r))} kW</div></div>`).join('')}
-async function renderMonths(){const months=[...state.months].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));$('#monthsList').innerHTML=months.length?months.map(m=>`<div class="month-row"><div class="month-main"><strong>${escapeHtml(m.label)}</strong><div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}</div></div><div class="month-actions"><div class="month-value">${monthIsComplete(m.monthKey)?'✓ kompletní':'⚠ zkontrolovat'}</div><button class="trash-btn" data-delete="${m.monthKey}" aria-label="Smazat">×</button></div></div>`).join(''):'<div class="chart-empty">Žádné importované měsíce</div>';$$('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm(`Opravdu odstranit ${monthLabel(b.dataset.delete)}?`))deleteMonth(b.dataset.delete)})}
+async function renderMonths(){
+  const months=[...state.months].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));
+  $('#monthsList').innerHTML=months.length?months.map(m=>{
+    const enabled=m.enabled!==false;
+    return `<div class="month-row ${enabled?'':'month-disabled'}">
+      <div class="month-main"><strong>${escapeHtml(m.label)}</strong><div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}</div></div>
+      <div class="month-actions">
+        <label class="month-toggle" title="${enabled?'Vypnout měsíc':'Zapnout měsíc'}">
+          <input type="checkbox" data-month-toggle="${m.monthKey}" ${enabled?'checked':''} aria-label="${enabled?'Vypnout':'Zapnout'} ${escapeHtml(m.label)}">
+          <span class="toggle-track"><span></span></span>
+          <em>${enabled?'Aktivní':'Vypnuto'}</em>
+        </label>
+        <div class="month-value">${monthIsComplete(m.monthKey)?'✓ kompletní':enabled?'⚠ zkontrolovat':'—'}</div>
+        <button class="trash-btn" data-delete="${m.monthKey}" aria-label="Smazat">×</button>
+      </div>
+    </div>`
+  }).join(''):'<div class="chart-empty">Žádné importované měsíce</div>';
+  $$('[data-month-toggle]').forEach(x=>x.onchange=()=>setMonthEnabled(x.dataset.monthToggle,x.checked).catch(e=>{console.error(e);alert('Změnu se nepodařilo uložit: '+e.message)}));
+  $$('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm(`Opravdu odstranit ${monthLabel(b.dataset.delete)}?`))deleteMonth(b.dataset.delete)});
+}
 function renderExportDefaults(){if(!state.records.length)return;const all=sortedRecords(),min=all[0].dateKey,max=all.at(-1).dateKey,from=$('#exportFrom'),to=$('#exportTo');if(state.resetExportRange||!from.value)from.value=min;if(state.resetExportRange||!to.value)to.value=max;state.resetExportRange=false}
 
 // ---------- Import ----------
