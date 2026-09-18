@@ -142,32 +142,45 @@ async function parseReport(file){
 }
 
 // ---------- Analytics ----------
-const val = r => Number(r[state.metric]||0);
-const energy = r => val(r)*0.25;
-function sortedRecords(){return [...state.records].sort((a,b)=>a.sortKey-b.sortKey)}
+const val = r => {const n=Number(r[state.metric]);return Number.isFinite(n)?n:0};
+const energy = r => val(r)*((Number(r.intervalMinutes)||15)/60);
+function sortedRecords(){return [...state.records].sort((a,b)=>a.sortKey-b.sortKey||a.id.localeCompare(b.id))}
 function monthLabel(k){const [y,m]=k.split('-').map(Number);return `${MONTH_NAMES[m-1]} ${y}`}
+function monthKeyFromIndex(idx){const y=Math.floor(idx/12),m=((idx%12)+12)%12+1;return `${y}-${String(m).padStart(2,'0')}`}
 function currentRange(){
   if(!state.records.length)return [];
-  const all=sortedRecords(), last=all[all.length-1], endMonth=last.monthKey;
+  const all=sortedRecords(),last=all[all.length-1],end=last.year*12+(last.month-1);
   if(state.period==='all')return all;
-  if(state.period==='month')return all.filter(r=>r.monthKey===endMonth);
-  if(state.period==='year')return all.filter(r=>r.year===last.year);
-  if(state.period==='3m'){
-    const end=last.year*12+(last.month-1), start=end-2;return all.filter(r=>{const x=r.year*12+(r.month-1);return x>=start&&x<=end})
-  }
+  if(state.period==='month')return all.filter(r=>r.monthKey===last.monthKey);
+  if(state.period==='year')return all.filter(r=>r.year===last.year&&r.month<=last.month);
+  if(state.period==='3m'){const start=end-2;return all.filter(r=>{const x=r.year*12+(r.month-1);return x>=start&&x<=end})}
   return all;
 }
 function sumEnergy(rs){return rs.reduce((s,r)=>s+energy(r),0)}
 function group(rs,keyFn,valFn=energy){const m=new Map();rs.forEach(r=>{const k=keyFn(r);m.set(k,(m.get(k)||0)+valFn(r))});return m}
 function groupAvg(rs,keyFn,valFn=val){const sum=new Map(),count=new Map();rs.forEach(r=>{const k=keyFn(r);sum.set(k,(sum.get(k)||0)+valFn(r));count.set(k,(count.get(k)||0)+1)});return new Map([...sum].map(([k,v])=>[k,v/count.get(k)]))}
 function rangeLabel(rs){if(!rs.length)return '—';const first=rs[0],last=rs[rs.length-1];if(first.monthKey===last.monthKey)return monthLabel(first.monthKey);return `${monthLabel(first.monthKey)} – ${monthLabel(last.monthKey)}`}
-function previousComparable(rs){
-  if(!rs.length)return [];
-  const all=sortedRecords(), first=rs[0], last=rs[rs.length-1], months=[...new Set(rs.map(r=>r.monthKey))].length;
-  if(state.period==='month'){const idx=first.year*12+first.month-1-1;const y=Math.floor(idx/12),m=idx%12+1,k=`${y}-${String(m).padStart(2,'0')}`;return all.filter(r=>r.monthKey===k)}
-  if(state.period==='year')return all.filter(r=>r.year===first.year-1);
-  if(state.period==='3m'){const end=first.year*12+first.month-2,start=end-(months-1);return all.filter(r=>{const x=r.year*12+r.month-1;return x>=start&&x<=end})}
+function expectedCurrentMonthKeys(rs){
+  if(!rs.length||state.period==='all')return [];
+  const last=rs[rs.length-1],end=last.year*12+(last.month-1);
+  if(state.period==='month')return [last.monthKey];
+  if(state.period==='3m')return [end-2,end-1,end].map(monthKeyFromIndex);
+  if(state.period==='year')return Array.from({length:last.month},(_,i)=>`${last.year}-${String(i+1).padStart(2,'0')}`);
   return [];
+}
+function expectedPreviousMonthKeys(rs){
+  if(!rs.length||state.period==='all')return [];
+  const last=rs[rs.length-1],end=last.year*12+(last.month-1);
+  if(state.period==='month')return [monthKeyFromIndex(end-1)];
+  if(state.period==='3m')return [end-5,end-4,end-3].map(monthKeyFromIndex);
+  if(state.period==='year')return Array.from({length:last.month},(_,i)=>`${last.year-1}-${String(i+1).padStart(2,'0')}`);
+  return [];
+}
+function monthIsComplete(k){const m=state.months.find(x=>x.monthKey===k);return !!m&&(m.complete===true||(m.complete===undefined&&m.incompleteDays===0))}
+function keysComplete(keys){return keys.length>0&&keys.every(monthIsComplete)}
+function previousComparable(rs){
+  const keys=expectedPreviousMonthKeys(rs);if(!keys.length)return [];
+  const set=new Set(keys);return sortedRecords().filter(r=>set.has(r.monthKey));
 }
 
 // ---------- SVG charts ----------
@@ -192,7 +205,7 @@ function barChart(el,data){
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 
 // ---------- Rendering ----------
-async function reload(){state.records=await getAll('intervals');renderAll()}
+async function reload(){state.records=await getAll('intervals');state.months=await getAll('months');renderAll()}
 function renderAll(){
   const has=state.records.length>0; $('#emptyState').classList.toggle('hidden',has);$('#overviewContent').classList.toggle('hidden',!has);
   renderOverview();renderAnalysis();renderMonths();renderExportDefaults();
@@ -200,11 +213,16 @@ function renderAll(){
 function renderOverview(){
   const rs=currentRange(); if(!rs.length)return;
   $('#heroPeriod').textContent=rangeLabel(rs); const total=sumEnergy(rs);$('#heroKwh').textContent=fmt.format(total);
-  const prev=previousComparable(rs),delta=prev.length?((total-sumEnergy(prev))/sumEnergy(prev))*100:null;$('#heroDelta').textContent=Number.isFinite(delta)?`${delta>=0?'▲':'▼'} ${fmt.format(Math.abs(delta))} % proti předchozímu období`:'První dostupné období';
+  const currentKeys=expectedCurrentMonthKeys(rs),prevKeys=expectedPreviousMonthKeys(rs),prev=previousComparable(rs),prevTotal=sumEnergy(prev);
+  if(state.period==='all')$('#heroDelta').textContent='Celé dostupné období';
+  else if(!keysComplete(currentKeys))$('#heroDelta').textContent='Neúplné období · chybí importované měsíce';
+  else if(!keysComplete(prevKeys))$('#heroDelta').textContent='Předchozí srovnatelné období není kompletní';
+  else if(prevTotal===0)$('#heroDelta').textContent='Předchozí období: 0 kWh';
+  else{const delta=(total-prevTotal)/prevTotal*100;$('#heroDelta').textContent=`${delta>=0?'▲':'▼'} ${fmt.format(Math.abs(delta))} % proti předchozímu období`}
   const daily=group(rs,r=>r.dateKey),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));lineChart($('#mainChart'),dailyData,{hero:true});
   $('#avgDay').textContent=fmt3.format(total/Math.max(1,daily.size));const peak=rs.reduce((a,b)=>val(b)>val(a)?b:a,rs[0]);$('#maxPower').textContent=fmt.format(val(peak));$('#maxPowerSub').textContent=`kW · ${peak.displayTimestamp}`;
   const best=[...daily].sort((a,b)=>b[1]-a[1])[0];$('#bestDay').textContent=best?`${best[0].slice(8,10)}.${best[0].slice(5,7)}.`:'—';$('#bestDaySub').textContent=best?`${fmt3.format(best[1])} kWh`:'—';
-  const night=rs.filter(r=>r.hour<5);$('#baseLoad').textContent=night.length?`${fmt.format(night.reduce((s,r)=>s+val(r),0)/night.length*1000)} W`:'—';
+  const night=rs.filter(r=>r.hour<6);$('#baseLoad').textContent=night.length?`${fmt.format(night.reduce((s,r)=>s+val(r),0)/night.length*1000)} W`:'—';
   const monthly=group(state.records,r=>r.monthKey),md=[...monthly].sort().map(([k,v])=>({label:monthLabel(k),short:k.slice(5,7)+'/'+k.slice(2,4),value:v}));barChart($('#monthlyChart'),md);
   $$('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
 }
@@ -223,12 +241,23 @@ function renderHeatmap(rs){
 }
 function renderDayparts(rs){const parts=[['Noc','0–6',r=>r.hour<6],['Ráno','6–10',r=>r.hour>=6&&r.hour<10],['Den','10–17',r=>r.hour>=10&&r.hour<17],['Večer','17–22',r=>r.hour>=17&&r.hour<22],['Pozdní','22–24',r=>r.hour>=22]];const total=sumEnergy(rs)||1;$('#daypartList').innerHTML=parts.map(([n,t,f])=>{const v=sumEnergy(rs.filter(f)),pct=v/total*100;return `<div class="daypart-row"><div><strong>${n}</strong><div class="kpi-unit">${t}</div></div><div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div><div class="daypart-pct">${fmt.format(pct)} %</div></div>`}).join('')}
 function renderPeaks(rs){const peaks=[...rs].sort((a,b)=>val(b)-val(a)).slice(0,20);$('#peaksList').innerHTML=peaks.map((r,i)=>`<div class="peak-row"><div class="peak-main"><strong>${i+1}. ${r.displayTimestamp}</strong><div>${r.monthKey} · 15min interval</div></div><div class="peak-value">${fmt.format(val(r))} kW</div></div>`).join('')}
-async function renderMonths(){const months=(await getAll('months')).sort((a,b)=>b.monthKey.localeCompare(a.monthKey));$('#monthsList').innerHTML=months.length?months.map(m=>`<div class="month-row"><div class="month-main"><strong>${escapeHtml(m.label)}</strong><div>${m.count.toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}</div></div><div class="month-actions"><div class="month-value">${m.incompleteDays?`⚠ ${m.incompleteDays} dnů`:'✓ kompletní'}</div><button class="trash-btn" data-delete="${m.monthKey}" aria-label="Smazat">×</button></div></div>`).join(''):'<div class="chart-empty">Žádné importované měsíce</div>';$$('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm(`Opravdu odstranit ${monthLabel(b.dataset.delete)}?`))deleteMonth(b.dataset.delete)})}
-function renderExportDefaults(){if(!state.records.length)return;const all=sortedRecords(),min=all[0].dateKey,max=all[all.length-1].dateKey;if(!$('#exportFrom').value)$('#exportFrom').value=min;if(!$('#exportTo').value)$('#exportTo').value=max}
+async function renderMonths(){const months=[...state.months].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));$('#monthsList').innerHTML=months.length?months.map(m=>`<div class="month-row"><div class="month-main"><strong>${escapeHtml(m.label)}</strong><div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}</div></div><div class="month-actions"><div class="month-value">${monthIsComplete(m.monthKey)?'✓ kompletní':'⚠ zkontrolovat'}</div><button class="trash-btn" data-delete="${m.monthKey}" aria-label="Smazat">×</button></div></div>`).join(''):'<div class="chart-empty">Žádné importované měsíce</div>';$$('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm(`Opravdu odstranit ${monthLabel(b.dataset.delete)}?`))deleteMonth(b.dataset.delete)})}
+function renderExportDefaults(){if(!state.records.length)return;const all=sortedRecords(),min=all[0].dateKey,max=all[all.length-1].dateKey,from=$('#exportFrom'),to=$('#exportTo');if(state.resetExportRange||!from.value)from.value=min;if(state.resetExportRange||!to.value)to.value=max;state.resetExportRange=false}
 
 // ---------- Import ----------
 async function handleFile(file){
-  try{showToast('Načítám XLSX…');const payload=await parseReport(file);const months=await getAll('months');if(months.some(m=>m.monthKey===payload.month.monthKey)){state.pendingImport=payload;$('#replaceText').textContent=`${payload.month.label} už obsahuje uložená data. Nahradit je novým reportem?`;$('#replaceModal').classList.remove('hidden')}else await saveImport(payload,false)}catch(e){console.error(e);alert(`Import se nepodařil:\n${e.message}`)}finally{$('#fileInput').value=''}
+  try{
+    showToast('Načítám a kontroluji XLSX…');
+    const payload=await parseReport(file);
+    const existingEans=[...new Set(state.records.map(r=>r.ean).filter(Boolean))];
+    if(existingEans.length&&(!existingEans.includes(payload.month.ean)||existingEans.length>1))throw new Error(`Aplikace už obsahuje data pro EAN ${existingEans.join(', ')}. Importovaný report patří EAN ${payload.month.ean}. Data různých odběrných míst nemíchám.`);
+    if(state.months.some(m=>m.monthKey===payload.month.monthKey)){
+      state.pendingImport=payload;
+      $('#replaceText').textContent=`${payload.month.label} už obsahuje uložená data. Nahradit je novým, plně zkontrolovaným reportem?`;
+      $('#replaceModal').classList.remove('hidden');
+    }else await saveImport(payload,false);
+  }catch(e){console.error(e);alert(`Import se nepodařil:\n${e.message}`)}
+  finally{$('#fileInput').value=''}
 }
 
 // ---------- Export ----------
