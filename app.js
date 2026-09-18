@@ -272,44 +272,92 @@ function barChart(el,data){
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 
 // ---------- Rendering ----------
-async function reload(){state.records=await getAll('intervals');state.months=await getAll('months');renderAll()}
+async function reload(){state.records=await getAll('intervals');state.months=await getAll('months');ensurePeriodState();renderAll()}
 function renderAll(){
-  const has=state.records.length>0; $('#emptyState').classList.toggle('hidden',has);$('#overviewContent').classList.toggle('hidden',!has);
-  renderOverview();renderAnalysis();renderMonths();renderExportDefaults();
+  const has=state.records.length>0;
+  $('#emptyState').classList.toggle('hidden',has);$('#overviewContent').classList.toggle('hidden',!has);
+  renderPeriodControls();renderOverview();renderAnalysis();renderMonths();renderExportDefaults();
+}
+function renderPeriodControls(){
+  $$('.period-chip').forEach(b=>b.classList.toggle('active',b.dataset.period===state.period));
+  const nav=$('#periodNavigator'),custom=$('#customPeriodControls'),allLabel=$('#allPeriodLabel');
+  nav.classList.toggle('hidden',!['month','3m','year'].includes(state.period));
+  custom.classList.toggle('hidden',state.period!=='custom');
+  allLabel.classList.toggle('hidden',state.period!=='all');
+  if(state.period==='custom'){
+    $('#customFrom').value=state.customFrom||'';
+    $('#customTo').value=state.customTo||'';
+  }
+  if(['month','3m','year'].includes(state.period)){
+    $('#periodAnchorLabel').textContent=selectedPeriodLabel();
+    $('#anchorMonthInput').value=state.anchorMonth||'';
+    const keys=state.months.map(m=>m.monthKey).sort(),first=keys[0],last=keys.at(-1);
+    if(first)$('#anchorMonthInput').min=first;if(last)$('#anchorMonthInput').max=last;
+    const idx=anchorIndex(),firstIdx=first?monthIndex(first):idx,lastIdx=last?monthIndex(last):idx,jump=state.period==='3m'?3:state.period==='year'?12:1;
+    $('#periodPrev').disabled=idx-jump<firstIdx;
+    $('#periodNext').disabled=idx+jump>lastIdx;
+  }
+  if(state.period==='all')allLabel.textContent=state.records.length?selectedPeriodLabel():'Všechna importovaná data';
 }
 function renderOverview(){
-  const rs=currentRange(); if(!rs.length)return;
-  $('#heroPeriod').textContent=rangeLabel(rs); const total=sumEnergy(rs);$('#heroKwh').textContent=fmt.format(total);
-  const currentKeys=expectedCurrentMonthKeys(rs),prevKeys=expectedPreviousMonthKeys(rs),prev=previousComparable(rs),prevTotal=sumEnergy(prev);
-  if(state.period==='all')$('#heroDelta').textContent='Celé dostupné období';
-  else if(!keysComplete(currentKeys))$('#heroDelta').textContent='Neúplné období · chybí importované měsíce';
-  else if(!keysComplete(prevKeys))$('#heroDelta').textContent='Předchozí srovnatelné období není kompletní';
-  else if(prevTotal===0)$('#heroDelta').textContent='Předchozí období: 0 kWh';
-  else{const delta=(total-prevTotal)/prevTotal*100;$('#heroDelta').textContent=`${delta>=0?'▲':'▼'} ${fmt.format(Math.abs(delta))} % proti předchozímu období`}
-  const daily=group(rs,r=>r.dateKey),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));lineChart($('#mainChart'),dailyData,{hero:true});
-  $('#avgDay').textContent=fmt3.format(total/Math.max(1,daily.size));const peak=rs.reduce((a,b)=>val(b)>val(a)?b:a,rs[0]);$('#maxPower').textContent=fmt.format(val(peak));$('#maxPowerSub').textContent=`kW · ${peak.displayTimestamp}`;
-  const best=[...daily].sort((a,b)=>b[1]-a[1])[0];$('#bestDay').textContent=best?`${best[0].slice(8,10)}.${best[0].slice(5,7)}.`:'—';$('#bestDaySub').textContent=best?`${fmt3.format(best[1])} kWh`:'—';
-  const night=rs.filter(r=>r.hour<6);$('#baseLoad').textContent=night.length?`${fmt.format(night.reduce((s,r)=>s+val(r),0)/night.length*1000)} W`:'—';
-  const monthly=group(state.records,r=>r.monthKey),md=[...monthly].sort().map(([k,v])=>({label:monthLabel(k),short:k.slice(5,7)+'/'+k.slice(2,4),value:v}));barChart($('#monthlyChart'),md);
+  const monthly=group(state.records,r=>r.monthKey),md=[...monthly].sort().map(([k,v])=>({label:monthLabel(k),short:k.slice(5,7)+'/'+k.slice(2,4),value:v}));
+  barChart($('#monthlyChart'),md);
   $$('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
+  const rs=currentRange();
+  $('#heroPeriod').textContent=selectedPeriodLabel();
+  if(!rs.length){
+    $('#heroKwh').textContent='—';$('#heroDelta').textContent='Pro zvolené období nejsou importována data';
+    lineChart($('#mainChart'),[],{hero:true});
+    $('#avgDay').textContent='—';$('#maxPower').textContent='—';$('#maxPowerSub').textContent='kW';
+    $('#bestDay').textContent='—';$('#bestDaySub').textContent='—';$('#baseLoad').textContent='—';
+    return;
+  }
+  const total=sumEnergy(rs);$('#heroKwh').textContent=fmt.format(total);
+  if(state.period==='all')$('#heroDelta').textContent='Celé dostupné období';
+  else if(state.period==='custom')$('#heroDelta').textContent='Vlastní zvolené období';
+  else{
+    const currentKeys=expectedCurrentMonthKeys(),prevKeys=expectedPreviousMonthKeys(),prev=previousComparable(),prevTotal=sumEnergy(prev);
+    if(!keysComplete(currentKeys))$('#heroDelta').textContent='Neúplné období · chybí importované měsíce';
+    else if(!keysComplete(prevKeys))$('#heroDelta').textContent='Předchozí srovnatelné období není kompletní';
+    else if(prevTotal===0)$('#heroDelta').textContent='Předchozí období: 0 kWh';
+    else{const delta=(total-prevTotal)/prevTotal*100;$('#heroDelta').textContent=`${delta>=0?'▲':'▼'} ${fmt.format(Math.abs(delta))} % proti předchozímu období`}
+  }
+  const daily=group(rs,r=>r.dateKey),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));
+  lineChart($('#mainChart'),dailyData,{hero:true});
+  $('#avgDay').textContent=fmt3.format(total/Math.max(1,daily.size));
+  const peak=rs.reduce((a,b)=>val(b)>val(a)?b:a,rs[0]);$('#maxPower').textContent=fmt.format(val(peak));$('#maxPowerSub').textContent=`kW · ${peak.displayTimestamp}`;
+  const best=[...daily].sort((a,b)=>b[1]-a[1])[0];$('#bestDay').textContent=best?`${best[0].slice(8,10)}.${best[0].slice(5,7)}.`:'—';$('#bestDaySub').textContent=best?`${fmt3.format(best[1])} kWh`:'—';
+  const night=rs.filter(r=>r.hour<6);$('#baseLoad').textContent=night.length?`${fmt.format(night.reduce((sum,r)=>sum+val(r),0)/night.length*1000)} W`:'—';
 }
 function renderAnalysis(){
-  if(!state.records.length){['weekdayChart','hourlyChart','heatmap','daypartList','peaksList'].forEach(id=>$('#'+id).innerHTML='<div class="chart-empty">Nejdřív importuj data</div>');return}
-  const rs=currentRange().length?currentRange():state.records;
-  const dateTotals=group(rs,r=>r.dateKey); const dateWeek={};rs.forEach(r=>dateWeek[r.dateKey]=r.weekday);
+  const rs=currentRange();
+  if(!rs.length){
+    ['weekdayChart','hourlyChart','heatmap','daypartList','peaksList'].forEach(id=>$('#'+id).innerHTML='<div class="chart-empty">Pro zvolené období nejsou data</div>');
+    $('#daypartSubtitle').textContent='Pro zvolené období nejsou data';
+    return;
+  }
+  const dateTotals=group(rs,r=>r.dateKey),dateWeek={};rs.forEach(r=>dateWeek[r.dateKey]=r.weekday);
   const sums=Array(7).fill(0),counts=Array(7).fill(0);for(const [date,v] of dateTotals){const wd=dateWeek[date];sums[wd]+=v;counts[wd]++}
   barChart($('#weekdayChart'),WEEK_MON.map((d,i)=>({label:d,short:d,value:counts[i]?sums[i]/counts[i]:0})));
-  const type=$('#dayTypeSelect').value;const filtered=rs.filter(r=>type==='all'||(type==='workday'&&r.weekday<5)||(type==='weekend'&&r.weekday>=5));const havg=groupAvg(filtered,r=>r.hour,val);lineChart($('#hourlyChart'),Array.from({length:24},(_,h)=>({label:String(h).padStart(2,'0'),value:havg.get(h)||0})));
+  const type=$('#dayTypeSelect').value,filtered=rs.filter(r=>type==='all'||(type==='workday'&&r.weekday<5)||(type==='weekend'&&r.weekday>=5)),havg=groupAvg(filtered,r=>r.hour,val);
+  lineChart($('#hourlyChart'),Array.from({length:24},(_,h)=>({label:String(h).padStart(2,'0'),value:havg.get(h)||0})));
   renderHeatmap(rs);renderDayparts(rs);renderPeaks(rs);
 }
 function renderHeatmap(rs){
   const avg=groupAvg(rs,r=>`${r.weekday}|${r.hour}`,val),max=Math.max(...avg.values(),.001);let html='<div class="heat-grid"><div></div>'+Array.from({length:24},(_,h)=>`<div class="heat-label">${h}</div>`).join('');
   for(let wd=0;wd<7;wd++){html+=`<div class="heat-label">${WEEK_MON[wd]}</div>`;for(let h=0;h<24;h++){const v=avg.get(`${wd}|${h}`)||0,a=.08+.82*(v/max);html+=`<div class="heat-cell" style="background:color-mix(in srgb,var(--accent) ${Math.round(a*100)}%,var(--surface))" title="${WEEK_MON[wd]} ${h}:00 · ${fmt3.format(v)} kW"></div>`}}html+='</div>';$('#heatmap').innerHTML=html;
 }
-function renderDayparts(rs){const parts=[['Noc','0–6',r=>r.hour<6],['Ráno','6–10',r=>r.hour>=6&&r.hour<10],['Den','10–17',r=>r.hour>=10&&r.hour<17],['Večer','17–22',r=>r.hour>=17&&r.hour<22],['Pozdní','22–24',r=>r.hour>=22]];const total=sumEnergy(rs)||1;$('#daypartList').innerHTML=parts.map(([n,t,f])=>{const v=sumEnergy(rs.filter(f)),pct=v/total*100;return `<div class="daypart-row"><div><strong>${n}</strong><div class="kpi-unit">${t}</div></div><div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div><div class="daypart-pct">${fmt.format(pct)} %</div></div>`}).join('')}
+function renderDayparts(rs){
+  const parts=[['Noc','0–6',r=>r.hour<6],['Ráno','6–10',r=>r.hour>=6&&r.hour<10],['Den','10–17',r=>r.hour>=10&&r.hour<17],['Večer','17–22',r=>r.hour>=17&&r.hour<22],['Pozdní','22–24',r=>r.hour>=22]],total=sumEnergy(rs)||1,dayCount=Math.max(1,new Set(rs.map(r=>r.dateKey)).size);
+  const data=parts.map(([name,time,filter])=>{const kwh=sumEnergy(rs.filter(filter));return {name,time,kwh,pct:kwh/total*100,avg:kwh/dayCount}});
+  const maxAvg=Math.max(...data.map(d=>d.avg),.000001),average=state.daypartMode==='average';
+  $('#daypartSubtitle').textContent=average?'Průměrná energie za jeden den':'Podíl energie v částech dne';
+  $$('.daypart-btn').forEach(b=>b.classList.toggle('active',b.dataset.daypartMode===state.daypartMode));
+  $('#daypartList').innerHTML=data.map(d=>{const width=average?d.avg/maxAvg*100:d.pct,value=average?`${fmt3.format(d.avg)} kWh/den`:`${fmt.format(d.pct)} %`;return `<div class="daypart-row"><div><strong>${d.name}</strong><div class="kpi-unit">${d.time}</div></div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(0,Math.min(100,width))}%"></div></div><div class="daypart-value">${value}</div></div>`}).join('');
+}
 function renderPeaks(rs){const peaks=[...rs].sort((a,b)=>val(b)-val(a)).slice(0,20);$('#peaksList').innerHTML=peaks.map((r,i)=>`<div class="peak-row"><div class="peak-main"><strong>${i+1}. ${r.displayTimestamp}</strong><div>${r.monthKey} · 15min interval</div></div><div class="peak-value">${fmt.format(val(r))} kW</div></div>`).join('')}
 async function renderMonths(){const months=[...state.months].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));$('#monthsList').innerHTML=months.length?months.map(m=>`<div class="month-row"><div class="month-main"><strong>${escapeHtml(m.label)}</strong><div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}</div></div><div class="month-actions"><div class="month-value">${monthIsComplete(m.monthKey)?'✓ kompletní':'⚠ zkontrolovat'}</div><button class="trash-btn" data-delete="${m.monthKey}" aria-label="Smazat">×</button></div></div>`).join(''):'<div class="chart-empty">Žádné importované měsíce</div>';$$('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm(`Opravdu odstranit ${monthLabel(b.dataset.delete)}?`))deleteMonth(b.dataset.delete)})}
-function renderExportDefaults(){if(!state.records.length)return;const all=sortedRecords(),min=all[0].dateKey,max=all[all.length-1].dateKey,from=$('#exportFrom'),to=$('#exportTo');if(state.resetExportRange||!from.value)from.value=min;if(state.resetExportRange||!to.value)to.value=max;state.resetExportRange=false}
+function renderExportDefaults(){if(!state.records.length)return;const all=sortedRecords(),min=all[0].dateKey,max=all.at(-1).dateKey,from=$('#exportFrom'),to=$('#exportTo');if(state.resetExportRange||!from.value)from.value=min;if(state.resetExportRange||!to.value)to.value=max;state.resetExportRange=false}
 
 // ---------- Import ----------
 async function handleFile(file){
