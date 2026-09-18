@@ -39,3 +39,15 @@
 .month-toggle input:checked + .toggle-track span{transform:translateX(16px)}
 .month-toggle em{font-size:10px;font-style:normal;font-weight:750;color:var(--muted);min-width:42px}
 @media(max-width:480px){.month-row{align-items:flex-start}.month-actions{max-width:132px;gap:6px}.month-value{font-size:11px}}
+
+.dashboard-mode-toggle{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin:0 0 12px;border:1px solid var(--border);border-radius:15px;background:var(--surface);box-shadow:var(--shadow)}
+.dashboard-mode-btn{border:0;background:transparent;color:var(--muted);padding:10px 12px;border-radius:11px;font-size:13px;font-weight:800}
+.dashboard-mode-btn.active{background:var(--text);color:var(--surface)}
+.chart-y-label{font-size:9px}.chart-value-label{font-size:9px;font-weight:750}
+.month-main{min-width:0;flex:1}.month-finance{margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.invoice-field{display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--border);border-radius:10px;background:var(--bg)}
+.invoice-field span{font-size:10px;color:var(--muted);font-weight:750}.invoice-field input{width:92px;border:0;outline:0;background:transparent;color:var(--text);font-size:13px;font-weight:750;text-align:right}
+.invoice-field b{font-size:11px;color:var(--muted)}
+.effective-price{font-size:11px;color:var(--muted);font-weight:700}.effective-price strong{color:var(--text)}
+.finance-note{font-size:10px!important;line-height:1.35}
+@media(max-width:480px){.month-row{display:grid;grid-template-columns:1fr}.month-actions{max-width:none;justify-content:flex-start;margin-top:8px}.invoice-field input{width:82px}}
