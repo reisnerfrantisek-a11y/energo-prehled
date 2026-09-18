@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.2.2';
+const APP_VERSION = '1.3.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -18,6 +18,7 @@ const ANCHOR_KEY = IS_BETA ? 'anchor-beta' : 'anchor';
 const CUSTOM_FROM_KEY = IS_BETA ? 'custom-from-beta' : 'custom-from';
 const CUSTOM_TO_KEY = IS_BETA ? 'custom-to-beta' : 'custom-to';
 const DAYPART_KEY = IS_BETA ? 'daypart-beta' : 'daypart';
+const DASHBOARD_MODE_KEY = IS_BETA ? 'dashboard-mode-beta' : 'dashboard-mode';
 const PROFILE_ROLES = ['DCC0','DCC1','DKC0','DKC1','DMC0','DMC1'];
 const ROLE_FIELDS = {DCC0:'dcc0',DCC1:'dcc1',DKC0:'dkc0',DKC1:'dkc1',DMC0:'dmc0',DMC1:'dmc1'};
 const PRAGUE_DTF = new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Prague',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
@@ -31,6 +32,7 @@ let state = {
   customFrom: localStorage.getItem(CUSTOM_FROM_KEY) || '',
   customTo: localStorage.getItem(CUSTOM_TO_KEY) || '',
   daypartMode: localStorage.getItem(DAYPART_KEY)==='average'?'average':'percent',
+  dashboardMode: localStorage.getItem(DASHBOARD_MODE_KEY)==='cost'?'cost':'energy',
   pendingImport: null,
   resetExportRange: false
 };
@@ -72,10 +74,33 @@ async function setMonthEnabled(monthKey,enabled){
   state.resetExportRange=true;await reload();
   showToast(`${monthLabel(monthKey)}: ${enabled?'aktivní':'vypnuto'}`);
 }
+function emptyFinance(){return {invoiceTotal:null,components:{energy:null,distribution:null,fixed:null,other:null}}}
+function normalizeFinance(finance){
+  const f=finance&&typeof finance==='object'?finance:{},nullable=v=>{if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)&&n>=0?n:null};
+  const c=f.components&&typeof f.components==='object'?f.components:{};
+  return {invoiceTotal:nullable(f.invoiceTotal),components:{energy:nullable(c.energy),distribution:nullable(c.distribution),fixed:nullable(c.fixed),other:nullable(c.other)}};
+}
+function parseMoneyInput(raw){
+  const text=String(raw??'').replace(/[\s\u00a0]/g,'').replace(',','.').trim();
+  if(!text)return null;
+  const n=Number(text);if(!Number.isFinite(n)||n<0)throw new Error('Cena faktury musí být nezáporné číslo.');return Math.round(n*100)/100;
+}
+async function setMonthInvoice(monthKey,rawValue){
+  const month=state.months.find(m=>m.monthKey===monthKey);if(!month)return;
+  const invoiceTotal=parseMoneyInput(rawValue),finance=normalizeFinance(month.finance);finance.invoiceTotal=invoiceTotal;
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction('months','readwrite'),store=tx.objectStore('months');
+    store.put({...month,finance});
+    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+  });
+  await reload();showToast(`${monthLabel(monthKey)}: ${invoiceTotal===null?'cena faktury odstraněna':fmt.format(invoiceTotal)+' Kč'}`);
+}
 async function persistImport(payload, replace=false){
+  const previous=replace?state.months.find(m=>m.monthKey===payload.month.monthKey):null;
+  const monthToSave={...payload.month,enabled:previous?previous.enabled!==false:payload.month.enabled!==false,finance:previous?normalizeFinance(previous.finance):normalizeFinance(payload.month.finance)};
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'), s=tx.objectStore('intervals'), months=tx.objectStore('months');
-    const write=()=>{payload.records.forEach(r=>s.put(r));months.put(payload.month)};
+    const write=()=>{payload.records.forEach(r=>s.put(r));months.put(monthToSave)};
     tx.oncomplete=()=>resolve(); tx.onerror=()=>reject(tx.error); tx.onabort=()=>reject(tx.error);
     if(!replace){write();return}
     const cursor=s.index('monthKey').openCursor(IDBKeyRange.only(payload.month.monthKey));
@@ -176,7 +201,7 @@ async function parseReport(file){
   records.sort((a,b)=>a.sortKey-b.sortKey||a.id.localeCompare(b.id));
   const validation=validateMonthTimeline(records,year,month);if(!validation.complete)throw new Error(`Report není kompletní 15minutový měsíc. ${validation.issues.slice(0,4).join(' | ')}${validation.issues.length>4?' …':''}`);
   const label=`${MONTH_NAMES[month-1]} ${year}`;
-  return {records,month:{monthKey,label,year,month,ean,meter,count:records.length,expectedCount:validation.expectedCount,complete:true,incompleteDays:0,validationVersion:2,enabled:true,first:records[0].sourceTimestamp,last:records[records.length-1].sourceTimestamp,importedAt:new Date().toISOString(),fileName:file.name}};
+  return {records,month:{monthKey,label,year,month,ean,meter,count:records.length,expectedCount:validation.expectedCount,complete:true,incompleteDays:0,validationVersion:2,enabled:true,finance:emptyFinance(),first:records[0].sourceTimestamp,last:records[records.length-1].sourceTimestamp,importedAt:new Date().toISOString(),fileName:file.name}};
 }
 
 // ---------- Analytics ----------
@@ -184,6 +209,34 @@ const val = r => {const n=Number(r[state.metric]);return Number.isFinite(n)?n:0}
 const energy = r => val(r)*((Number(r.intervalMinutes)||15)/60);
 function monthEnabled(k){const m=state.months.find(x=>x.monthKey===k);return !m||m.enabled!==false}
 function sortedRecords(){return state.records.filter(r=>monthEnabled(r.monthKey)).sort((a,b)=>a.sortKey-b.sortKey||a.id.localeCompare(b.id))}
+const billingEnergy = r => {const n=Number(r.dcc1);return Number.isFinite(n)?n*((Number(r.intervalMinutes)||15)/60):0};
+function monthMeta(k){return state.months.find(m=>m.monthKey===k)||null}
+function monthInvoice(k){const m=monthMeta(k),f=normalizeFinance(m?.finance);return f.invoiceTotal}
+function monthBillingEnergy(k){return state.records.filter(r=>r.monthKey===k).reduce((sum,r)=>sum+billingEnergy(r),0)}
+function monthEffectivePrice(k){const invoice=monthInvoice(k),kwh=monthBillingEnergy(k);return invoice!==null&&kwh>0?invoice/kwh:null}
+function costForRecords(rs){
+  const groups=new Map();for(const r of rs){if(!groups.has(r.monthKey))groups.set(r.monthKey,[]);groups.get(r.monthKey).push(r)}
+  let total=0,coveredEnergy=0,knownMonths=0;const missing=[],unallocatable=[],monthCosts=new Map();
+  for(const [k,selected] of groups){
+    const invoice=monthInvoice(k);if(invoice===null){missing.push(k);continue}
+    const full=state.records.filter(r=>r.monthKey===k),fullEnergy=full.reduce((a,r)=>a+billingEnergy(r),0),selectedEnergy=selected.reduce((a,r)=>a+billingEnergy(r),0),isFull=selected.length===full.length;
+    let cost=null;
+    if(isFull)cost=invoice;
+    else if(fullEnergy>0)cost=invoice*(selectedEnergy/fullEnergy);
+    else unallocatable.push(k);
+    if(cost!==null){total+=cost;coveredEnergy+=selectedEnergy;knownMonths++;monthCosts.set(k,cost)}
+  }
+  return {total,coveredEnergy,knownMonths,missing,unallocatable,monthCosts,groupCount:groups.size};
+}
+function dailyCostData(rs){
+  const out=new Map(),groups=new Map();for(const r of rs){if(!groups.has(r.monthKey))groups.set(r.monthKey,[]);groups.get(r.monthKey).push(r)}
+  for(const [k,selected] of groups){
+    const invoice=monthInvoice(k),fullEnergy=monthBillingEnergy(k);if(invoice===null||fullEnergy<=0)continue;
+    const rate=invoice/fullEnergy;
+    for(const r of selected)out.set(r.dateKey,(out.get(r.dateKey)||0)+billingEnergy(r)*rate);
+  }
+  return out;
+}
 function monthLabel(k){const [y,m]=String(k).split('-').map(Number);return y&&m?`${MONTH_NAMES[m-1]} ${y}`:'—'}
 function monthIndex(k){const [y,m]=String(k).split('-').map(Number);return Number.isFinite(y)&&Number.isFinite(m)?y*12+(m-1):null}
 function monthKeyFromIndex(idx){const y=Math.floor(idx/12),m=((idx%12)+12)%12+1;return `${y}-${String(m).padStart(2,'0')}`}
@@ -265,23 +318,47 @@ function setPeriod(period){
 }
 
 // ---------- SVG charts ----------
-function lineChart(el,data,{hero=false,suffix=''}={}){
+function niceAxisMax(max){
+  if(!Number.isFinite(max)||max<=0)return 1;
+  const rough=max/4,pow=10**Math.floor(Math.log10(rough)),n=rough/pow;
+  const step=(n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*pow;
+  return Math.ceil(max/step)*step;
+}
+function chartValue(v,unit=''){
+  if(!Number.isFinite(v))return '—';
+  if(unit==='Kč')return `${fmt.format(v)} Kč`;
+  if(unit==='Kč/kWh')return `${fmt.format(v)} Kč/kWh`;
+  if(unit==='kW')return `${fmt.format(v)} kW`;
+  if(unit==='kWh/den')return `${fmt3.format(v)} kWh/den`;
+  if(unit==='kWh')return `${fmt3.format(v)} kWh`;
+  return fmt.format(v);
+}
+function lineChart(el,data,{hero=false,unit='kWh'}={}){
   if(!data.length){el.innerHTML='<div class="chart-empty">Zatím nejsou data</div>';return}
-  const w=700,h=hero?185:210,p={l:8,r:8,t:16,b:28}, vals=data.map(d=>d.value),max=Math.max(...vals,0.001),min=0;
-  const x=i=>p.l+(i/(Math.max(1,data.length-1)))*(w-p.l-p.r), y=v=>p.t+(1-(v-min)/(max-min||1))*(h-p.t-p.b);
-  const pts=data.map((d,i)=>`${x(i)},${y(d.value)}`).join(' '); const area=`${p.l},${h-p.b} ${pts} ${w-p.r},${h-p.b}`;
-  const labels=data.length<=8?data:data.filter((_,i)=>i===0||i===data.length-1||i%Math.ceil(data.length/5)===0);
+  const w=700,h=hero?190:220,p={l:58,r:12,t:24,b:30},vals=data.map(d=>Number(d.value)||0),axisMax=niceAxisMax(Math.max(...vals,0.001)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4);
+  const x=i=>p.l+(i/(Math.max(1,data.length-1)))*(w-p.l-p.r),y=v=>p.t+(1-v/axisMax)*(h-p.t-p.b);
+  const pts=data.map((d,i)=>`${x(i)},${y(Number(d.value)||0)}`).join(' '),area=`${p.l},${h-p.b} ${pts} ${w-p.r},${h-p.b}`;
+  const xlabels=data.length<=8?data:data.filter((_,i)=>i===0||i===data.length-1||i%Math.ceil(data.length/5)===0);
+  const maxIndex=vals.indexOf(Math.max(...vals)),labelIdx=new Set(data.length<=10?data.map((_,i)=>i):[maxIndex,data.length-1]);
+  const grid=hero?'rgba(255,255,255,.13)':'var(--border)',text=hero?'#afbdd0':'var(--muted)';
   el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="graf">
     <defs><linearGradient id="g${hero?'h':'l'}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${hero?'#67a9ff':'var(--accent)'}" stop-opacity=".32"/><stop offset="1" stop-color="${hero?'#67a9ff':'var(--accent)'}" stop-opacity="0"/></linearGradient></defs>
+    <text class="chart-y-label" x="${p.l}" y="12" text-anchor="start" fill="${text}">${escapeHtml(unit)}</text>
+    ${ticks.map(t=>`<line x1="${p.l}" x2="${w-p.r}" y1="${y(t)}" y2="${y(t)}" stroke="${grid}" stroke-width="1"/><text class="chart-y-label" x="${p.l-7}" y="${y(t)+3}" text-anchor="end" fill="${text}">${escapeHtml(chartValue(t,unit).replace(' '+unit,''))}</text>`).join('')}
     <polygon points="${area}" fill="url(#g${hero?'h':'l'})"/>
     <polyline points="${pts}" fill="none" stroke="${hero?'#8fc1ff':'var(--accent)'}" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>
-    ${labels.map(d=>{const i=data.indexOf(d);return `<text x="${x(i)}" y="${h-7}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" font-size="10" fill="${hero?'#afbdd0':'var(--muted)'}">${escapeHtml(d.label)}</text>`}).join('')}
+    ${[...labelIdx].filter(i=>i>=0).map(i=>`<circle cx="${x(i)}" cy="${y(vals[i])}" r="3.5" fill="${hero?'#fff':'var(--accent)'}"><title>${escapeHtml(data[i].label)}: ${escapeHtml(chartValue(vals[i],unit))}</title></circle><text class="chart-value-label" x="${x(i)}" y="${Math.max(11,y(vals[i])-8)}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" fill="${text}">${escapeHtml(chartValue(vals[i],unit).replace(' '+unit,''))}</text>`).join('')}
+    ${xlabels.map(d=>{const i=data.indexOf(d);return `<text x="${x(i)}" y="${h-7}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" font-size="10" fill="${text}">${escapeHtml(d.label)}</text>`}).join('')}
   </svg>`;
 }
-function barChart(el,data){
+function barChart(el,data,{unit='kWh',showValues=true}={}){
   if(!data.length){el.innerHTML='<div class="chart-empty">Zatím nejsou data</div>';return}
-  const w=700,h=210,p={l:10,r:10,t:15,b:38},max=Math.max(...data.map(d=>d.value),.001),slot=(w-p.l-p.r)/data.length,bw=Math.max(5,slot*.56);
-  el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${data.map((d,i)=>{const bh=(d.value/max)*(h-p.t-p.b),x=p.l+i*slot+(slot-bw)/2,y=h-p.b-bh;return `<rect x="${x}" y="${y}" width="${bw}" height="${Math.max(1,bh)}" rx="5" fill="var(--accent)" opacity="${.55+.4*(d.value/max)}"><title>${escapeHtml(d.label)}: ${fmt3.format(d.value)} kWh</title></rect><text x="${x+bw/2}" y="${h-13}" text-anchor="middle" font-size="9" fill="var(--muted)">${escapeHtml(d.short||d.label)}</text>`}).join('')}</svg>`;
+  const w=700,h=225,p={l:58,r:10,t:28,b:38},vals=data.map(d=>Number(d.value)||0),axisMax=niceAxisMax(Math.max(...vals,0.001)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4),slot=(w-p.l-p.r)/data.length,bw=Math.max(5,slot*.56),y=v=>p.t+(1-v/axisMax)*(h-p.t-p.b);
+  el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <text class="chart-y-label" x="${p.l}" y="12" text-anchor="start" fill="var(--muted)">${escapeHtml(unit)}</text>
+    ${ticks.map(t=>`<line x1="${p.l}" x2="${w-p.r}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-width="1"/><text class="chart-y-label" x="${p.l-7}" y="${y(t)+3}" text-anchor="end" fill="var(--muted)">${escapeHtml(chartValue(t,unit).replace(' '+unit,''))}</text>`).join('')}
+    ${data.map((d,i)=>{const v=vals[i],bh=(v/axisMax)*(h-p.t-p.b),x=p.l+i*slot+(slot-bw)/2,yy=h-p.b-bh,label=showValues&&data.length<=12?`<text class="chart-value-label" x="${x+bw/2}" y="${Math.max(11,yy-6)}" text-anchor="middle" fill="var(--muted)">${escapeHtml(chartValue(v,unit).replace(' '+unit,''))}</text>`:'';return `<rect x="${x}" y="${yy}" width="${bw}" height="${Math.max(1,bh)}" rx="5" fill="var(--accent)" opacity="${.55+.4*(v/axisMax)}"><title>${escapeHtml(d.label)}: ${escapeHtml(chartValue(v,unit))}</title></rect>${label}<text x="${x+bw/2}" y="${h-13}" text-anchor="middle" font-size="9" fill="var(--muted)">${escapeHtml(d.short||d.label)}</text>`}).join('')}
+  </svg>`;
 }
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 
@@ -314,19 +391,69 @@ function renderPeriodControls(){
   if(state.period==='all')allLabel.textContent=state.records.length?selectedPeriodLabel():'Všechna importovaná data';
 }
 function renderOverview(){
-  const monthly=group(sortedRecords(),r=>r.monthKey),md=[...monthly].sort().map(([k,v])=>({label:monthLabel(k),short:k.slice(5,7)+'/'+k.slice(2,4),value:v}));
-  barChart($('#monthlyChart'),md);
+  const costMode=state.dashboardMode==='cost';
+  $$('.dashboard-mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.dashboardMode===state.dashboardMode));
+  $('#metricToggle').classList.toggle('hidden',costMode);
+  $('#effectivePricePanel').classList.toggle('hidden',!costMode);
   $$('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
+
+  const activeMonths=state.months.filter(m=>m.enabled!==false).sort((a,b)=>a.monthKey.localeCompare(b.monthKey));
+  if(costMode){
+    const costMonthly=activeMonths.map(m=>({label:monthLabel(m.monthKey),short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:monthInvoice(m.monthKey)})).filter(x=>x.value!==null);
+    const priceMonthly=activeMonths.map(m=>({label:monthLabel(m.monthKey),short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:monthEffectivePrice(m.monthKey)})).filter(x=>x.value!==null);
+    $('#monthlyChartTitle').textContent='Náklady po měsících';
+    $('#monthlyChartSubtitle').textContent='Celkové částky z vyplněných faktur';
+    barChart($('#monthlyChart'),costMonthly,{unit:'Kč'});
+    lineChart($('#effectivePriceChart'),priceMonthly,{unit:'Kč/kWh'});
+  }else{
+    const monthly=group(sortedRecords(),r=>r.monthKey),md=[...monthly].sort().map(([k,v])=>({label:monthLabel(k),short:k.slice(5,7)+'/'+k.slice(2,4),value:v}));
+    $('#monthlyChartTitle').textContent='Spotřeba po měsících';
+    $('#monthlyChartSubtitle').textContent='Dlouhodobý vývoj importovaných dat';
+    barChart($('#monthlyChart'),md,{unit:'kWh'});
+  }
+
   const rs=currentRange();
   $('#heroPeriod').textContent=selectedPeriodLabel();
+
   if(!rs.length){
     const expected=expectedCurrentMonthKeys(),disabled=expected.length&&keysContainDisabled(expected);
-    $('#heroKwh').textContent='—';$('#heroDelta').textContent=disabled?'Zvolené období obsahuje vypnutá data':'Pro zvolené období nejsou aktivní data';
-    lineChart($('#mainChart'),[],{hero:true});
-    $('#avgDay').textContent='—';$('#maxPower').textContent='—';$('#maxPowerSub').textContent='kW';
-    $('#bestDay').textContent='—';$('#bestDaySub').textContent='—';$('#baseLoad').textContent='—';
+    $('#heroKwh').textContent='—';$('#heroUnit').textContent=costMode?'Kč':'kWh';
+    $('#heroDelta').textContent=disabled?'Zvolené období obsahuje vypnutá data':'Pro zvolené období nejsou aktivní data';
+    lineChart($('#mainChart'),[],{hero:true,unit:costMode?'Kč':'kWh'});
+    $('#avgDay').textContent='—';$('#maxPower').textContent='—';$('#bestDay').textContent='—';$('#baseLoad').textContent='—';
+    $('#avgDayLabel').textContent=costMode?'Průměr / den':'Denní průměr';$('#avgDayUnit').textContent=costMode?'Kč / den':'kWh / den';
+    $('#maxPowerLabel').textContent=costMode?'Efektivní cena':'Maximum';$('#maxPowerSub').textContent=costMode?'Kč / kWh':'kW';
+    $('#bestDayLabel').textContent=costMode?'Nejdražší měsíc':'Nejsilnější den';$('#bestDaySub').textContent='—';
+    $('#baseLoadLabel').textContent=costMode?'Pokrytí faktur':'Základní odběr';$('#baseLoadUnit').textContent=costMode?'měsíce s cenou':'průměr 00–06 h';
     return;
   }
+
+  if(costMode){
+    const cb=costForRecords(rs),daily=dailyCostData(rs),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));
+    $('#heroUnit').textContent='Kč';
+    $('#heroKwh').textContent=cb.knownMonths?fmt.format(cb.total):'—';
+    if(!cb.knownMonths)$('#heroDelta').textContent='Pro zvolené období není vyplněná žádná faktura';
+    else if(cb.missing.length)$('#heroDelta').textContent=`Neúplné náklady · chybí ${cb.missing.length} ${cb.missing.length===1?'faktura':'faktury'}`;
+    else if(cb.unallocatable.length)$('#heroDelta').textContent='Část nákladů nelze rozdělit na neúplné nulové období';
+    else if(state.period==='custom')$('#heroDelta').textContent='Vlastní období · náklady jsou poměrně přepočtené podle DCC1';
+    else if(state.period==='all')$('#heroDelta').textContent='Součet všech vyplněných faktur';
+    else{
+      const prev=costForRecords(previousComparable()),prevKeys=expectedPreviousMonthKeys();
+      const prevReady=prevKeys.length&&prevKeys.every(k=>monthInvoice(k)!==null&&monthIsComplete(k))&&prev.knownMonths===prevKeys.length;
+      if(prevReady&&prev.total>0){const delta=(cb.total-prev.total)/prev.total*100;$('#heroDelta').textContent=`${delta>=0?'▲':'▼'} ${fmt.format(Math.abs(delta))} % proti předchozímu období`}
+      else $('#heroDelta').textContent='Předchozí období nemá kompletní finanční data';
+    }
+    lineChart($('#mainChart'),dailyData,{hero:true,unit:'Kč'});
+    const dayCount=Math.max(1,new Set(rs.map(r=>r.dateKey)).size);
+    $('#avgDayLabel').textContent='Průměr / den';$('#avgDay').textContent=cb.knownMonths?fmt.format(cb.total/dayCount):'—';$('#avgDayUnit').textContent='Kč / den';
+    $('#maxPowerLabel').textContent='Efektivní cena';$('#maxPower').textContent=cb.coveredEnergy>0?fmt.format(cb.total/cb.coveredEnergy):'—';$('#maxPowerSub').textContent='Kč / kWh · podle DCC1';
+    const expensive=[...cb.monthCosts].sort((a,b)=>b[1]-a[1])[0];
+    $('#bestDayLabel').textContent='Nejdražší měsíc';$('#bestDay').textContent=expensive?`${expensive[0].slice(5,7)}/${expensive[0].slice(2,4)}`:'—';$('#bestDaySub').textContent=expensive?`${fmt.format(expensive[1])} Kč`:'—';
+    $('#baseLoadLabel').textContent='Pokrytí faktur';$('#baseLoad').textContent=`${cb.knownMonths}/${cb.groupCount}`;$('#baseLoadUnit').textContent='měsíců s cenou';
+    return;
+  }
+
+  $('#heroUnit').textContent='kWh';
   const total=sumEnergy(rs);$('#heroKwh').textContent=fmt.format(total);
   if(state.period==='all')$('#heroDelta').textContent='Celé dostupné období';
   else if(state.period==='custom')$('#heroDelta').textContent='Vlastní zvolené období';
@@ -339,11 +466,11 @@ function renderOverview(){
     else{const delta=(total-prevTotal)/prevTotal*100;$('#heroDelta').textContent=`${delta>=0?'▲':'▼'} ${fmt.format(Math.abs(delta))} % proti předchozímu období`}
   }
   const daily=group(rs,r=>r.dateKey),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));
-  lineChart($('#mainChart'),dailyData,{hero:true});
-  $('#avgDay').textContent=fmt3.format(total/Math.max(1,daily.size));
-  const peak=rs.reduce((a,b)=>val(b)>val(a)?b:a,rs[0]);$('#maxPower').textContent=fmt.format(val(peak));$('#maxPowerSub').textContent=`kW · ${peak.displayTimestamp}`;
-  const best=[...daily].sort((a,b)=>b[1]-a[1])[0];$('#bestDay').textContent=best?`${best[0].slice(8,10)}.${best[0].slice(5,7)}.`:'—';$('#bestDaySub').textContent=best?`${fmt3.format(best[1])} kWh`:'—';
-  const night=rs.filter(r=>r.hour<6);$('#baseLoad').textContent=night.length?`${fmt.format(night.reduce((sum,r)=>sum+val(r),0)/night.length*1000)} W`:'—';
+  lineChart($('#mainChart'),dailyData,{hero:true,unit:'kWh'});
+  $('#avgDayLabel').textContent='Denní průměr';$('#avgDay').textContent=fmt3.format(total/Math.max(1,daily.size));$('#avgDayUnit').textContent='kWh / den';
+  const peak=rs.reduce((a,b)=>val(b)>val(a)?b:a,rs[0]);$('#maxPowerLabel').textContent='Maximum';$('#maxPower').textContent=fmt.format(val(peak));$('#maxPowerSub').textContent=`kW · ${peak.displayTimestamp}`;
+  const best=[...daily].sort((a,b)=>b[1]-a[1])[0];$('#bestDayLabel').textContent='Nejsilnější den';$('#bestDay').textContent=best?`${best[0].slice(8,10)}.${best[0].slice(5,7)}.`:'—';$('#bestDaySub').textContent=best?`${fmt3.format(best[1])} kWh`:'—';
+  const night=rs.filter(r=>r.hour<6);$('#baseLoadLabel').textContent='Základní odběr';$('#baseLoad').textContent=night.length?`${fmt.format(night.reduce((sum,r)=>sum+val(r),0)/night.length*1000)} W`:'—';$('#baseLoadUnit').textContent='průměr 00–06 h';
 }
 function renderAnalysis(){
   const rs=currentRange();
@@ -355,9 +482,9 @@ function renderAnalysis(){
   }
   const dateTotals=group(rs,r=>r.dateKey),dateWeek={};rs.forEach(r=>dateWeek[r.dateKey]=r.weekday);
   const sums=Array(7).fill(0),counts=Array(7).fill(0);for(const [date,v] of dateTotals){const wd=dateWeek[date];sums[wd]+=v;counts[wd]++}
-  barChart($('#weekdayChart'),WEEK_MON.map((d,i)=>({label:d,short:d,value:counts[i]?sums[i]/counts[i]:0})));
+  barChart($('#weekdayChart'),WEEK_MON.map((d,i)=>({label:d,short:d,value:counts[i]?sums[i]/counts[i]:0})),{unit:'kWh/den'});
   const type=$('#dayTypeSelect').value,filtered=rs.filter(r=>type==='all'||(type==='workday'&&r.weekday<5)||(type==='weekend'&&r.weekday>=5)),havg=groupAvg(filtered,r=>r.hour,val);
-  lineChart($('#hourlyChart'),Array.from({length:24},(_,h)=>({label:String(h).padStart(2,'0'),value:havg.get(h)||0})));
+  lineChart($('#hourlyChart'),Array.from({length:24},(_,h)=>({label:String(h).padStart(2,'0'),value:havg.get(h)||0})),{unit:'kW'});
   renderHeatmap(rs);renderDayparts(rs);renderPeaks(rs);
 }
 function renderHeatmap(rs){
@@ -376,9 +503,17 @@ function renderPeaks(rs){const peaks=[...rs].sort((a,b)=>val(b)-val(a)).slice(0,
 async function renderMonths(){
   const months=[...state.months].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));
   $('#monthsList').innerHTML=months.length?months.map(m=>{
-    const enabled=m.enabled!==false;
+    const enabled=m.enabled!==false,finance=normalizeFinance(m.finance),invoice=finance.invoiceTotal,kwh=monthBillingEnergy(m.monthKey),effective=invoice!==null&&kwh>0?invoice/kwh:null;
     return `<div class="month-row ${enabled?'':'month-disabled'}">
-      <div class="month-main"><strong>${escapeHtml(m.label)}</strong><div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}</div></div>
+      <div class="month-main">
+        <strong>${escapeHtml(m.label)}</strong>
+        <div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}</div>
+        <div class="month-finance">
+          <label class="invoice-field"><span>Faktura</span><input inputmode="decimal" data-month-invoice="${m.monthKey}" value="${invoice===null?'':String(invoice).replace('.',',')}" placeholder="např. 1842"><b>Kč</b></label>
+          <span class="effective-price">${effective===null?(invoice!==null&&kwh===0?'0 kWh · cenu/kWh nelze určit':'Cena/kWh —'):`Efektivně <strong>${fmt.format(effective)} Kč/kWh</strong>`}</span>
+        </div>
+        <div class="finance-note">Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.</div>
+      </div>
       <div class="month-actions">
         <label class="month-toggle" title="${enabled?'Vypnout měsíc':'Zapnout měsíc'}">
           <input type="checkbox" data-month-toggle="${m.monthKey}" ${enabled?'checked':''} aria-label="${enabled?'Vypnout':'Zapnout'} ${escapeHtml(m.label)}">
@@ -391,9 +526,10 @@ async function renderMonths(){
     </div>`
   }).join(''):'<div class="chart-empty">Žádné importované měsíce</div>';
   $$('[data-month-toggle]').forEach(x=>x.onchange=()=>setMonthEnabled(x.dataset.monthToggle,x.checked).catch(e=>{console.error(e);alert('Změnu se nepodařilo uložit: '+e.message)}));
+  $$('[data-month-invoice]').forEach(x=>x.onchange=()=>setMonthInvoice(x.dataset.monthInvoice,x.value).catch(e=>{console.error(e);alert('Cenu se nepodařilo uložit: '+e.message);renderMonths()}));
   $$('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm(`Opravdu odstranit ${monthLabel(b.dataset.delete)}?`))deleteMonth(b.dataset.delete)});
 }
-function renderExportDefaults(){if(!state.records.length)return;const all=sortedRecords(),min=all[0].dateKey,max=all.at(-1).dateKey,from=$('#exportFrom'),to=$('#exportTo');if(state.resetExportRange||!from.value)from.value=min;if(state.resetExportRange||!to.value)to.value=max;state.resetExportRange=false}
+function renderExportDefaults(){const all=sortedRecords();if(!all.length)return;const min=all[0].dateKey,max=all.at(-1).dateKey,from=$('#exportFrom'),to=$('#exportTo');if(state.resetExportRange||!from.value)from.value=min;if(state.resetExportRange||!to.value)to.value=max;state.resetExportRange=false}
 
 // ---------- Import ----------
 async function handleFile(file){
@@ -475,14 +611,15 @@ function zipStored(files){
 }
 function exportXLSX(rs,g){
   const agg=aggregateExport(rs,g),daily=aggregateExport(rs,'day');const h=groupAvg(rs,r=>r.hour,val);const dateTotals=group(rs,r=>r.dateKey);const dateWeek={};rs.forEach(r=>dateWeek[r.dateKey]=r.weekday);const sums=Array(7).fill(0),cnt=Array(7).fill(0);for(const [d,v] of dateTotals){sums[dateWeek[d]]+=v;cnt[dateWeek[d]]++}
-  const total=sumEnergy(rs),peak=rs.length?rs.reduce((a,b)=>val(b)>val(a)?b:a):null;
+  const total=sumEnergy(rs),peak=rs.length?rs.reduce((a,b)=>val(b)>val(a)?b:a):null,costs=costForRecords(rs),financeMonths=[...new Set(rs.map(r=>r.monthKey))].sort();
   const sheets=[
-    {name:'Souhrn',rows:[['Energo Přehled'],['Od',$('#exportFrom').value],['Do',$('#exportTo').value],['Metrika',state.metric.toUpperCase()],['Celková energie (kWh)',total],['Průměr / den (kWh)',total/Math.max(1,dateTotals.size)],['Maximum výkonu (kW)',peak?val(peak):0],['Čas maxima',peak?(peak.displayTimestamp||peak.sourceTimestamp):'']]},
+    {name:'Souhrn',rows:[['Energo Přehled'],['Od',$('#exportFrom').value],['Do',$('#exportTo').value],['Metrika',state.metric.toUpperCase()],['Celková energie (kWh)',total],['Průměr / den (kWh)',total/Math.max(1,dateTotals.size)],['Maximum výkonu (kW)',peak?val(peak):0],['Čas maxima',peak?(peak.displayTimestamp||peak.sourceTimestamp):''],['Přepočtené náklady (Kč)',costs.knownMonths?costs.total:''],['Efektivní cena (Kč/kWh)',costs.coveredEnergy>0?costs.total/costs.coveredEnergy:''],['Finanční pokrytí',`${costs.knownMonths}/${costs.groupCount} měsíců`]]},
     {name:'Data',rows:[['Období','Průměrný výkon (kW)','Energie (kWh)'],...agg.map(r=>[r.period,r.powerKw,r.energyKwh])]},
     {name:'Zdrojová data',rows:[['Čas','Výskyt','DCC0 (kW)','DCC1 (kW)','DKC0 (kVAr)','DKC1 (kVAr)','DMC0 (kVAr)','DMC1 (kVAr)'],...rs.map(r=>[r.sourceTimestamp,(r.occurrenceIndex||0)+1,r.dcc0,r.dcc1,r.dkc0??'',r.dkc1??'',r.dmc0??'',r.dmc1??''])]},
     {name:'Denní souhrny',rows:[['Datum','Průměrný výkon (kW)','Energie (kWh)'],...daily.map(r=>[r.period,r.powerKw,r.energyKwh])]},
     {name:'Hodinový profil',rows:[['Hodina','Průměrný výkon (kW)'],...Array.from({length:24},(_,i)=>[`${String(i).padStart(2,'0')}:00`,h.get(i)||0])]},
-    {name:'Dny v týdnu',rows:[['Den','Průměrná spotřeba dne (kWh)'],...WEEK_MON.map((d,i)=>[d,cnt[i]?sums[i]/cnt[i]:0])]}
+    {name:'Dny v týdnu',rows:[['Den','Průměrná spotřeba dne (kWh)'],...WEEK_MON.map((d,i)=>[d,cnt[i]?sums[i]/cnt[i]:0])]},
+    {name:'Finanční přehled',rows:[['Měsíc','Faktura celkem (Kč)','DCC1 spotřeba (kWh)','Efektivní cena (Kč/kWh)'],...financeMonths.map(k=>{const invoice=monthInvoice(k),kwh=monthBillingEnergy(k),price=invoice!==null&&kwh>0?invoice/kwh:'';return [monthLabel(k),invoice??'',kwh,price]})]}
   ];
   const files=[];files.push({name:'[Content_Types].xml',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`});
   files.push({name:'_rels/.rels',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`});
@@ -493,7 +630,7 @@ function exportXLSX(rs,g){
 
 // ---------- Backup / restore ----------
 async function backupLocalData(){
-  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,ui:{period:state.period,anchorMonth:state.anchorMonth,customFrom:state.customFrom,customTo:state.customTo,daypartMode:state.daypartMode},records:await getAll('intervals'),months:await getAll('months')};
+  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,ui:{period:state.period,anchorMonth:state.anchorMonth,customFrom:state.customFrom,customTo:state.customTo,daypartMode:state.daypartMode,dashboardMode:state.dashboardMode},records:await getAll('intervals'),months:await getAll('months')};
   downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`energo_prehled_zaloha_${new Date().toISOString().slice(0,10)}.json`);
   showToast('Záloha dat byla vytvořena');
 }
@@ -502,6 +639,7 @@ async function restoreLocalData(file){
   if(payload?.format!=='energo-prehled-backup'||payload.version!==1||!Array.isArray(payload.records)||!Array.isArray(payload.months))throw new Error('Soubor není kompatibilní záloha Energo Přehled.');
   if(payload.records.some(r=>!r||typeof r.id!=='string'||typeof r.monthKey!=='string'||typeof r.dateKey!=='string'||!Number.isFinite(Number(r.dcc0))||!Number.isFinite(Number(r.dcc1))))throw new Error('Záloha obsahuje neplatné intervalové záznamy.');
   if(payload.months.some(m=>!m||typeof m.monthKey!=='string'||!Number.isFinite(Number(m.count))))throw new Error('Záloha obsahuje neplatná metadata měsíců.');
+  if(payload.months.some(m=>{const v=m?.finance?.invoiceTotal;return v!==undefined&&v!==null&&(!Number.isFinite(Number(v))||Number(v)<0)}))throw new Error('Záloha obsahuje neplatnou cenu faktury.');
   if(!confirm(`Obnovit zálohu z ${payload.createdAt?new Date(payload.createdAt).toLocaleString('cs-CZ'):'neznámého data'}? Současná lokální data budou nahrazena.`))return;
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'),s=tx.objectStore('intervals'),m=tx.objectStore('months');
@@ -515,7 +653,8 @@ async function restoreLocalData(file){
     if(/^\d{4}-\d{2}-\d{2}$/.test(payload.ui.customFrom||''))state.customFrom=payload.ui.customFrom;
     if(/^\d{4}-\d{2}-\d{2}$/.test(payload.ui.customTo||''))state.customTo=payload.ui.customTo;
     if(['percent','average'].includes(payload.ui.daypartMode))state.daypartMode=payload.ui.daypartMode;
-    localStorage.setItem(DAYPART_KEY,state.daypartMode);persistPeriodState();
+    if(['energy','cost'].includes(payload.ui.dashboardMode))state.dashboardMode=payload.ui.dashboardMode;
+    localStorage.setItem(DAYPART_KEY,state.daypartMode);localStorage.setItem(DASHBOARD_MODE_KEY,state.dashboardMode);persistPeriodState();
   }
   state.resetExportRange=true;await reload();showToast('Záloha byla obnovena');
 }
@@ -537,7 +676,8 @@ function bind(){
     persistPeriodState();renderPeriodControls();renderOverview();renderAnalysis();
   };
   $('#customFrom').onchange=updateCustom;$('#customTo').onchange=updateCustom;
-  $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});
+  $('.dashboard-mode-btn').forEach(b=>b.onclick=()=>{state.dashboardMode=b.dataset.dashboardMode;localStorage.setItem(DASHBOARD_MODE_KEY,state.dashboardMode);renderOverview()});
+  $('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});
   $('#dayTypeSelect').onchange=renderAnalysis;
   $$('.daypart-btn').forEach(b=>b.onclick=()=>{state.daypartMode=b.dataset.daypartMode;localStorage.setItem(DAYPART_KEY,state.daypartMode);renderDayparts(currentRange())});
   $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};
