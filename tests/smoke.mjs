@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.2.0'"),'App version must be 1.2.0');
+assert.ok(app.includes("APP_VERSION = '1.2.1'"),'App version must be 1.2.0');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -54,6 +54,7 @@ const augIndex=monthRun.monthIndex('2026-08');
 assert.equal(monthRun.monthKeyFromIndex(augIndex),'2026-08');
 assert.equal(monthRun.monthKeyFromIndex(augIndex-1),'2026-07');
 assert.equal(monthRun.monthKeyFromIndex(augIndex+1),'2026-09');
+assert.ok(app.includes("const jump=state.period==='year'?12:1"),'3-month navigation must slide by one month');
 
 const analyticsStart=app.indexOf('const val = r =>');
 const analyticsEnd=app.indexOf('// ---------- SVG charts ----------',analyticsStart);
