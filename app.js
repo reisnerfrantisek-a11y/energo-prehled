@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.2.2';
+const APP_VERSION = '1.3.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -18,6 +18,7 @@ const ANCHOR_KEY = IS_BETA ? 'anchor-beta' : 'anchor';
 const CUSTOM_FROM_KEY = IS_BETA ? 'custom-from-beta' : 'custom-from';
 const CUSTOM_TO_KEY = IS_BETA ? 'custom-to-beta' : 'custom-to';
 const DAYPART_KEY = IS_BETA ? 'daypart-beta' : 'daypart';
+const DASHBOARD_MODE_KEY = IS_BETA ? 'dashboard-mode-beta' : 'dashboard-mode';
 const PROFILE_ROLES = ['DCC0','DCC1','DKC0','DKC1','DMC0','DMC1'];
 const ROLE_FIELDS = {DCC0:'dcc0',DCC1:'dcc1',DKC0:'dkc0',DKC1:'dkc1',DMC0:'dmc0',DMC1:'dmc1'};
 const PRAGUE_DTF = new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Prague',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
@@ -31,6 +32,7 @@ let state = {
   customFrom: localStorage.getItem(CUSTOM_FROM_KEY) || '',
   customTo: localStorage.getItem(CUSTOM_TO_KEY) || '',
   daypartMode: localStorage.getItem(DAYPART_KEY)==='average'?'average':'percent',
+  dashboardMode: localStorage.getItem(DASHBOARD_MODE_KEY)==='cost'?'cost':'energy',
   pendingImport: null,
   resetExportRange: false
 };
@@ -72,10 +74,39 @@ async function setMonthEnabled(monthKey,enabled){
   state.resetExportRange=true;await reload();
   showToast(`${monthLabel(monthKey)}: ${enabled?'aktivní':'vypnuto'}`);
 }
+function emptyFinance(){return {invoiceTotal:null,components:{energy:null,distribution:null,fixed:null,other:null}}}
+function normalizeFinance(finance){
+  const f=finance&&typeof finance==='object'?finance:{};
+  const total=f.invoiceTotal===null||f.invoiceTotal===undefined||f.invoiceTotal===''?null:Number(f.invoiceTotal);
+  const c=f.components&&typeof f.components==='object'?f.components:{};
+  return {invoiceTotal:Number.isFinite(total)&&total>=0?total:null,components:{
+    energy:Number.isFinite(Number(c.energy))?Number(c.energy):null,
+    distribution:Number.isFinite(Number(c.distribution))?Number(c.distribution):null,
+    fixed:Number.isFinite(Number(c.fixed))?Number(c.fixed):null,
+    other:Number.isFinite(Number(c.other))?Number(c.other):null
+  }};
+}
+function parseMoneyInput(raw){
+  const text=String(raw??'').replace(/[\s\u00a0]/g,'').replace(',','.').trim();
+  if(!text)return null;
+  const n=Number(text);if(!Number.isFinite(n)||n<0)throw new Error('Cena faktury musí být nezáporné číslo.');return Math.round(n*100)/100;
+}
+async function setMonthInvoice(monthKey,rawValue){
+  const month=state.months.find(m=>m.monthKey===monthKey);if(!month)return;
+  const invoiceTotal=parseMoneyInput(rawValue),finance=normalizeFinance(month.finance);finance.invoiceTotal=invoiceTotal;
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction('months','readwrite'),store=tx.objectStore('months');
+    store.put({...month,finance});
+    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+  });
+  await reload();showToast(`${monthLabel(monthKey)}: ${invoiceTotal===null?'cena faktury odstraněna':fmt.format(invoiceTotal)+' Kč'}`);
+}
 async function persistImport(payload, replace=false){
+  const previous=replace?state.months.find(m=>m.monthKey===payload.month.monthKey):null;
+  const monthToSave={...payload.month,enabled:previous?previous.enabled!==false:payload.month.enabled!==false,finance:previous?normalizeFinance(previous.finance):normalizeFinance(payload.month.finance)};
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'), s=tx.objectStore('intervals'), months=tx.objectStore('months');
-    const write=()=>{payload.records.forEach(r=>s.put(r));months.put(payload.month)};
+    const write=()=>{payload.records.forEach(r=>s.put(r));months.put(monthToSave)};
     tx.oncomplete=()=>resolve(); tx.onerror=()=>reject(tx.error); tx.onabort=()=>reject(tx.error);
     if(!replace){write();return}
     const cursor=s.index('monthKey').openCursor(IDBKeyRange.only(payload.month.monthKey));
@@ -176,7 +207,7 @@ async function parseReport(file){
   records.sort((a,b)=>a.sortKey-b.sortKey||a.id.localeCompare(b.id));
   const validation=validateMonthTimeline(records,year,month);if(!validation.complete)throw new Error(`Report není kompletní 15minutový měsíc. ${validation.issues.slice(0,4).join(' | ')}${validation.issues.length>4?' …':''}`);
   const label=`${MONTH_NAMES[month-1]} ${year}`;
-  return {records,month:{monthKey,label,year,month,ean,meter,count:records.length,expectedCount:validation.expectedCount,complete:true,incompleteDays:0,validationVersion:2,enabled:true,first:records[0].sourceTimestamp,last:records[records.length-1].sourceTimestamp,importedAt:new Date().toISOString(),fileName:file.name}};
+  return {records,month:{monthKey,label,year,month,ean,meter,count:records.length,expectedCount:validation.expectedCount,complete:true,incompleteDays:0,validationVersion:2,enabled:true,finance:emptyFinance(),first:records[0].sourceTimestamp,last:records[records.length-1].sourceTimestamp,importedAt:new Date().toISOString(),fileName:file.name}};
 }
 
 // ---------- Analytics ----------
