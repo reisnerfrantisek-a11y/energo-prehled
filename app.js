@@ -379,42 +379,37 @@ async function handleFiles(fileList){
   const files=[...fileList].filter(f=>/\.xlsx$/i.test(f.name));
   if(!files.length)return;
   if(files.length===1){await handleFile(files[0]);return}
-  const parsed=[],failed=[],skipped=[];
+  const failed=[],skipped=[],seenMonths=new Set(),existingMonths=new Set(state.months.map(m=>m.monthKey)),existingEans=[...new Set(state.records.map(r=>r.ean).filter(Boolean))];
+  if(existingEans.length>1){alert('Databáze obsahuje více EAN a hromadný import byl z bezpečnostních důvodů zastaven.');$('#fileInput').value='';return}
+  let targetEan=existingEans[0]||null,replaceExisting=null,imported=0,replaced=0;
+  const importedMonthKeys=[],wasEmpty=!state.records.length;
   try{
     for(let i=0;i<files.length;i++){
       const file=files[i];showToast(`Kontroluji ${i+1}/${files.length}: ${file.name}`);
-      try{parsed.push({file,payload:await parseReport(file)})}
-      catch(e){console.error(file.name,e);failed.push(`${file.name}: ${e.message}`)}
-    }
-    if(!parsed.length){alert(`Žádný z ${files.length} souborů nebyl importovatelný.\n\n${failed.slice(0,5).join('\n')}`);return}
-    const existingEans=[...new Set(state.records.map(r=>r.ean).filter(Boolean))];
-    if(existingEans.length>1){alert('Databáze obsahuje více EAN a hromadný import byl z bezpečnostních důvodů zastaven.');return}
-    const targetEan=existingEans[0]||parsed[0].payload.month.ean,unique=[],seenMonths=new Set();
-    for(const item of parsed.sort((a,b)=>a.payload.month.monthKey.localeCompare(b.payload.month.monthKey))){
-      const p=item.payload;
-      if(p.month.ean!==targetEan){failed.push(`${item.file.name}: jiné EAN (${p.month.ean})`);continue}
-      if(seenMonths.has(p.month.monthKey)){failed.push(`${item.file.name}: duplicitní měsíc ${p.month.monthKey} ve výběru`);continue}
-      seenMonths.add(p.month.monthKey);unique.push(item);
-    }
-    const existingMonths=new Set(state.months.map(m=>m.monthKey)),overlaps=unique.filter(x=>existingMonths.has(x.payload.month.monthKey));
-    let replaceExisting=false;
-    if(overlaps.length){
-      replaceExisting=confirm(`${overlaps.length} vybraných měsíců už v aplikaci existuje.\n\nOK = nahradit novými reporty\nZrušit = existující měsíce přeskočit`);
-    }
-    let imported=0,replaced=0;const importedMonthKeys=[];
-    for(let i=0;i<unique.length;i++){
-      const {file,payload}=unique[i],exists=existingMonths.has(payload.month.monthKey);
+      let payload;
+      try{payload=await parseReport(file)}
+      catch(e){console.error(file.name,e);failed.push(`${file.name}: ${e.message}`);continue}
+      if(!targetEan)targetEan=payload.month.ean;
+      if(payload.month.ean!==targetEan){failed.push(`${file.name}: jiné EAN (${payload.month.ean})`);continue}
+      if(seenMonths.has(payload.month.monthKey)){failed.push(`${file.name}: duplicitní měsíc ${payload.month.monthKey} ve výběru`);continue}
+      seenMonths.add(payload.month.monthKey);
+      const exists=existingMonths.has(payload.month.monthKey);
+      if(exists&&replaceExisting===null){
+        replaceExisting=confirm('Některé vybrané měsíce už v aplikaci existují.\n\nOK = nahradit všechny takové měsíce novými reporty\nZrušit = všechny existující měsíce přeskočit');
+      }
       if(exists&&!replaceExisting){skipped.push(`${file.name}: ${payload.month.label} už existuje`);continue}
-      showToast(`Ukládám ${i+1}/${unique.length}: ${payload.month.label}`);
-      try{await persistImport(payload,exists);imported++;importedMonthKeys.push(payload.month.monthKey);if(exists)replaced++}
-      catch(e){console.error(file.name,e);failed.push(`${file.name}: zápis selhal – ${e.message}`)}
+      showToast(`Ukládám ${i+1}/${files.length}: ${payload.month.label}`);
+      try{
+        await persistImport(payload,exists);imported++;importedMonthKeys.push(payload.month.monthKey);if(exists)replaced++;
+        existingMonths.add(payload.month.monthKey);
+      }catch(e){console.error(file.name,e);failed.push(`${file.name}: zápis selhal – ${e.message}`)}
     }
     if(imported){
-      if(!state.records.length){state.anchorMonth=importedMonthKeys.sort().at(-1)||state.anchorMonth}
+      if(wasEmpty)state.anchorMonth=importedMonthKeys.sort().at(-1)||state.anchorMonth;
       state.resetExportRange=true;await reload();
     }
     const lines=[`Zpracováno souborů: ${files.length}`,`Importováno: ${imported}`,`Z toho nahrazeno: ${replaced}`,`Přeskočeno: ${skipped.length}`,`Chyby: ${failed.length}`];
-    if(failed.length)lines.push('',...failed.slice(0,5),failed.length>5?`… a dalších ${failed.length-5}`:'');
+    if(failed.length)lines.push(...failed.slice(0,5),failed.length>5?`… a dalších ${failed.length-5}`:'');
     alert(lines.filter(Boolean).join('\n'));
   }finally{$('#fileInput').value=''}
 }
