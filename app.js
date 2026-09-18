@@ -173,42 +173,81 @@ async function parseReport(file){
 const val = r => {const n=Number(r[state.metric]);return Number.isFinite(n)?n:0};
 const energy = r => val(r)*((Number(r.intervalMinutes)||15)/60);
 function sortedRecords(){return [...state.records].sort((a,b)=>a.sortKey-b.sortKey||a.id.localeCompare(b.id))}
-function monthLabel(k){const [y,m]=k.split('-').map(Number);return `${MONTH_NAMES[m-1]} ${y}`}
+function monthLabel(k){const [y,m]=String(k).split('-').map(Number);return y&&m?`${MONTH_NAMES[m-1]} ${y}`:'—'}
+function monthIndex(k){const [y,m]=String(k).split('-').map(Number);return Number.isFinite(y)&&Number.isFinite(m)?y*12+(m-1):null}
 function monthKeyFromIndex(idx){const y=Math.floor(idx/12),m=((idx%12)+12)%12+1;return `${y}-${String(m).padStart(2,'0')}`}
+function latestMonthKey(){return state.months.length?[...state.months].sort((a,b)=>a.monthKey.localeCompare(b.monthKey)).at(-1).monthKey:(state.records.length?sortedRecords().at(-1).monthKey:'')}
+function earliestDateKey(){return state.records.length?sortedRecords()[0].dateKey:''}
+function latestDateKey(){return state.records.length?sortedRecords().at(-1).dateKey:''}
+function formatDateKey(k){if(!k)return '—';const [y,m,d]=k.split('-');return `${d}.${m}.${y}`}
+function persistPeriodState(){
+  localStorage.setItem(PERIOD_KEY,state.period);
+  if(state.anchorMonth)localStorage.setItem(ANCHOR_KEY,state.anchorMonth);
+  if(state.customFrom)localStorage.setItem(CUSTOM_FROM_KEY,state.customFrom);
+  if(state.customTo)localStorage.setItem(CUSTOM_TO_KEY,state.customTo);
+}
+function ensurePeriodState(){
+  if(!/^\d{4}-\d{2}$/.test(state.anchorMonth))state.anchorMonth=latestMonthKey();
+  if(!state.customFrom)state.customFrom=earliestDateKey();
+  if(!state.customTo)state.customTo=latestDateKey();
+  if(state.customFrom&&state.customTo&&state.customFrom>state.customTo)[state.customFrom,state.customTo]=[state.customTo,state.customFrom];
+  persistPeriodState();
+}
+function anchorIndex(){const i=monthIndex(state.anchorMonth||latestMonthKey());return i===null?0:i}
 function currentRange(){
   if(!state.records.length)return [];
-  const all=sortedRecords(),last=all[all.length-1],end=last.year*12+(last.month-1);
+  const all=sortedRecords();
   if(state.period==='all')return all;
-  if(state.period==='month')return all.filter(r=>r.monthKey===last.monthKey);
-  if(state.period==='year')return all.filter(r=>r.year===last.year&&r.month<=last.month);
-  if(state.period==='3m'){const start=end-2;return all.filter(r=>{const x=r.year*12+(r.month-1);return x>=start&&x<=end})}
+  if(state.period==='custom')return all.filter(r=>(!state.customFrom||r.dateKey>=state.customFrom)&&(!state.customTo||r.dateKey<=state.customTo));
+  const idx=anchorIndex();
+  if(state.period==='month'){const k=monthKeyFromIndex(idx);return all.filter(r=>r.monthKey===k)}
+  if(state.period==='3m'){const start=idx-2;return all.filter(r=>{const x=monthIndex(r.monthKey);return x>=start&&x<=idx})}
+  if(state.period==='year'){const y=Math.floor(idx/12);return all.filter(r=>r.year===y)}
   return all;
 }
 function sumEnergy(rs){return rs.reduce((s,r)=>s+energy(r),0)}
 function group(rs,keyFn,valFn=energy){const m=new Map();rs.forEach(r=>{const k=keyFn(r);m.set(k,(m.get(k)||0)+valFn(r))});return m}
 function groupAvg(rs,keyFn,valFn=val){const sum=new Map(),count=new Map();rs.forEach(r=>{const k=keyFn(r);sum.set(k,(sum.get(k)||0)+valFn(r));count.set(k,(count.get(k)||0)+1)});return new Map([...sum].map(([k,v])=>[k,v/count.get(k)]))}
-function rangeLabel(rs){if(!rs.length)return '—';const first=rs[0],last=rs[rs.length-1];if(first.monthKey===last.monthKey)return monthLabel(first.monthKey);return `${monthLabel(first.monthKey)} – ${monthLabel(last.monthKey)}`}
-function expectedCurrentMonthKeys(rs){
-  if(!rs.length||state.period==='all')return [];
-  const last=rs[rs.length-1],end=last.year*12+(last.month-1);
-  if(state.period==='month')return [last.monthKey];
-  if(state.period==='3m')return [end-2,end-1,end].map(monthKeyFromIndex);
-  if(state.period==='year')return Array.from({length:last.month},(_,i)=>`${last.year}-${String(i+1).padStart(2,'0')}`);
+function selectedPeriodLabel(){
+  if(state.period==='all')return state.records.length?`${formatDateKey(earliestDateKey())} – ${formatDateKey(latestDateKey())}`:'Všechna data';
+  if(state.period==='custom')return `${formatDateKey(state.customFrom)} – ${formatDateKey(state.customTo)}`;
+  const idx=anchorIndex();
+  if(state.period==='month')return monthLabel(monthKeyFromIndex(idx));
+  if(state.period==='3m')return `${monthLabel(monthKeyFromIndex(idx-2))} – ${monthLabel(monthKeyFromIndex(idx))}`;
+  if(state.period==='year')return String(Math.floor(idx/12));
+  return '—';
+}
+function expectedCurrentMonthKeys(){
+  if(state.period==='all'||state.period==='custom')return [];
+  const idx=anchorIndex();
+  if(state.period==='month')return [monthKeyFromIndex(idx)];
+  if(state.period==='3m')return [idx-2,idx-1,idx].map(monthKeyFromIndex);
+  if(state.period==='year'){const y=Math.floor(idx/12);return Array.from({length:12},(_,i)=>`${y}-${String(i+1).padStart(2,'0')}`)}
   return [];
 }
-function expectedPreviousMonthKeys(rs){
-  if(!rs.length||state.period==='all')return [];
-  const last=rs[rs.length-1],end=last.year*12+(last.month-1);
-  if(state.period==='month')return [monthKeyFromIndex(end-1)];
-  if(state.period==='3m')return [end-5,end-4,end-3].map(monthKeyFromIndex);
-  if(state.period==='year')return Array.from({length:last.month},(_,i)=>`${last.year-1}-${String(i+1).padStart(2,'0')}`);
+function expectedPreviousMonthKeys(){
+  if(state.period==='all'||state.period==='custom')return [];
+  const idx=anchorIndex();
+  if(state.period==='month')return [monthKeyFromIndex(idx-1)];
+  if(state.period==='3m')return [idx-5,idx-4,idx-3].map(monthKeyFromIndex);
+  if(state.period==='year'){const y=Math.floor(idx/12)-1;return Array.from({length:12},(_,i)=>`${y}-${String(i+1).padStart(2,'0')}`)}
   return [];
 }
 function monthIsComplete(k){const m=state.months.find(x=>x.monthKey===k);return !!m&&(m.complete===true||(m.complete===undefined&&m.incompleteDays===0))}
 function keysComplete(keys){return keys.length>0&&keys.every(monthIsComplete)}
-function previousComparable(rs){
-  const keys=expectedPreviousMonthKeys(rs);if(!keys.length)return [];
+function previousComparable(){
+  const keys=expectedPreviousMonthKeys();if(!keys.length)return [];
   const set=new Set(keys);return sortedRecords().filter(r=>set.has(r.monthKey));
+}
+function navigatePeriod(direction){
+  if(!['month','3m','year'].includes(state.period))return;
+  const jump=state.period==='3m'?3:state.period==='year'?12:1;
+  state.anchorMonth=monthKeyFromIndex(anchorIndex()+direction*jump);
+  persistPeriodState();renderPeriodControls();renderOverview();renderAnalysis();
+}
+function setPeriod(period){
+  if(!['month','3m','year','custom','all'].includes(period))return;
+  state.period=period;ensurePeriodState();persistPeriodState();renderPeriodControls();renderOverview();renderAnalysis();
 }
 
 // ---------- SVG charts ----------
