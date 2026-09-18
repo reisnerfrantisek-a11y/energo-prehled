@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Energo Přehled" />
+  <title>Energo Přehled</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">ENERGO PŘEHLED</div>
+        <h1 id="screenTitle">Přehled</h1>
+      </div>
+      <button class="icon-btn" id="importBtn" aria-label="Importovat report">＋</button>
+      <input id="fileInput" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+    </header>
+
+    <main>
+      <section class="screen active" data-screen="overview">
+        <div id="emptyState" class="empty-state hidden">
+          <div class="empty-icon">⚡</div>
+          <h2>Zatím žádná data</h2>
+          <p>Nahraj měsíční XLSX report. Data zůstanou pouze v tomto zařízení.</p>
+          <button class="primary-btn" id="emptyImportBtn">Importovat první report</button>
+        </div>
+
+        <div id="overviewContent">
+          <div class="period-row">
+            <button class="period-chip active" data-period="month">Měsíc</button>
+            <button class="period-chip" data-period="3m">3 měsíce</button>
+            <button class="period-chip" data-period="year">Rok</button>
+            <button class="period-chip" data-period="all">Vše</button>
+          </div>
+
+          <section class="hero-card">
+            <div class="hero-top">
+              <div>
+                <div class="muted" id="heroPeriod">—</div>
+                <div class="hero-value"><span id="heroKwh">0,00</span> <small>kWh</small></div>
+                <div class="delta" id="heroDelta">—</div>
+              </div>
+              <div class="metric-toggle">
+                <button data-metric="dcc1" class="metric-btn active">DCC1</button>
+                <button data-metric="dcc0" class="metric-btn">DCC0</button>
+              </div>
+            </div>
+            <div id="mainChart" class="chart-box"></div>
+          </section>
+
+          <div class="kpi-grid">
+            <article class="kpi-card"><div class="kpi-label">Denní průměr</div><div class="kpi-value" id="avgDay">—</div><div class="kpi-unit">kWh / den</div></article>
+            <article class="kpi-card"><div class="kpi-label">Maximum</div><div class="kpi-value" id="maxPower">—</div><div class="kpi-unit" id="maxPowerSub">kW</div></article>
+            <article class="kpi-card"><div class="kpi-label">Nejsilnější den</div><div class="kpi-value" id="bestDay">—</div><div class="kpi-unit" id="bestDaySub">—</div></article>
+            <article class="kpi-card"><div class="kpi-label">Základní odběr</div><div class="kpi-value" id="baseLoad">—</div><div class="kpi-unit">průměr 00–05 h</div></article>
+          </div>
+
+          <section class="panel">
+            <div class="panel-head"><div><h2>Spotřeba po měsících</h2><p>Dlouhodobý vývoj importovaných dat</p></div></div>
+            <div id="monthlyChart" class="chart-box medium"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="analysis">
+        <section class="panel">
+          <div class="panel-head"><div><h2>Dny v týdnu</h2><p>Průměrná spotřeba jednoho dne</p></div></div>
+          <div id="weekdayChart" class="chart-box medium"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head between"><div><h2>Hodiny během dne</h2><p>Typický 24hodinový profil</p></div>
+            <select id="dayTypeSelect" class="select"><option value="all">Všechny dny</option><option value="workday">Pracovní dny</option><option value="weekend">Víkend</option></select>
+          </div>
+          <div id="hourlyChart" class="chart-box medium"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><div><h2>Heatmapa 7 × 24</h2><p>Průměrný výkon podle dne a hodiny</p></div></div>
+          <div class="heat-wrap" id="heatmap"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><div><h2>Rozdělení dne</h2><p>Podíl energie v částech dne</p></div></div>
+          <div id="daypartList" class="daypart-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><div><h2>Výkonové špičky</h2><p>20 nejvyšších 15minutových intervalů</p></div></div>
+          <div id="peaksList" class="peaks-list"></div>
+        </section>
+      </section>
+
+      <section class="screen" data-screen="data">
+        <section class="panel">
+          <div class="panel-head between"><div><h2>Importované měsíce</h2><p>Lokální databáze tohoto zařízení</p></div><button class="secondary-btn" id="dataImportBtn">Importovat</button></div>
+          <div id="monthsList" class="months-list"></div>
+        </section>
+        <section class="privacy-card">
+          <strong>Soukromí</strong>
+          <p>Report se při importu zpracovává přímo v prohlížeči. Energetická data se neposílají na hosting ani na server aplikace.</p>
+        </section>
+      </section>
+
+      <section class="screen" data-screen="export">
+        <section class="panel export-panel">
+          <div class="panel-head"><div><h2>Export dat</h2><p>Vyber období, granularitu a formát</p></div></div>
+          <label class="field"><span>Od</span><input type="date" id="exportFrom" /></label>
+          <label class="field"><span>Do</span><input type="date" id="exportTo" /></label>
+          <label class="field"><span>Granularita</span><select id="exportGranularity" class="select full"><option value="15m">15 minut</option><option value="hour">Hodiny</option><option value="day">Dny</option><option value="month">Měsíce</option></select></label>
+          <label class="field"><span>Formát</span><select id="exportFormat" class="select full"><option value="xlsx">Excel XLSX</option><option value="csv">CSV</option></select></label>
+          <button class="primary-btn full-btn" id="exportBtn">Vytvořit export</button>
+          <p class="fineprint">XLSX export obsahuje souhrn, vybraná data, denní souhrny, hodinový profil a dny v týdnu.</p>
+        </section>
+      </section>
+    </main>
+
+    <nav class="bottom-nav">
+      <button class="nav-btn active" data-target="overview"><span>⌂</span><small>Přehled</small></button>
+      <button class="nav-btn" data-target="analysis"><span>⌁</span><small>Analýza</small></button>
+      <button class="nav-btn" data-target="data"><span>▦</span><small>Data</small></button>
+      <button class="nav-btn" data-target="export"><span>⇩</span><small>Export</small></button>
+    </nav>
+
+    <div class="toast" id="toast"></div>
+    <div class="modal-backdrop hidden" id="replaceModal">
+      <div class="modal">
+        <h3>Měsíc už existuje</h3>
+        <p id="replaceText">Data pro tento měsíc už jsou uložená.</p>
+        <div class="modal-actions"><button class="secondary-btn" id="cancelReplace">Zrušit</button><button class="danger-btn" id="confirmReplace">Nahradit</button></div>
+      </div>
+    </div>
+  </div>
+  <script src="app.js" defer></script>
+</body>
+</html>
