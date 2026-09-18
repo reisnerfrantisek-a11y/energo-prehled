@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.3.2';
+const APP_VERSION = '1.4.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -19,6 +19,9 @@ const CUSTOM_FROM_KEY = IS_BETA ? 'custom-from-beta' : 'custom-from';
 const CUSTOM_TO_KEY = IS_BETA ? 'custom-to-beta' : 'custom-to';
 const DAYPART_KEY = IS_BETA ? 'daypart-beta' : 'daypart';
 const DASHBOARD_MODE_KEY = IS_BETA ? 'dashboard-mode-beta' : 'dashboard-mode';
+const EGD_TOKEN_URL = 'https://idm.distribuce24.cz/oauth/token';
+const EGD_DATA_BASE = 'https://data.distribuce24.cz/rest';
+const EGD_SCOPE = 'namerena_data_openapi';
 const PROFILE_ROLES = ['DCC0','DCC1','DKC0','DKC1','DMC0','DMC1'];
 const ROLE_FIELDS = {DCC0:'dcc0',DCC1:'dcc1',DKC0:'dkc0',DKC1:'dkc1',DMC0:'dmc0',DMC1:'dmc1'};
 const PRAGUE_DTF = new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Prague',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
@@ -33,6 +36,7 @@ let state = {
   customTo: localStorage.getItem(CUSTOM_TO_KEY) || '',
   daypartMode: localStorage.getItem(DAYPART_KEY)==='average'?'average':'percent',
   dashboardMode: localStorage.getItem(DASHBOARD_MODE_KEY)==='cost'?'cost':'energy',
+  egd: {clientId:'',clientSecret:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null},
   pendingImport: null,
   resetExportRange: false
 };
@@ -40,20 +44,30 @@ let state = {
 // ---------- IndexedDB ----------
 function openDB(){
   return new Promise((resolve,reject)=>{
-    const req=indexedDB.open(DB_NAME,1);
+    const req=indexedDB.open(DB_NAME,2);
     req.onupgradeneeded=()=>{
       const d=req.result;
-      const store=d.createObjectStore('intervals',{keyPath:'id'});
-      store.createIndex('monthKey','monthKey');
-      store.createIndex('dateKey','dateKey');
-      store.createIndex('sortKey','sortKey');
-      d.createObjectStore('months',{keyPath:'monthKey'});
+      if(!d.objectStoreNames.contains('intervals')){
+        const store=d.createObjectStore('intervals',{keyPath:'id'});
+        store.createIndex('monthKey','monthKey');
+        store.createIndex('dateKey','dateKey');
+        store.createIndex('sortKey','sortKey');
+      }
+      if(!d.objectStoreNames.contains('months')) d.createObjectStore('months',{keyPath:'monthKey'});
+      if(!d.objectStoreNames.contains('settings')) d.createObjectStore('settings',{keyPath:'key'});
     };
     req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error);
   });
 }
 function txDone(tx){return new Promise((res,rej)=>{tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error)})}
 async function getAll(store){return new Promise((res,rej)=>{const r=db.transaction(store,'readonly').objectStore(store).getAll();r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+async function getSetting(key){return new Promise((res,rej)=>{const r=db.transaction('settings','readonly').objectStore('settings').get(key);r.onsuccess=()=>res(r.result?.value??null);r.onerror=()=>rej(r.error)})}
+async function setSetting(key,value){return new Promise((res,rej)=>{const tx=db.transaction('settings','readwrite');tx.objectStore('settings').put({key,value});tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error)})}
+async function deleteSetting(key){return new Promise((res,rej)=>{const tx=db.transaction('settings','readwrite');tx.objectStore('settings').delete(key);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error)})}
+async function loadEgdSettings(){
+  const cfg=await getSetting('egd-config');
+  if(cfg&&typeof cfg==='object')state.egd={...state.egd,...cfg,oms:[],profiles:[],statuses:[],lastError:null};
+}
 async function deleteMonth(monthKey){
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'),s=tx.objectStore('intervals'),months=tx.objectStore('months'),idx=s.index('monthKey');
@@ -204,6 +218,170 @@ async function parseReport(file){
   return {records,month:{monthKey,label,year,month,ean,meter,count:records.length,expectedCount:validation.expectedCount,complete:true,incompleteDays:0,validationVersion:2,enabled:true,finance:emptyFinance(),first:records[0].sourceTimestamp,last:records[records.length-1].sourceTimestamp,importedAt:new Date().toISOString(),fileName:file.name}};
 }
 
+// ---------- EG.D OpenAPI ----------
+function egdConnectionConfig(){
+  return {clientId:state.egd.clientId,clientSecret:state.egd.clientSecret,ean:state.egd.ean,profile:state.egd.profile,lastSync:state.egd.lastSync||null};
+}
+async function saveEgdConfig(){await setSetting('egd-config',egdConnectionConfig())}
+function egdNetworkError(e){
+  if(e instanceof TypeError)return new Error('Přímé spojení s EG.D se z prohlížeče nepodařilo navázat. Může jít o síťovou chybu nebo CORS blokaci na straně EG.D.');
+  return e;
+}
+async function egdToken(clientId=state.egd.clientId,clientSecret=state.egd.clientSecret){
+  if(!clientId||!clientSecret)throw new Error('Vyplň Client ID a Client secret.');
+  let resp;
+  try{
+    resp=await fetch(EGD_TOKEN_URL,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},cache:'no-store',body:JSON.stringify({grant_type:'client_credentials',client_id:clientId,client_secret:clientSecret,scope:EGD_SCOPE})});
+  }catch(e){throw egdNetworkError(e)}
+  let body=null;try{body=await resp.json()}catch{}
+  if(!resp.ok)throw new Error(`EG.D odmítlo přihlášení (HTTP ${resp.status})${body?.error_description?': '+body.error_description:''}.`);
+  if(!body?.access_token)throw new Error('EG.D nevrátilo access_token.');
+  return body.access_token;
+}
+async function egdGet(path,token,params=null){
+  const url=new URL(EGD_DATA_BASE+path);
+  if(params)for(const [k,v] of Object.entries(params))if(v!==null&&v!==undefined)url.searchParams.set(k,v);
+  let resp;
+  try{resp=await fetch(url,{headers:{Authorization:`Bearer ${token}`,Accept:'application/json'},cache:'no-store'})}
+  catch(e){throw egdNetworkError(e)}
+  let body=null;try{body=await resp.json()}catch{}
+  if(!resp.ok)throw new Error(`EG.D API ${path} vrátilo HTTP ${resp.status}.`);
+  return body;
+}
+function chooseConsumptionProfile(profiles,typMereni,current=''){
+  const electric=profiles.filter(p=>String(p.komodita||'').toUpperCase()==='ELEKTRINA');
+  if(current&&electric.some(p=>p.kod===current))return current;
+  const type=String(typMereni||'').toUpperCase();
+  const preferred=electric.find(p=>/spotřeb|odebran/i.test(String(p.nazev||''))&&(!type||String(p.nazev||'').toUpperCase().includes(type)))
+    ||electric.find(p=>/spotřeb|odebran/i.test(String(p.nazev||'')))
+    ||electric[0];
+  return preferred?.kod||'';
+}
+async function testEgdConnection(){
+  const clientId=$('#egdClientId').value.trim(),clientSecret=$('#egdClientSecret').value.trim();
+  state.egd.clientId=clientId;state.egd.clientSecret=clientSecret;state.egd.lastError=null;
+  await saveEgdConfig();
+  setEgdUiState('warn','Ověřuji…','Získávám token a číselníky EG.D.');
+  try{
+    const token=await egdToken(clientId,clientSecret);
+    const oms=await egdGet('/om',token),profiles=await egdGet('/profily',token),statuses=await egdGet('/statusy',token);
+    state.egd.oms=Array.isArray(oms)?oms:[];
+    state.egd.profiles=Array.isArray(profiles)?profiles:[];
+    state.egd.statuses=Array.isArray(statuses)?statuses:[];
+    if(!state.egd.oms.length)throw new Error('EG.D nevrátilo žádné odběrné místo dostupné pro OpenAPI.');
+    const localEans=[...new Set(state.records.map(r=>r.ean).filter(Boolean))];
+    if(!state.egd.ean||!state.egd.oms.some(x=>x.ean===state.egd.ean)){
+      state.egd.ean=state.egd.oms.find(x=>localEans.includes(x.ean))?.ean||state.egd.oms[0].ean;
+    }
+    const om=state.egd.oms.find(x=>x.ean===state.egd.ean);
+    state.egd.profile=chooseConsumptionProfile(state.egd.profiles,om?.typMereni,state.egd.profile);
+    if(!state.egd.profile)throw new Error('V číselníku EG.D nebyl nalezen elektrický profil spotřeby.');
+    state.egd.verified=true;await saveEgdConfig();renderEgdPanel();
+    setEgdUiState('ok','Připojeno',`Ověřeno · ${state.egd.oms.length} odběrných míst · profil ${state.egd.profile}`);
+  }catch(e){
+    state.egd.verified=false;state.egd.lastError=e.message;renderEgdPanel();setEgdUiState('error','Chyba připojení',e.message);throw e;
+  }
+}
+function setEgdUiState(kind,label,message){
+  const status=$('#egdStatus'),result=$('#egdResult');if(!status||!result)return;
+  status.className='egd-status'+(kind?' '+kind:'');status.textContent=label;result.textContent=message;
+}
+async function disconnectEgd(){
+  if(!confirm('Odpojit EG.D OpenAPI z tohoto zařízení? Naměřená data už uložená v aplikaci zůstanou zachovaná.'))return;
+  await deleteSetting('egd-config');
+  state.egd={clientId:'',clientSecret:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,verified:false};
+  renderEgdPanel();showToast('EG.D připojení bylo odstraněno');
+}
+async function saveEgdSelections(){
+  state.egd.ean=$('#egdEanSelect').value||state.egd.ean;
+  state.egd.profile=$('#egdProfileSelect').value||state.egd.profile;
+  await saveEgdConfig();
+}
+function renderEgdPanel(){
+  const hasCreds=!!(state.egd.clientId&&state.egd.clientSecret),hasSelection=!!(state.egd.ean&&state.egd.profile);
+  $('#egdClientId').value=state.egd.clientId||'';
+  $('#egdClientSecret').value=state.egd.clientSecret||'';
+  $('#egdConfig').classList.toggle('hidden',!state.egd.oms.length);
+  $('#egdSyncBtn').classList.toggle('hidden',!(hasCreds&&hasSelection));
+  $('#egdDisconnectBtn').classList.toggle('hidden',!hasCreds);
+  const eanSel=$('#egdEanSelect'),profSel=$('#egdProfileSelect');
+  if(state.egd.oms.length){
+    eanSel.innerHTML=state.egd.oms.map(o=>`<option value="${escapeHtml(o.ean)}" ${o.ean===state.egd.ean?'selected':''}>${escapeHtml(o.ean)} · ${escapeHtml(o.typMereni||'')}</option>`).join('');
+    const electric=state.egd.profiles.filter(p=>String(p.komodita||'').toUpperCase()==='ELEKTRINA');
+    profSel.innerHTML=electric.map(p=>`<option value="${escapeHtml(p.kod)}" ${p.kod===state.egd.profile?'selected':''}>${escapeHtml(p.nazev||p.kod)} · ${escapeHtml(p.kod)}</option>`).join('');
+  }
+  if(state.egd.verified)setEgdUiState('ok','Připojeno',state.egd.lastSync?`Poslední synchronizace: ${new Date(state.egd.lastSync).toLocaleString('cs-CZ')}`:'Připojení ověřeno. Data lze synchronizovat.');
+  else if(state.egd.lastError)setEgdUiState('error','Chyba připojení',state.egd.lastError);
+  else if(hasCreds)setEgdUiState('warn','Připraveno','Přístupové údaje jsou uložené lokálně. Ověř připojení nebo spusť synchronizaci.');
+  else setEgdUiState('','Nepřipojeno','Po ověření připojení aplikace načte dostupná odběrná místa a profily.');
+}
+function apiValueToKw(value,units,intervalMinutes=15){
+  const n=Number(value);if(!Number.isFinite(n))return null;
+  const u=String(units||'').toUpperCase().replace(/\s+/g,'');
+  if(u==='KW')return n;if(u==='W')return n/1000;if(u==='MW')return n*1000;
+  const hours=intervalMinutes/60;
+  if(u==='KWH')return n/hours;if(u==='WH')return n/1000/hours;if(u==='MWH')return n*1000/hours;
+  throw new Error(`Nepodporovaná jednotka z EG.D: ${units||'neuvedena'}.`);
+}
+function pragueMonthQueryBounds(monthKey){
+  const [year,month]=monthKey.split('-').map(Number),nextMonth=month===12?1:month+1,nextYear=month===12?year+1:year;
+  const start=pragueUtcCandidates(parseCzTimestamp(`01.${String(month).padStart(2,'0')}.${year} 00:00:00`))[0];
+  const next=pragueUtcCandidates(parseCzTimestamp(`01.${String(nextMonth).padStart(2,'0')}.${nextYear} 00:00:00`))[0];
+  if(!Number.isFinite(start)||!Number.isFinite(next))throw new Error('Nepodařilo se určit UTC hranice měsíce.');
+  const fullEnd=next-15*60000,nowRounded=Math.floor(Date.now()/(15*60000))*(15*60000);
+  return {from:new Date(start).toISOString(),to:new Date(Math.min(fullEnd,nowRounded)).toISOString(),start,end:fullEnd,isPast:Date.now()>=next};
+}
+function apiLocalRecord(ean,profile,units,item,seen){
+  const ms=Date.parse(item.timestamp);if(!Number.isFinite(ms))return null;
+  const p=pragueParts(ms),source=sourceStamp(p.year,p.month,p.day,p.hour,p.minute),occ=seen.get(source)||0;seen.set(source,occ+1);
+  const kw=apiValueToKw(item.value,units,15);if(kw===null)return null;
+  return {id:`${ean}|egd|${ms}`,ean,meter:'EG.D OpenAPI',monthKey:`${p.year}-${String(p.month).padStart(2,'0')}`,dateKey:`${p.year}-${String(p.month).padStart(2,'0')}-${String(p.day).padStart(2,'0')}`,sourceTimestamp:source,displayTimestamp:`${String(p.day).padStart(2,'0')}.${String(p.month).padStart(2,'0')}.${p.year} ${String(p.hour).padStart(2,'0')}:${String(p.minute).padStart(2,'0')}${occ?' ['+(occ+1)+']':''}`,occurrenceIndex:occ,sortKey:ms,year:p.year,month:p.month,day:p.day,hour:p.hour,minute:p.minute,weekday:weekdayMon(p),intervalMinutes:15,dcc0:null,dcc1:kw,dkc0:null,dkc1:null,dmc0:null,dmc1:null,apiStatus:String(item.status||''),apiProfile:profile,apiUnits:units,source:'egd-api'};
+}
+async function fetchEgdMonth(token,monthKey){
+  const bounds=pragueMonthQueryBounds(monthKey);
+  if(Date.parse(bounds.to)<Date.parse(bounds.from))return null;
+  const raw=await egdGet('/spotreby',token,{ean:state.egd.ean,profile:state.egd.profile,from:bounds.from,to:bounds.to});
+  const groups=Array.isArray(raw)?raw:[raw],group=groups.find(x=>x?.profile===state.egd.profile)||groups.find(x=>Array.isArray(x?.data));
+  if(!group||!Array.isArray(group.data)||!group.data.length)return null;
+  const units=String(group.units||''),statusCounts={};for(const x of group.data){const k=String(x.status||'?');statusCounts[k]=(statusCounts[k]||0)+1}
+  const seen=new Map(),records=group.data.slice().sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)).map(x=>apiLocalRecord(state.egd.ean,state.egd.profile,units,x,seen)).filter(Boolean).filter(r=>r.monthKey===monthKey);
+  if(!records.length)return null;
+  const [year,month]=monthKey.split('-').map(Number),validation=bounds.isPast?validateMonthTimeline(records,year,month):{complete:false,expectedCount:[...expectedTimestampCounts(year,month).values()].reduce((a,b)=>a+b,0),issues:[]};
+  const complete=bounds.isPast&&validation.complete&&(statusCounts.F||0)===0;
+  const lastMs=Math.max(...records.map(r=>r.sortKey)),label=`${MONTH_NAMES[month-1]} ${year}`;
+  return {records,month:{monthKey,label,year,month,ean:state.egd.ean,meter:'EG.D OpenAPI',count:records.length,expectedCount:validation.expectedCount,complete,incompleteDays:complete?0:1,validationVersion:3,enabled:true,finance:emptyFinance(),first:records[0].sourceTimestamp,last:records.at(-1).sourceTimestamp,importedAt:new Date().toISOString(),fileName:'EG.D OpenAPI',source:'egd-api',apiProfile:state.egd.profile,apiUnits:units,apiStatusCounts:statusCounts,lastAvailableAt:new Date(lastMs).toISOString(),syncedAt:new Date().toISOString()}};
+}
+async function persistEgdMonth(payload){
+  if(!payload)return {saved:false,reason:'no-data'};
+  const previous=state.months.find(m=>m.monthKey===payload.month.monthKey);
+  if(previous?.complete&&previous.source!=='egd-api')return {saved:false,reason:'kept-xlsx'};
+  if(previous?.complete&&payload.month.complete!==true)return {saved:false,reason:'kept-complete'};
+  await persistImport(payload,!!previous);return {saved:true,reason:payload.month.complete?'complete':'partial'};
+}
+function currentAndPreviousMonthKeys(){
+  const p=pragueParts(Date.now()),idx=monthIndex(`${p.year}-${String(p.month).padStart(2,'0')}`);
+  return [monthKeyFromIndex(idx-1),monthKeyFromIndex(idx)];
+}
+async function syncEgdData(){
+  await saveEgdSelections();
+  if(!state.egd.clientId||!state.egd.clientSecret||!state.egd.ean||!state.egd.profile)throw new Error('Nejdřív ověř EG.D připojení a vyber odběrné místo a profil.');
+  const localEans=[...new Set(state.records.map(r=>r.ean).filter(Boolean))];
+  if(localEans.length&&(!localEans.includes(state.egd.ean)||localEans.length>1))throw new Error(`Lokální databáze patří EAN ${localEans.join(', ')}. Vybrané EG.D odběrné místo ${state.egd.ean} nelze do stejné databáze přimíchat.`);
+  setEgdUiState('warn','Synchronizuji…','Stahuji předchozí a aktuální měsíc z EG.D.');
+  try{
+    const token=await egdToken(),results=[];
+    for(const key of currentAndPreviousMonthKeys()){
+      showToast(`EG.D: načítám ${monthLabel(key)}…`);
+      const payload=await fetchEgdMonth(token,key),saved=await persistEgdMonth(payload);results.push({key,payload,saved});
+    }
+    state.egd.lastSync=new Date().toISOString();state.egd.verified=true;state.egd.lastError=null;await saveEgdConfig();
+    state.resetExportRange=true;await reload();
+    const saved=results.filter(x=>x.saved.saved).length,noData=results.filter(x=>!x.payload).length,last=results.map(x=>x.payload?.month?.lastAvailableAt).filter(Boolean).sort().at(-1);
+    setEgdUiState('ok','Připojeno',`Synchronizováno ${saved} měsíců${noData?' · bez dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''}`);
+    showToast('EG.D data byla synchronizována');
+  }catch(e){state.egd.lastError=e.message;setEgdUiState('error','Chyba synchronizace',e.message);throw e}
+}
+
 // ---------- Analytics ----------
 const val = r => {const n=Number(r[state.metric]);return Number.isFinite(n)?n:0};
 const energy = r => val(r)*((Number(r.intervalMinutes)||15)/60);
@@ -219,6 +397,7 @@ function costForRecords(rs){
   let total=0,coveredEnergy=0,knownMonths=0;const missing=[],unallocatable=[],monthCosts=new Map();
   for(const [k,selected] of groups){
     const invoice=monthInvoice(k);if(invoice===null){missing.push(k);continue}
+    const meta=monthMeta(k);if(meta&&meta.complete!==true){unallocatable.push(k);continue}
     const full=state.records.filter(r=>r.monthKey===k),fullEnergy=full.reduce((a,r)=>a+billingEnergy(r),0),selectedEnergy=selected.reduce((a,r)=>a+billingEnergy(r),0),isFull=selected.length===full.length;
     let cost=null;
     if(isFull)cost=invoice;
@@ -298,6 +477,7 @@ function expectedPreviousMonthKeys(){
   return [];
 }
 function monthIsComplete(k){const m=state.months.find(x=>x.monthKey===k);return !!m&&m.enabled!==false&&(m.complete===true||(m.complete===undefined&&m.incompleteDays===0))}
+function monthIsLivePartial(k){const m=state.months.find(x=>x.monthKey===k);return !!m&&m.enabled!==false&&m.source==='egd-api'&&m.complete!==true&&!!m.lastAvailableAt}
 function monthIsDisabled(k){const m=state.months.find(x=>x.monthKey===k);return !!m&&m.enabled===false}
 function keysContainDisabled(keys){return keys.some(monthIsDisabled)}
 function keysComplete(keys){return keys.length>0&&keys.every(monthIsComplete)}
@@ -367,7 +547,7 @@ async function reload(){state.records=await getAll('intervals');state.months=awa
 function renderAll(){
   const has=state.records.length>0;
   $('#emptyState').classList.toggle('hidden',has);$('#overviewContent').classList.toggle('hidden',!has);
-  renderPeriodControls();renderOverview();renderAnalysis();renderMonths();renderExportDefaults();
+  renderPeriodControls();renderOverview();renderAnalysis();renderMonths();renderExportDefaults();renderEgdPanel();
 }
 function renderPeriodControls(){
   $$('.period-chip').forEach(b=>b.classList.toggle('active',b.dataset.period===state.period));
@@ -412,7 +592,13 @@ function renderOverview(){
     barChart($('#monthlyChart'),md,{unit:'kWh'});
   }
 
-  const rs=currentRange();
+  let rs=currentRange();
+  const rangeHasApi=rs.some(r=>r.source==='egd-api');
+  const dcc0Btn=$('.metric-btn[data-metric="dcc0"]');if(dcc0Btn)dcc0Btn.disabled=rangeHasApi;
+  if(rangeHasApi&&state.metric==='dcc0'){
+    state.metric='dcc1';localStorage.setItem(METRIC_KEY,state.metric);rs=currentRange();
+    $('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
+  }
   $('#heroPeriod').textContent=selectedPeriodLabel();
 
   if(!rs.length){
@@ -460,6 +646,10 @@ function renderOverview(){
   else{
     const currentKeys=expectedCurrentMonthKeys(),prevKeys=expectedPreviousMonthKeys(),prev=previousComparable(),prevTotal=sumEnergy(prev);
     if(keysContainDisabled(currentKeys))$('#heroDelta').textContent='Období obsahuje vypnutý měsíc';
+    else if(currentKeys.some(monthIsLivePartial)){
+      const live=state.months.find(m=>currentKeys.includes(m.monthKey)&&monthIsLivePartial(m.monthKey));
+      $('#heroDelta').textContent=live?.lastAvailableAt?`Průběžná data do ${new Date(live.lastAvailableAt).toLocaleString('cs-CZ')}`:'Průběžná data z EG.D';
+    }
     else if(!keysComplete(currentKeys))$('#heroDelta').textContent='Neúplné období · chybí importované měsíce';
     else if(!keysComplete(prevKeys))$('#heroDelta').textContent='Předchozí srovnatelné období není kompletní';
     else if(prevTotal===0)$('#heroDelta').textContent='Předchozí období: 0 kWh';
@@ -504,12 +694,17 @@ async function renderMonths(){
   const months=[...state.months].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));
   $('#monthsList').innerHTML=months.length?months.map(m=>{
     const enabled=m.enabled!==false,finance=normalizeFinance(m.finance),invoice=finance.invoiceTotal,kwh=monthBillingEnergy(m.monthKey),effective=invoice!==null&&kwh>0?invoice/kwh:null;
+    const isApi=m.source==='egd-api',partial=isApi&&m.complete!==true,quality=m.apiStatusCounts||{},sourceTag=isApi?'<span class="month-source">EG.D</span>':'<span class="month-source">XLSX</span>';
+    const qualityText=isApi?`W ${quality.W||0} · G ${quality.G||0} · F ${quality.F||0}`:'';
+    const availability=partial&&m.lastAvailableAt?` · do ${new Date(m.lastAvailableAt).toLocaleString('cs-CZ')}`:'';
+    const stateText=monthIsComplete(m.monthKey)?'✓ kompletní':partial&&enabled?'● průběžně':enabled?'⚠ zkontrolovat':'—';
     return `<div class="month-row ${enabled?'':'month-disabled'}">
       <div class="month-main">
-        <strong>${escapeHtml(m.label)}</strong>
-        <div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}</div>
+        <strong>${escapeHtml(m.label)} ${sourceTag}</strong>
+        <div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}${escapeHtml(availability)}</div>
+        ${isApi?`<div class="month-quality">Kvalita EG.D: ${escapeHtml(qualityText)} · profil ${escapeHtml(m.apiProfile||'—')} · ${escapeHtml(m.apiUnits||'—')}</div>`:''}
         <div class="month-finance">
-          <label class="invoice-field"><span>Faktura</span><input inputmode="decimal" data-month-invoice="${m.monthKey}" value="${invoice===null?'':String(invoice).replace('.',',')}" placeholder="např. 1842"><b>Kč</b></label>
+          <label class="invoice-field"><span>Faktura</span><input inputmode="decimal" data-month-invoice="${m.monthKey}" value="${invoice===null?'':String(invoice).replace('.',',')}" placeholder="${partial?'po uzavření':'např. 1842'}" ${partial?'disabled':''}><b>Kč</b></label>
           <span class="effective-price">${effective===null?(invoice!==null&&kwh===0?'0 kWh · cenu/kWh nelze určit':'Cena/kWh —'):`Efektivně <strong>${fmt.format(effective)} Kč/kWh</strong>`}</span>
         </div>
         <div class="finance-note">Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.</div>
@@ -520,11 +715,11 @@ async function renderMonths(){
           <span class="toggle-track"><span></span></span>
           <em>${enabled?'Aktivní':'Vypnuto'}</em>
         </label>
-        <div class="month-value">${monthIsComplete(m.monthKey)?'✓ kompletní':enabled?'⚠ zkontrolovat':'—'}</div>
+        <div class="month-value">${stateText}</div>
         <button class="trash-btn" data-delete="${m.monthKey}" aria-label="Smazat">×</button>
       </div>
     </div>`
-  }).join(''):'<div class="chart-empty">Žádné importované měsíce</div>';
+  }).join(''):'<div class="chart-empty">Žádná uložená data</div>';
   $$('[data-month-toggle]').forEach(x=>x.onchange=()=>setMonthEnabled(x.dataset.monthToggle,x.checked).catch(e=>{console.error(e);alert('Změnu se nepodařilo uložit: '+e.message)}));
   $$('[data-month-invoice]').forEach(x=>x.onchange=()=>setMonthInvoice(x.dataset.monthInvoice,x.value).catch(e=>{console.error(e);alert('Cenu se nepodařilo uložit: '+e.message);renderMonths()}));
   $$('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm(`Opravdu odstranit ${monthLabel(b.dataset.delete)}?`))deleteMonth(b.dataset.delete)});
@@ -699,6 +894,16 @@ function bind(){
   $$('.daypart-btn').forEach(b=>b.onclick=()=>{state.daypartMode=b.dataset.daypartMode;localStorage.setItem(DAYPART_KEY,state.daypartMode);renderDayparts(currentRange())});
   $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};
   $('#confirmReplace').onclick=async()=>{const p=state.pendingImport;$('#replaceModal').classList.add('hidden');if(p)await saveImport(p,true)};
+  $('#egdTestBtn').onclick=()=>testEgdConnection().catch(e=>alert('EG.D připojení se nepodařilo: '+e.message));
+  $('#egdSyncBtn').onclick=()=>syncEgdData().catch(e=>alert('EG.D synchronizace se nepodařila: '+e.message));
+  $('#egdDisconnectBtn').onclick=()=>disconnectEgd().catch(e=>alert('Odpojení EG.D se nepodařilo: '+e.message));
+  $('#egdEanSelect').onchange=async()=>{
+    state.egd.ean=$('#egdEanSelect').value;
+    const om=state.egd.oms.find(x=>x.ean===state.egd.ean);
+    state.egd.profile=chooseConsumptionProfile(state.egd.profiles,om?.typMereni,state.egd.profile);
+    await saveEgdConfig();renderEgdPanel();
+  };
+  $('#egdProfileSelect').onchange=()=>saveEgdSelections().catch(console.error);
   $('#forceUpdateBtn').onclick=forceUpdateApp;
   $('#appVersionText').textContent=APP_VERSION;
   $('#backupDataBtn').onclick=()=>backupLocalData().catch(e=>alert('Zálohu se nepodařilo vytvořit: '+e.message));
@@ -715,5 +920,5 @@ function bind(){
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
   }
-  try{db=await openDB();bind();await reload()}catch(e){console.error(e);alert('Aplikaci se nepodařilo inicializovat: '+e.message)}
+  try{db=await openDB();await loadEgdSettings();bind();await reload()}catch(e){console.error(e);alert('Aplikaci se nepodařilo inicializovat: '+e.message)}
 })();
