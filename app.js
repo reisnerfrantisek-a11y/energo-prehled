@@ -589,7 +589,13 @@ function renderOverview(){
     barChart($('#monthlyChart'),md,{unit:'kWh'});
   }
 
-  const rs=currentRange();
+  let rs=currentRange();
+  const rangeHasApi=rs.some(r=>r.source==='egd-api');
+  const dcc0Btn=$('.metric-btn[data-metric="dcc0"]');if(dcc0Btn)dcc0Btn.disabled=rangeHasApi;
+  if(rangeHasApi&&state.metric==='dcc0'){
+    state.metric='dcc1';localStorage.setItem(METRIC_KEY,state.metric);rs=currentRange();
+    $('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
+  }
   $('#heroPeriod').textContent=selectedPeriodLabel();
 
   if(!rs.length){
@@ -885,6 +891,16 @@ function bind(){
   $$('.daypart-btn').forEach(b=>b.onclick=()=>{state.daypartMode=b.dataset.daypartMode;localStorage.setItem(DAYPART_KEY,state.daypartMode);renderDayparts(currentRange())});
   $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};
   $('#confirmReplace').onclick=async()=>{const p=state.pendingImport;$('#replaceModal').classList.add('hidden');if(p)await saveImport(p,true)};
+  $('#egdTestBtn').onclick=()=>testEgdConnection().catch(e=>alert('EG.D připojení se nepodařilo: '+e.message));
+  $('#egdSyncBtn').onclick=()=>syncEgdData().catch(e=>alert('EG.D synchronizace se nepodařila: '+e.message));
+  $('#egdDisconnectBtn').onclick=()=>disconnectEgd().catch(e=>alert('Odpojení EG.D se nepodařilo: '+e.message));
+  $('#egdEanSelect').onchange=async()=>{
+    state.egd.ean=$('#egdEanSelect').value;
+    const om=state.egd.oms.find(x=>x.ean===state.egd.ean);
+    state.egd.profile=chooseConsumptionProfile(state.egd.profiles,om?.typMereni,state.egd.profile);
+    await saveEgdConfig();renderEgdPanel();
+  };
+  $('#egdProfileSelect').onchange=()=>saveEgdSelections().catch(console.error);
   $('#forceUpdateBtn').onclick=forceUpdateApp;
   $('#appVersionText').textContent=APP_VERSION;
   $('#backupDataBtn').onclick=()=>backupLocalData().catch(e=>alert('Zálohu se nepodařilo vytvořit: '+e.message));
@@ -901,5 +917,5 @@ function bind(){
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
   }
-  try{db=await openDB();bind();await reload()}catch(e){console.error(e);alert('Aplikaci se nepodařilo inicializovat: '+e.message)}
+  try{db=await openDB();await loadEgdSettings();bind();await reload()}catch(e){console.error(e);alert('Aplikaci se nepodařilo inicializovat: '+e.message)}
 })();
