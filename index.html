@@ -59,7 +59,7 @@
             <article class="kpi-card"><div class="kpi-label">Denní průměr</div><div class="kpi-value" id="avgDay">—</div><div class="kpi-unit">kWh / den</div></article>
             <article class="kpi-card"><div class="kpi-label">Maximum</div><div class="kpi-value" id="maxPower">—</div><div class="kpi-unit" id="maxPowerSub">kW</div></article>
             <article class="kpi-card"><div class="kpi-label">Nejsilnější den</div><div class="kpi-value" id="bestDay">—</div><div class="kpi-unit" id="bestDaySub">—</div></article>
-            <article class="kpi-card"><div class="kpi-label">Základní odběr</div><div class="kpi-value" id="baseLoad">—</div><div class="kpi-unit">průměr 00–05 h</div></article>
+            <article class="kpi-card"><div class="kpi-label">Základní odběr</div><div class="kpi-value" id="baseLoad">—</div><div class="kpi-unit">průměr 00–06 h</div></article>
           </div>
 
           <section class="panel">
@@ -103,6 +103,15 @@
           <div class="panel-head between"><div><h2>Importované měsíce</h2><p>Lokální databáze tohoto zařízení</p></div><button class="secondary-btn" id="dataImportBtn">Importovat</button></div>
           <div id="monthsList" class="months-list"></div>
         </section>
+        <section class="panel">
+          <div class="panel-head"><div><h2>Záloha dat</h2><p>Ulož nebo obnov lokální databázi aplikace</p></div></div>
+          <div class="backup-actions">
+            <button class="secondary-btn" id="backupDataBtn">Vytvořit zálohu</button>
+            <button class="secondary-btn" id="restoreDataBtn">Obnovit zálohu</button>
+            <input id="backupFileInput" type="file" accept="application/json,.json" hidden />
+          </div>
+          <p class="fineprint">Záloha obsahuje importované intervaly, metadata měsíců a zvolenou metriku. Soubor zůstává pod tvou kontrolou.</p>
+        </section>
         <section class="privacy-card">
           <strong>Soukromí</strong>
           <p>Report se při importu zpracovává přímo v prohlížeči. Energetická data se neposílají na hosting ani na server aplikace.</p>
@@ -117,7 +126,7 @@
           <label class="field"><span>Granularita</span><select id="exportGranularity" class="select full"><option value="15m">15 minut</option><option value="hour">Hodiny</option><option value="day">Dny</option><option value="month">Měsíce</option></select></label>
           <label class="field"><span>Formát</span><select id="exportFormat" class="select full"><option value="xlsx">Excel XLSX</option><option value="csv">CSV</option></select></label>
           <button class="primary-btn full-btn" id="exportBtn">Vytvořit export</button>
-          <p class="fineprint">XLSX export obsahuje souhrn, vybraná data, denní souhrny, hodinový profil a dny v týdnu.</p>
+          <p class="fineprint">XLSX export obsahuje souhrn, vybraná data, původních šest profilů, denní souhrny, hodinový profil a dny v týdnu.</p>
         </section>
       </section>
     </main>
