@@ -29,3 +29,13 @@
 .daypart-btn.active{background:var(--surface);color:var(--text);box-shadow:0 2px 8px rgba(0,0,0,.08)}
 .daypart-value{text-align:right;font-weight:750;white-space:nowrap}
 @media(max-width:420px){.period-anchor{padding-left:18px;padding-right:18px}.custom-period{grid-template-columns:1fr 1fr}.custom-separator{display:none}.daypart-row{grid-template-columns:68px 1fr 70px}}
+
+.month-row{transition:opacity .2s ease}.month-row.month-disabled{opacity:.52}.month-row.month-disabled .month-main strong{text-decoration:line-through;text-decoration-thickness:1px}
+.month-actions{flex-wrap:wrap;justify-content:flex-end}
+.month-toggle{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}.month-toggle input{position:absolute;opacity:0;pointer-events:none}
+.toggle-track{width:38px;height:22px;border-radius:999px;background:var(--border);padding:2px;transition:.2s;display:inline-flex;align-items:center}
+.toggle-track span{width:18px;height:18px;border-radius:50%;background:var(--surface);box-shadow:0 1px 4px rgba(0,0,0,.18);transform:translateX(0);transition:.2s}
+.month-toggle input:checked + .toggle-track{background:var(--accent)}
+.month-toggle input:checked + .toggle-track span{transform:translateX(16px)}
+.month-toggle em{font-size:10px;font-style:normal;font-weight:750;color:var(--muted);min-width:42px}
+@media(max-width:480px){.month-row{align-items:flex-start}.month-actions{max-width:132px;gap:6px}.month-value{font-size:11px}}
