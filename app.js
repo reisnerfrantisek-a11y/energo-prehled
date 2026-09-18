@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.3.2';
+const APP_VERSION = '1.4.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -19,6 +19,9 @@ const CUSTOM_FROM_KEY = IS_BETA ? 'custom-from-beta' : 'custom-from';
 const CUSTOM_TO_KEY = IS_BETA ? 'custom-to-beta' : 'custom-to';
 const DAYPART_KEY = IS_BETA ? 'daypart-beta' : 'daypart';
 const DASHBOARD_MODE_KEY = IS_BETA ? 'dashboard-mode-beta' : 'dashboard-mode';
+const EGD_TOKEN_URL = 'https://idm.distribuce24.cz/oauth/token';
+const EGD_DATA_BASE = 'https://data.distribuce24.cz/rest';
+const EGD_SCOPE = 'namerena_data_openapi';
 const PROFILE_ROLES = ['DCC0','DCC1','DKC0','DKC1','DMC0','DMC1'];
 const ROLE_FIELDS = {DCC0:'dcc0',DCC1:'dcc1',DKC0:'dkc0',DKC1:'dkc1',DMC0:'dmc0',DMC1:'dmc1'};
 const PRAGUE_DTF = new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Prague',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
@@ -33,6 +36,7 @@ let state = {
   customTo: localStorage.getItem(CUSTOM_TO_KEY) || '',
   daypartMode: localStorage.getItem(DAYPART_KEY)==='average'?'average':'percent',
   dashboardMode: localStorage.getItem(DASHBOARD_MODE_KEY)==='cost'?'cost':'energy',
+  egd: {clientId:'',clientSecret:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null},
   pendingImport: null,
   resetExportRange: false
 };
@@ -40,20 +44,30 @@ let state = {
 // ---------- IndexedDB ----------
 function openDB(){
   return new Promise((resolve,reject)=>{
-    const req=indexedDB.open(DB_NAME,1);
+    const req=indexedDB.open(DB_NAME,2);
     req.onupgradeneeded=()=>{
       const d=req.result;
-      const store=d.createObjectStore('intervals',{keyPath:'id'});
-      store.createIndex('monthKey','monthKey');
-      store.createIndex('dateKey','dateKey');
-      store.createIndex('sortKey','sortKey');
-      d.createObjectStore('months',{keyPath:'monthKey'});
+      if(!d.objectStoreNames.contains('intervals')){
+        const store=d.createObjectStore('intervals',{keyPath:'id'});
+        store.createIndex('monthKey','monthKey');
+        store.createIndex('dateKey','dateKey');
+        store.createIndex('sortKey','sortKey');
+      }
+      if(!d.objectStoreNames.contains('months')) d.createObjectStore('months',{keyPath:'monthKey'});
+      if(!d.objectStoreNames.contains('settings')) d.createObjectStore('settings',{keyPath:'key'});
     };
     req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error);
   });
 }
 function txDone(tx){return new Promise((res,rej)=>{tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error)})}
 async function getAll(store){return new Promise((res,rej)=>{const r=db.transaction(store,'readonly').objectStore(store).getAll();r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+async function getSetting(key){return new Promise((res,rej)=>{const r=db.transaction('settings','readonly').objectStore('settings').get(key);r.onsuccess=()=>res(r.result?.value??null);r.onerror=()=>rej(r.error)})}
+async function setSetting(key,value){return new Promise((res,rej)=>{const tx=db.transaction('settings','readwrite');tx.objectStore('settings').put({key,value});tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error)})}
+async function deleteSetting(key){return new Promise((res,rej)=>{const tx=db.transaction('settings','readwrite');tx.objectStore('settings').delete(key);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error)})}
+async function loadEgdSettings(){
+  const cfg=await getSetting('egd-config');
+  if(cfg&&typeof cfg==='object')state.egd={...state.egd,...cfg,oms:[],profiles:[],statuses:[],lastError:null};
+}
 async function deleteMonth(monthKey){
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'),s=tx.objectStore('intervals'),months=tx.objectStore('months'),idx=s.index('monthKey');
