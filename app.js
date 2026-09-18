@@ -324,23 +324,45 @@ function setPeriod(period){
 }
 
 // ---------- SVG charts ----------
-function lineChart(el,data,{hero=false,suffix=''}={}){
+function niceAxisMax(max){
+  if(!Number.isFinite(max)||max<=0)return 1;
+  const rough=max/4,pow=10**Math.floor(Math.log10(rough)),n=rough/pow;
+  const step=(n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*pow;
+  return Math.ceil(max/step)*step;
+}
+function chartValue(v,unit=''){
+  if(!Number.isFinite(v))return '—';
+  if(unit==='Kč')return `${fmt.format(v)} Kč`;
+  if(unit==='Kč/kWh')return `${fmt.format(v)} Kč/kWh`;
+  if(unit==='kW')return `${fmt.format(v)} kW`;
+  if(unit==='kWh/den')return `${fmt3.format(v)} kWh/den`;
+  if(unit==='kWh')return `${fmt3.format(v)} kWh`;
+  return fmt.format(v);
+}
+function lineChart(el,data,{hero=false,unit='kWh'}={}){
   if(!data.length){el.innerHTML='<div class="chart-empty">Zatím nejsou data</div>';return}
-  const w=700,h=hero?185:210,p={l:8,r:8,t:16,b:28}, vals=data.map(d=>d.value),max=Math.max(...vals,0.001),min=0;
-  const x=i=>p.l+(i/(Math.max(1,data.length-1)))*(w-p.l-p.r), y=v=>p.t+(1-(v-min)/(max-min||1))*(h-p.t-p.b);
-  const pts=data.map((d,i)=>`${x(i)},${y(d.value)}`).join(' '); const area=`${p.l},${h-p.b} ${pts} ${w-p.r},${h-p.b}`;
-  const labels=data.length<=8?data:data.filter((_,i)=>i===0||i===data.length-1||i%Math.ceil(data.length/5)===0);
+  const w=700,h=hero?190:220,p={l:58,r:12,t:24,b:30},vals=data.map(d=>Number(d.value)||0),axisMax=niceAxisMax(Math.max(...vals,0.001)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4);
+  const x=i=>p.l+(i/(Math.max(1,data.length-1)))*(w-p.l-p.r),y=v=>p.t+(1-v/axisMax)*(h-p.t-p.b);
+  const pts=data.map((d,i)=>`${x(i)},${y(Number(d.value)||0)}`).join(' '),area=`${p.l},${h-p.b} ${pts} ${w-p.r},${h-p.b}`;
+  const xlabels=data.length<=8?data:data.filter((_,i)=>i===0||i===data.length-1||i%Math.ceil(data.length/5)===0);
+  const maxIndex=vals.indexOf(Math.max(...vals)),labelIdx=new Set(data.length<=10?data.map((_,i)=>i):[maxIndex,data.length-1]);
+  const grid=hero?'rgba(255,255,255,.13)':'var(--border)',text=hero?'#afbdd0':'var(--muted)';
   el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="graf">
     <defs><linearGradient id="g${hero?'h':'l'}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${hero?'#67a9ff':'var(--accent)'}" stop-opacity=".32"/><stop offset="1" stop-color="${hero?'#67a9ff':'var(--accent)'}" stop-opacity="0"/></linearGradient></defs>
+    ${ticks.map(t=>`<line x1="${p.l}" x2="${w-p.r}" y1="${y(t)}" y2="${y(t)}" stroke="${grid}" stroke-width="1"/><text class="chart-y-label" x="${p.l-7}" y="${y(t)+3}" text-anchor="end" fill="${text}">${escapeHtml(chartValue(t,unit).replace(' '+unit,''))}</text>`).join('')}
     <polygon points="${area}" fill="url(#g${hero?'h':'l'})"/>
     <polyline points="${pts}" fill="none" stroke="${hero?'#8fc1ff':'var(--accent)'}" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>
-    ${labels.map(d=>{const i=data.indexOf(d);return `<text x="${x(i)}" y="${h-7}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" font-size="10" fill="${hero?'#afbdd0':'var(--muted)'}">${escapeHtml(d.label)}</text>`}).join('')}
+    ${[...labelIdx].filter(i=>i>=0).map(i=>`<circle cx="${x(i)}" cy="${y(vals[i])}" r="3.5" fill="${hero?'#fff':'var(--accent)'}"><title>${escapeHtml(data[i].label)}: ${escapeHtml(chartValue(vals[i],unit))}</title></circle><text class="chart-value-label" x="${x(i)}" y="${Math.max(11,y(vals[i])-8)}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" fill="${text}">${escapeHtml(chartValue(vals[i],unit).replace(' '+unit,''))}</text>`).join('')}
+    ${xlabels.map(d=>{const i=data.indexOf(d);return `<text x="${x(i)}" y="${h-7}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" font-size="10" fill="${text}">${escapeHtml(d.label)}</text>`}).join('')}
   </svg>`;
 }
-function barChart(el,data){
+function barChart(el,data,{unit='kWh',showValues=true}={}){
   if(!data.length){el.innerHTML='<div class="chart-empty">Zatím nejsou data</div>';return}
-  const w=700,h=210,p={l:10,r:10,t:15,b:38},max=Math.max(...data.map(d=>d.value),.001),slot=(w-p.l-p.r)/data.length,bw=Math.max(5,slot*.56);
-  el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${data.map((d,i)=>{const bh=(d.value/max)*(h-p.t-p.b),x=p.l+i*slot+(slot-bw)/2,y=h-p.b-bh;return `<rect x="${x}" y="${y}" width="${bw}" height="${Math.max(1,bh)}" rx="5" fill="var(--accent)" opacity="${.55+.4*(d.value/max)}"><title>${escapeHtml(d.label)}: ${fmt3.format(d.value)} kWh</title></rect><text x="${x+bw/2}" y="${h-13}" text-anchor="middle" font-size="9" fill="var(--muted)">${escapeHtml(d.short||d.label)}</text>`}).join('')}</svg>`;
+  const w=700,h=225,p={l:58,r:10,t:28,b:38},vals=data.map(d=>Number(d.value)||0),axisMax=niceAxisMax(Math.max(...vals,0.001)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4),slot=(w-p.l-p.r)/data.length,bw=Math.max(5,slot*.56),y=v=>p.t+(1-v/axisMax)*(h-p.t-p.b);
+  el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    ${ticks.map(t=>`<line x1="${p.l}" x2="${w-p.r}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-width="1"/><text class="chart-y-label" x="${p.l-7}" y="${y(t)+3}" text-anchor="end" fill="var(--muted)">${escapeHtml(chartValue(t,unit).replace(' '+unit,''))}</text>`).join('')}
+    ${data.map((d,i)=>{const v=vals[i],bh=(v/axisMax)*(h-p.t-p.b),x=p.l+i*slot+(slot-bw)/2,yy=h-p.b-bh,label=showValues&&data.length<=12?`<text class="chart-value-label" x="${x+bw/2}" y="${Math.max(11,yy-6)}" text-anchor="middle" fill="var(--muted)">${escapeHtml(chartValue(v,unit).replace(' '+unit,''))}</text>`:'';return `<rect x="${x}" y="${yy}" width="${bw}" height="${Math.max(1,bh)}" rx="5" fill="var(--accent)" opacity="${.55+.4*(v/axisMax)}"><title>${escapeHtml(d.label)}: ${escapeHtml(chartValue(v,unit))}</title></rect>${label}<text x="${x+bw/2}" y="${h-13}" text-anchor="middle" font-size="9" fill="var(--muted)">${escapeHtml(d.short||d.label)}</text>`}).join('')}
+  </svg>`;
 }
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 
