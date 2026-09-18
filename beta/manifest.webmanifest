@@ -1,6 +1,6 @@
 {
-  "name":"Energo Přehled",
-  "short_name":"Energo",
+  "name":"Energo Přehled Beta",
+  "short_name":"Energo Beta",
   "description":"Lokální analýza 15minutové spotřeby elektřiny z XLSX reportů.",
   "start_url":"./",
   "scope":"./",

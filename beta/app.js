@@ -9,14 +9,31 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
+const PERIOD_KEY = IS_BETA ? 'period-beta' : 'period';
+const ANCHOR_KEY = IS_BETA ? 'anchor-beta' : 'anchor';
+const CUSTOM_FROM_KEY = IS_BETA ? 'custom-from-beta' : 'custom-from';
+const CUSTOM_TO_KEY = IS_BETA ? 'custom-to-beta' : 'custom-to';
+const DAYPART_KEY = IS_BETA ? 'daypart-beta' : 'daypart';
 const PROFILE_ROLES = ['DCC0','DCC1','DKC0','DKC1','DMC0','DMC1'];
 const ROLE_FIELDS = {DCC0:'dcc0',DCC1:'dcc1',DKC0:'dkc0',DKC1:'dkc1',DMC0:'dmc0',DMC1:'dmc1'};
 const PRAGUE_DTF = new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Prague',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
-let state = { records: [], months: [], metric: localStorage.getItem(METRIC_KEY) || 'dcc1', period: 'month', pendingImport: null, resetExportRange: false };
+const savedPeriod=localStorage.getItem(PERIOD_KEY);
+let state = {
+  records: [],
+  months: [],
+  metric: localStorage.getItem(METRIC_KEY) || 'dcc1',
+  period: ['month','3m','year','custom','all'].includes(savedPeriod)?savedPeriod:'month',
+  anchorMonth: localStorage.getItem(ANCHOR_KEY) || '',
+  customFrom: localStorage.getItem(CUSTOM_FROM_KEY) || '',
+  customTo: localStorage.getItem(CUSTOM_TO_KEY) || '',
+  daypartMode: localStorage.getItem(DAYPART_KEY)==='average'?'average':'percent',
+  pendingImport: null,
+  resetExportRange: false
+};
 
 // ---------- IndexedDB ----------
 function openDB(){
@@ -45,7 +62,7 @@ async function deleteMonth(monthKey){
   });
   state.resetExportRange=true; await reload(); showToast('Měsíc byl odstraněn');
 }
-async function saveImport(payload, replace=false){
+async function persistImport(payload, replace=false){
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'), s=tx.objectStore('intervals'), months=tx.objectStore('months');
     const write=()=>{payload.records.forEach(r=>s.put(r));months.put(payload.month)};
@@ -55,7 +72,12 @@ async function saveImport(payload, replace=false){
     cursor.onerror=()=>{try{tx.abort()}catch{}};
     cursor.onsuccess=()=>{const c=cursor.result;if(c){c.delete();c.continue()}else{months.delete(payload.month.monthKey);write()}};
   });
-  state.pendingImport=null; state.resetExportRange=true; await reload(); showToast(`${payload.month.label}: importováno ${payload.records.length.toLocaleString('cs-CZ')} intervalů`);
+}
+async function saveImport(payload, replace=false){
+  await persistImport(payload,replace);
+  state.pendingImport=null; state.resetExportRange=true;
+  if(!state.anchorMonth)state.anchorMonth=payload.month.monthKey;
+  await reload(); showToast(`${payload.month.label}: importováno ${payload.records.length.toLocaleString('cs-CZ')} intervalů`);
 }
 
 // ---------- XLSX ZIP reader ----------
@@ -151,42 +173,82 @@ async function parseReport(file){
 const val = r => {const n=Number(r[state.metric]);return Number.isFinite(n)?n:0};
 const energy = r => val(r)*((Number(r.intervalMinutes)||15)/60);
 function sortedRecords(){return [...state.records].sort((a,b)=>a.sortKey-b.sortKey||a.id.localeCompare(b.id))}
-function monthLabel(k){const [y,m]=k.split('-').map(Number);return `${MONTH_NAMES[m-1]} ${y}`}
+function monthLabel(k){const [y,m]=String(k).split('-').map(Number);return y&&m?`${MONTH_NAMES[m-1]} ${y}`:'—'}
+function monthIndex(k){const [y,m]=String(k).split('-').map(Number);return Number.isFinite(y)&&Number.isFinite(m)?y*12+(m-1):null}
 function monthKeyFromIndex(idx){const y=Math.floor(idx/12),m=((idx%12)+12)%12+1;return `${y}-${String(m).padStart(2,'0')}`}
+function latestMonthKey(){return state.months.length?[...state.months].sort((a,b)=>a.monthKey.localeCompare(b.monthKey)).at(-1).monthKey:(state.records.length?sortedRecords().at(-1).monthKey:'')}
+function earliestDateKey(){return state.records.length?sortedRecords()[0].dateKey:''}
+function latestDateKey(){return state.records.length?sortedRecords().at(-1).dateKey:''}
+function formatDateKey(k){if(!k)return '—';const [y,m,d]=k.split('-');return `${d}.${m}.${y}`}
+function persistPeriodState(){
+  localStorage.setItem(PERIOD_KEY,state.period);
+  if(state.anchorMonth)localStorage.setItem(ANCHOR_KEY,state.anchorMonth);
+  if(state.customFrom)localStorage.setItem(CUSTOM_FROM_KEY,state.customFrom);
+  if(state.customTo)localStorage.setItem(CUSTOM_TO_KEY,state.customTo);
+}
+function ensurePeriodState(){
+  if(!/^\d{4}-\d{2}$/.test(state.anchorMonth))state.anchorMonth=latestMonthKey();
+  if(!state.customFrom)state.customFrom=earliestDateKey();
+  if(!state.customTo)state.customTo=latestDateKey();
+  if(state.customFrom&&state.customTo&&state.customFrom>state.customTo)[state.customFrom,state.customTo]=[state.customTo,state.customFrom];
+  persistPeriodState();
+}
+function anchorIndex(){const i=monthIndex(state.anchorMonth||latestMonthKey());return i===null?0:i}
 function currentRange(){
   if(!state.records.length)return [];
-  const all=sortedRecords(),last=all[all.length-1],end=last.year*12+(last.month-1);
+  const all=sortedRecords();
   if(state.period==='all')return all;
-  if(state.period==='month')return all.filter(r=>r.monthKey===last.monthKey);
-  if(state.period==='year')return all.filter(r=>r.year===last.year&&r.month<=last.month);
-  if(state.period==='3m'){const start=end-2;return all.filter(r=>{const x=r.year*12+(r.month-1);return x>=start&&x<=end})}
+  if(state.period==='custom')return all.filter(r=>(!state.customFrom||r.dateKey>=state.customFrom)&&(!state.customTo||r.dateKey<=state.customTo));
+  const idx=anchorIndex();
+  if(state.period==='month'){const k=monthKeyFromIndex(idx);return all.filter(r=>r.monthKey===k)}
+  if(state.period==='3m'){const start=idx-2;return all.filter(r=>{const x=monthIndex(r.monthKey);return x>=start&&x<=idx})}
+  if(state.period==='year'){const y=Math.floor(idx/12);return all.filter(r=>r.year===y)}
   return all;
 }
 function sumEnergy(rs){return rs.reduce((s,r)=>s+energy(r),0)}
 function group(rs,keyFn,valFn=energy){const m=new Map();rs.forEach(r=>{const k=keyFn(r);m.set(k,(m.get(k)||0)+valFn(r))});return m}
 function groupAvg(rs,keyFn,valFn=val){const sum=new Map(),count=new Map();rs.forEach(r=>{const k=keyFn(r);sum.set(k,(sum.get(k)||0)+valFn(r));count.set(k,(count.get(k)||0)+1)});return new Map([...sum].map(([k,v])=>[k,v/count.get(k)]))}
-function rangeLabel(rs){if(!rs.length)return '—';const first=rs[0],last=rs[rs.length-1];if(first.monthKey===last.monthKey)return monthLabel(first.monthKey);return `${monthLabel(first.monthKey)} – ${monthLabel(last.monthKey)}`}
-function expectedCurrentMonthKeys(rs){
-  if(!rs.length||state.period==='all')return [];
-  const last=rs[rs.length-1],end=last.year*12+(last.month-1);
-  if(state.period==='month')return [last.monthKey];
-  if(state.period==='3m')return [end-2,end-1,end].map(monthKeyFromIndex);
-  if(state.period==='year')return Array.from({length:last.month},(_,i)=>`${last.year}-${String(i+1).padStart(2,'0')}`);
+function selectedPeriodLabel(){
+  if(state.period==='all')return state.records.length?`${formatDateKey(earliestDateKey())} – ${formatDateKey(latestDateKey())}`:'Všechna data';
+  if(state.period==='custom')return `${formatDateKey(state.customFrom)} – ${formatDateKey(state.customTo)}`;
+  const idx=anchorIndex();
+  if(state.period==='month')return monthLabel(monthKeyFromIndex(idx));
+  if(state.period==='3m')return `${monthLabel(monthKeyFromIndex(idx-2))} – ${monthLabel(monthKeyFromIndex(idx))}`;
+  if(state.period==='year')return String(Math.floor(idx/12));
+  return '—';
+}
+function expectedCurrentMonthKeys(){
+  if(state.period==='all'||state.period==='custom')return [];
+  const idx=anchorIndex();
+  if(state.period==='month')return [monthKeyFromIndex(idx)];
+  if(state.period==='3m')return [idx-2,idx-1,idx].map(monthKeyFromIndex);
+  if(state.period==='year'){const y=Math.floor(idx/12);return Array.from({length:12},(_,i)=>`${y}-${String(i+1).padStart(2,'0')}`)}
   return [];
 }
-function expectedPreviousMonthKeys(rs){
-  if(!rs.length||state.period==='all')return [];
-  const last=rs[rs.length-1],end=last.year*12+(last.month-1);
-  if(state.period==='month')return [monthKeyFromIndex(end-1)];
-  if(state.period==='3m')return [end-5,end-4,end-3].map(monthKeyFromIndex);
-  if(state.period==='year')return Array.from({length:last.month},(_,i)=>`${last.year-1}-${String(i+1).padStart(2,'0')}`);
+function expectedPreviousMonthKeys(){
+  if(state.period==='all'||state.period==='custom')return [];
+  const idx=anchorIndex();
+  if(state.period==='month')return [monthKeyFromIndex(idx-1)];
+  if(state.period==='3m')return [idx-5,idx-4,idx-3].map(monthKeyFromIndex);
+  if(state.period==='year'){const y=Math.floor(idx/12)-1;return Array.from({length:12},(_,i)=>`${y}-${String(i+1).padStart(2,'0')}`)}
   return [];
 }
 function monthIsComplete(k){const m=state.months.find(x=>x.monthKey===k);return !!m&&(m.complete===true||(m.complete===undefined&&m.incompleteDays===0))}
 function keysComplete(keys){return keys.length>0&&keys.every(monthIsComplete)}
-function previousComparable(rs){
-  const keys=expectedPreviousMonthKeys(rs);if(!keys.length)return [];
+function previousComparable(){
+  const keys=expectedPreviousMonthKeys();if(!keys.length)return [];
   const set=new Set(keys);return sortedRecords().filter(r=>set.has(r.monthKey));
+}
+function navigatePeriod(direction){
+  if(!['month','3m','year'].includes(state.period)||!state.months.length)return;
+  const jump=state.period==='3m'?3:state.period==='year'?12:1,current=anchorIndex(),target=current+direction*jump,keys=state.months.map(m=>m.monthKey).sort(),min=monthIndex(keys[0]),max=monthIndex(keys.at(-1));
+  if(target<min||target>max)return;
+  state.anchorMonth=monthKeyFromIndex(target);
+  persistPeriodState();renderPeriodControls();renderOverview();renderAnalysis();
+}
+function setPeriod(period){
+  if(!['month','3m','year','custom','all'].includes(period))return;
+  state.period=period;ensurePeriodState();persistPeriodState();renderPeriodControls();renderOverview();renderAnalysis();
 }
 
 // ---------- SVG charts ----------
@@ -211,44 +273,92 @@ function barChart(el,data){
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 
 // ---------- Rendering ----------
-async function reload(){state.records=await getAll('intervals');state.months=await getAll('months');renderAll()}
+async function reload(){state.records=await getAll('intervals');state.months=await getAll('months');ensurePeriodState();renderAll()}
 function renderAll(){
-  const has=state.records.length>0; $('#emptyState').classList.toggle('hidden',has);$('#overviewContent').classList.toggle('hidden',!has);
-  renderOverview();renderAnalysis();renderMonths();renderExportDefaults();
+  const has=state.records.length>0;
+  $('#emptyState').classList.toggle('hidden',has);$('#overviewContent').classList.toggle('hidden',!has);
+  renderPeriodControls();renderOverview();renderAnalysis();renderMonths();renderExportDefaults();
+}
+function renderPeriodControls(){
+  $$('.period-chip').forEach(b=>b.classList.toggle('active',b.dataset.period===state.period));
+  const nav=$('#periodNavigator'),custom=$('#customPeriodControls'),allLabel=$('#allPeriodLabel');
+  nav.classList.toggle('hidden',!['month','3m','year'].includes(state.period));
+  custom.classList.toggle('hidden',state.period!=='custom');
+  allLabel.classList.toggle('hidden',state.period!=='all');
+  if(state.period==='custom'){
+    $('#customFrom').value=state.customFrom||'';
+    $('#customTo').value=state.customTo||'';
+  }
+  if(['month','3m','year'].includes(state.period)){
+    $('#periodAnchorLabel').textContent=selectedPeriodLabel();
+    $('#anchorMonthInput').value=state.anchorMonth||'';
+    const keys=state.months.map(m=>m.monthKey).sort(),first=keys[0],last=keys.at(-1);
+    if(first)$('#anchorMonthInput').min=first;if(last)$('#anchorMonthInput').max=last;
+    const idx=anchorIndex(),firstIdx=first?monthIndex(first):idx,lastIdx=last?monthIndex(last):idx,jump=state.period==='3m'?3:state.period==='year'?12:1;
+    $('#periodPrev').disabled=idx-jump<firstIdx;
+    $('#periodNext').disabled=idx+jump>lastIdx;
+  }
+  if(state.period==='all')allLabel.textContent=state.records.length?selectedPeriodLabel():'Všechna importovaná data';
 }
 function renderOverview(){
-  const rs=currentRange(); if(!rs.length)return;
-  $('#heroPeriod').textContent=rangeLabel(rs); const total=sumEnergy(rs);$('#heroKwh').textContent=fmt.format(total);
-  const currentKeys=expectedCurrentMonthKeys(rs),prevKeys=expectedPreviousMonthKeys(rs),prev=previousComparable(rs),prevTotal=sumEnergy(prev);
-  if(state.period==='all')$('#heroDelta').textContent='Celé dostupné období';
-  else if(!keysComplete(currentKeys))$('#heroDelta').textContent='Neúplné období · chybí importované měsíce';
-  else if(!keysComplete(prevKeys))$('#heroDelta').textContent='Předchozí srovnatelné období není kompletní';
-  else if(prevTotal===0)$('#heroDelta').textContent='Předchozí období: 0 kWh';
-  else{const delta=(total-prevTotal)/prevTotal*100;$('#heroDelta').textContent=`${delta>=0?'▲':'▼'} ${fmt.format(Math.abs(delta))} % proti předchozímu období`}
-  const daily=group(rs,r=>r.dateKey),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));lineChart($('#mainChart'),dailyData,{hero:true});
-  $('#avgDay').textContent=fmt3.format(total/Math.max(1,daily.size));const peak=rs.reduce((a,b)=>val(b)>val(a)?b:a,rs[0]);$('#maxPower').textContent=fmt.format(val(peak));$('#maxPowerSub').textContent=`kW · ${peak.displayTimestamp}`;
-  const best=[...daily].sort((a,b)=>b[1]-a[1])[0];$('#bestDay').textContent=best?`${best[0].slice(8,10)}.${best[0].slice(5,7)}.`:'—';$('#bestDaySub').textContent=best?`${fmt3.format(best[1])} kWh`:'—';
-  const night=rs.filter(r=>r.hour<6);$('#baseLoad').textContent=night.length?`${fmt.format(night.reduce((s,r)=>s+val(r),0)/night.length*1000)} W`:'—';
-  const monthly=group(state.records,r=>r.monthKey),md=[...monthly].sort().map(([k,v])=>({label:monthLabel(k),short:k.slice(5,7)+'/'+k.slice(2,4),value:v}));barChart($('#monthlyChart'),md);
+  const monthly=group(state.records,r=>r.monthKey),md=[...monthly].sort().map(([k,v])=>({label:monthLabel(k),short:k.slice(5,7)+'/'+k.slice(2,4),value:v}));
+  barChart($('#monthlyChart'),md);
   $$('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
+  const rs=currentRange();
+  $('#heroPeriod').textContent=selectedPeriodLabel();
+  if(!rs.length){
+    $('#heroKwh').textContent='—';$('#heroDelta').textContent='Pro zvolené období nejsou importována data';
+    lineChart($('#mainChart'),[],{hero:true});
+    $('#avgDay').textContent='—';$('#maxPower').textContent='—';$('#maxPowerSub').textContent='kW';
+    $('#bestDay').textContent='—';$('#bestDaySub').textContent='—';$('#baseLoad').textContent='—';
+    return;
+  }
+  const total=sumEnergy(rs);$('#heroKwh').textContent=fmt.format(total);
+  if(state.period==='all')$('#heroDelta').textContent='Celé dostupné období';
+  else if(state.period==='custom')$('#heroDelta').textContent='Vlastní zvolené období';
+  else{
+    const currentKeys=expectedCurrentMonthKeys(),prevKeys=expectedPreviousMonthKeys(),prev=previousComparable(),prevTotal=sumEnergy(prev);
+    if(!keysComplete(currentKeys))$('#heroDelta').textContent='Neúplné období · chybí importované měsíce';
+    else if(!keysComplete(prevKeys))$('#heroDelta').textContent='Předchozí srovnatelné období není kompletní';
+    else if(prevTotal===0)$('#heroDelta').textContent='Předchozí období: 0 kWh';
+    else{const delta=(total-prevTotal)/prevTotal*100;$('#heroDelta').textContent=`${delta>=0?'▲':'▼'} ${fmt.format(Math.abs(delta))} % proti předchozímu období`}
+  }
+  const daily=group(rs,r=>r.dateKey),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));
+  lineChart($('#mainChart'),dailyData,{hero:true});
+  $('#avgDay').textContent=fmt3.format(total/Math.max(1,daily.size));
+  const peak=rs.reduce((a,b)=>val(b)>val(a)?b:a,rs[0]);$('#maxPower').textContent=fmt.format(val(peak));$('#maxPowerSub').textContent=`kW · ${peak.displayTimestamp}`;
+  const best=[...daily].sort((a,b)=>b[1]-a[1])[0];$('#bestDay').textContent=best?`${best[0].slice(8,10)}.${best[0].slice(5,7)}.`:'—';$('#bestDaySub').textContent=best?`${fmt3.format(best[1])} kWh`:'—';
+  const night=rs.filter(r=>r.hour<6);$('#baseLoad').textContent=night.length?`${fmt.format(night.reduce((sum,r)=>sum+val(r),0)/night.length*1000)} W`:'—';
 }
 function renderAnalysis(){
-  if(!state.records.length){['weekdayChart','hourlyChart','heatmap','daypartList','peaksList'].forEach(id=>$('#'+id).innerHTML='<div class="chart-empty">Nejdřív importuj data</div>');return}
-  const rs=currentRange().length?currentRange():state.records;
-  const dateTotals=group(rs,r=>r.dateKey); const dateWeek={};rs.forEach(r=>dateWeek[r.dateKey]=r.weekday);
+  const rs=currentRange();
+  if(!rs.length){
+    ['weekdayChart','hourlyChart','heatmap','daypartList','peaksList'].forEach(id=>$('#'+id).innerHTML='<div class="chart-empty">Pro zvolené období nejsou data</div>');
+    $('#daypartSubtitle').textContent='Pro zvolené období nejsou data';
+    return;
+  }
+  const dateTotals=group(rs,r=>r.dateKey),dateWeek={};rs.forEach(r=>dateWeek[r.dateKey]=r.weekday);
   const sums=Array(7).fill(0),counts=Array(7).fill(0);for(const [date,v] of dateTotals){const wd=dateWeek[date];sums[wd]+=v;counts[wd]++}
   barChart($('#weekdayChart'),WEEK_MON.map((d,i)=>({label:d,short:d,value:counts[i]?sums[i]/counts[i]:0})));
-  const type=$('#dayTypeSelect').value;const filtered=rs.filter(r=>type==='all'||(type==='workday'&&r.weekday<5)||(type==='weekend'&&r.weekday>=5));const havg=groupAvg(filtered,r=>r.hour,val);lineChart($('#hourlyChart'),Array.from({length:24},(_,h)=>({label:String(h).padStart(2,'0'),value:havg.get(h)||0})));
+  const type=$('#dayTypeSelect').value,filtered=rs.filter(r=>type==='all'||(type==='workday'&&r.weekday<5)||(type==='weekend'&&r.weekday>=5)),havg=groupAvg(filtered,r=>r.hour,val);
+  lineChart($('#hourlyChart'),Array.from({length:24},(_,h)=>({label:String(h).padStart(2,'0'),value:havg.get(h)||0})));
   renderHeatmap(rs);renderDayparts(rs);renderPeaks(rs);
 }
 function renderHeatmap(rs){
   const avg=groupAvg(rs,r=>`${r.weekday}|${r.hour}`,val),max=Math.max(...avg.values(),.001);let html='<div class="heat-grid"><div></div>'+Array.from({length:24},(_,h)=>`<div class="heat-label">${h}</div>`).join('');
   for(let wd=0;wd<7;wd++){html+=`<div class="heat-label">${WEEK_MON[wd]}</div>`;for(let h=0;h<24;h++){const v=avg.get(`${wd}|${h}`)||0,a=.08+.82*(v/max);html+=`<div class="heat-cell" style="background:color-mix(in srgb,var(--accent) ${Math.round(a*100)}%,var(--surface))" title="${WEEK_MON[wd]} ${h}:00 · ${fmt3.format(v)} kW"></div>`}}html+='</div>';$('#heatmap').innerHTML=html;
 }
-function renderDayparts(rs){const parts=[['Noc','0–6',r=>r.hour<6],['Ráno','6–10',r=>r.hour>=6&&r.hour<10],['Den','10–17',r=>r.hour>=10&&r.hour<17],['Večer','17–22',r=>r.hour>=17&&r.hour<22],['Pozdní','22–24',r=>r.hour>=22]];const total=sumEnergy(rs)||1;$('#daypartList').innerHTML=parts.map(([n,t,f])=>{const v=sumEnergy(rs.filter(f)),pct=v/total*100;return `<div class="daypart-row"><div><strong>${n}</strong><div class="kpi-unit">${t}</div></div><div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div><div class="daypart-pct">${fmt.format(pct)} %</div></div>`}).join('')}
+function renderDayparts(rs){
+  const parts=[['Noc','0–6',r=>r.hour<6],['Ráno','6–10',r=>r.hour>=6&&r.hour<10],['Den','10–17',r=>r.hour>=10&&r.hour<17],['Večer','17–22',r=>r.hour>=17&&r.hour<22],['Pozdní','22–24',r=>r.hour>=22]],total=sumEnergy(rs)||1,dayCount=Math.max(1,new Set(rs.map(r=>r.dateKey)).size);
+  const data=parts.map(([name,time,filter])=>{const kwh=sumEnergy(rs.filter(filter));return {name,time,kwh,pct:kwh/total*100,avg:kwh/dayCount}});
+  const maxAvg=Math.max(...data.map(d=>d.avg),.000001),average=state.daypartMode==='average';
+  $('#daypartSubtitle').textContent=average?'Průměrná energie za jeden den':'Podíl energie v částech dne';
+  $$('.daypart-btn').forEach(b=>b.classList.toggle('active',b.dataset.daypartMode===state.daypartMode));
+  $('#daypartList').innerHTML=data.map(d=>{const width=average?d.avg/maxAvg*100:d.pct,value=average?`${fmt3.format(d.avg)} kWh/den`:`${fmt.format(d.pct)} %`;return `<div class="daypart-row"><div><strong>${d.name}</strong><div class="kpi-unit">${d.time}</div></div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(0,Math.min(100,width))}%"></div></div><div class="daypart-value">${value}</div></div>`}).join('');
+}
 function renderPeaks(rs){const peaks=[...rs].sort((a,b)=>val(b)-val(a)).slice(0,20);$('#peaksList').innerHTML=peaks.map((r,i)=>`<div class="peak-row"><div class="peak-main"><strong>${i+1}. ${r.displayTimestamp}</strong><div>${r.monthKey} · 15min interval</div></div><div class="peak-value">${fmt.format(val(r))} kW</div></div>`).join('')}
 async function renderMonths(){const months=[...state.months].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));$('#monthsList').innerHTML=months.length?months.map(m=>`<div class="month-row"><div class="month-main"><strong>${escapeHtml(m.label)}</strong><div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}</div></div><div class="month-actions"><div class="month-value">${monthIsComplete(m.monthKey)?'✓ kompletní':'⚠ zkontrolovat'}</div><button class="trash-btn" data-delete="${m.monthKey}" aria-label="Smazat">×</button></div></div>`).join(''):'<div class="chart-empty">Žádné importované měsíce</div>';$$('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm(`Opravdu odstranit ${monthLabel(b.dataset.delete)}?`))deleteMonth(b.dataset.delete)})}
-function renderExportDefaults(){if(!state.records.length)return;const all=sortedRecords(),min=all[0].dateKey,max=all[all.length-1].dateKey,from=$('#exportFrom'),to=$('#exportTo');if(state.resetExportRange||!from.value)from.value=min;if(state.resetExportRange||!to.value)to.value=max;state.resetExportRange=false}
+function renderExportDefaults(){if(!state.records.length)return;const all=sortedRecords(),min=all[0].dateKey,max=all.at(-1).dateKey,from=$('#exportFrom'),to=$('#exportTo');if(state.resetExportRange||!from.value)from.value=min;if(state.resetExportRange||!to.value)to.value=max;state.resetExportRange=false}
 
 // ---------- Import ----------
 async function handleFile(file){
@@ -264,6 +374,44 @@ async function handleFile(file){
     }else await saveImport(payload,false);
   }catch(e){console.error(e);alert(`Import se nepodařil:\n${e.message}`)}
   finally{$('#fileInput').value=''}
+}
+async function handleFiles(fileList){
+  const files=[...fileList].filter(f=>/\.xlsx$/i.test(f.name));
+  if(!files.length)return;
+  if(files.length===1){await handleFile(files[0]);return}
+  const failed=[],skipped=[],seenMonths=new Set(),existingMonths=new Set(state.months.map(m=>m.monthKey)),existingEans=[...new Set(state.records.map(r=>r.ean).filter(Boolean))];
+  if(existingEans.length>1){alert('Databáze obsahuje více EAN a hromadný import byl z bezpečnostních důvodů zastaven.');$('#fileInput').value='';return}
+  let targetEan=existingEans[0]||null,replaceExisting=null,imported=0,replaced=0;
+  const importedMonthKeys=[],wasEmpty=!state.records.length;
+  try{
+    for(let i=0;i<files.length;i++){
+      const file=files[i];showToast(`Kontroluji ${i+1}/${files.length}: ${file.name}`);
+      let payload;
+      try{payload=await parseReport(file)}
+      catch(e){console.error(file.name,e);failed.push(`${file.name}: ${e.message}`);continue}
+      if(!targetEan)targetEan=payload.month.ean;
+      if(payload.month.ean!==targetEan){failed.push(`${file.name}: jiné EAN (${payload.month.ean})`);continue}
+      if(seenMonths.has(payload.month.monthKey)){failed.push(`${file.name}: duplicitní měsíc ${payload.month.monthKey} ve výběru`);continue}
+      seenMonths.add(payload.month.monthKey);
+      const exists=existingMonths.has(payload.month.monthKey);
+      if(exists&&replaceExisting===null){
+        replaceExisting=confirm('Některé vybrané měsíce už v aplikaci existují.\n\nOK = nahradit všechny takové měsíce novými reporty\nZrušit = všechny existující měsíce přeskočit');
+      }
+      if(exists&&!replaceExisting){skipped.push(`${file.name}: ${payload.month.label} už existuje`);continue}
+      showToast(`Ukládám ${i+1}/${files.length}: ${payload.month.label}`);
+      try{
+        await persistImport(payload,exists);imported++;importedMonthKeys.push(payload.month.monthKey);if(exists)replaced++;
+        existingMonths.add(payload.month.monthKey);
+      }catch(e){console.error(file.name,e);failed.push(`${file.name}: zápis selhal – ${e.message}`)}
+    }
+    if(imported){
+      if(wasEmpty)state.anchorMonth=importedMonthKeys.sort().at(-1)||state.anchorMonth;
+      state.resetExportRange=true;await reload();
+    }
+    const lines=[`Zpracováno souborů: ${files.length}`,`Importováno: ${imported}`,`Z toho nahrazeno: ${replaced}`,`Přeskočeno: ${skipped.length}`,`Chyby: ${failed.length}`];
+    if(failed.length)lines.push(...failed.slice(0,5),failed.length>5?`… a dalších ${failed.length-5}`:'');
+    alert(lines.filter(Boolean).join('\n'));
+  }finally{$('#fileInput').value=''}
 }
 
 // ---------- Export ----------
@@ -310,7 +458,7 @@ function exportXLSX(rs,g){
 
 // ---------- Backup / restore ----------
 async function backupLocalData(){
-  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,records:await getAll('intervals'),months:await getAll('months')};
+  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,ui:{period:state.period,anchorMonth:state.anchorMonth,customFrom:state.customFrom,customTo:state.customTo,daypartMode:state.daypartMode},records:await getAll('intervals'),months:await getAll('months')};
   downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`energo_prehled_zaloha_${new Date().toISOString().slice(0,10)}.json`);
   showToast('Záloha dat byla vytvořena');
 }
@@ -326,6 +474,14 @@ async function restoreLocalData(file){
     tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
   });
   if(payload.metric==='dcc0'||payload.metric==='dcc1'){state.metric=payload.metric;localStorage.setItem(METRIC_KEY,state.metric)}
+  if(payload.ui&&typeof payload.ui==='object'){
+    if(['month','3m','year','custom','all'].includes(payload.ui.period))state.period=payload.ui.period;
+    if(/^\d{4}-\d{2}$/.test(payload.ui.anchorMonth||''))state.anchorMonth=payload.ui.anchorMonth;
+    if(/^\d{4}-\d{2}-\d{2}$/.test(payload.ui.customFrom||''))state.customFrom=payload.ui.customFrom;
+    if(/^\d{4}-\d{2}-\d{2}$/.test(payload.ui.customTo||''))state.customTo=payload.ui.customTo;
+    if(['percent','average'].includes(payload.ui.daypartMode))state.daypartMode=payload.ui.daypartMode;
+    localStorage.setItem(DAYPART_KEY,state.daypartMode);persistPeriodState();
+  }
   state.resetExportRange=true;await reload();showToast('Záloha byla obnovena');
 }
 
@@ -333,14 +489,32 @@ async function restoreLocalData(file){
 function showToast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>t.classList.remove('show'),2600)}
 function nav(target){$$('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===target));$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.target===target));$('#screenTitle').textContent={overview:'Přehled',analysis:'Analýza',data:'Data',export:'Export'}[target];window.scrollTo({top:0,behavior:'smooth'});if(target==='analysis')renderAnalysis();if(target==='data')renderMonths()}
 function bind(){
-  const choose=()=>$('#fileInput').click();$('#importBtn').onclick=choose;$('#emptyImportBtn').onclick=choose;$('#dataImportBtn').onclick=choose;$('#fileInput').onchange=e=>e.target.files[0]&&handleFile(e.target.files[0]);
-  $$('.nav-btn').forEach(b=>b.onclick=()=>nav(b.dataset.target));$$('.period-chip').forEach(b=>b.onclick=()=>{state.period=b.dataset.period;$$('.period-chip').forEach(x=>x.classList.toggle('active',x===b));renderOverview();renderAnalysis()});
-  $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});$('#dayTypeSelect').onchange=renderAnalysis;
-  $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};$('#confirmReplace').onclick=async()=>{const p=state.pendingImport;$('#replaceModal').classList.add('hidden');if(p)await saveImport(p,true)};
+  const choose=()=>$('#fileInput').click();
+  $('#importBtn').onclick=choose;$('#emptyImportBtn').onclick=choose;$('#dataImportBtn').onclick=choose;
+  $('#fileInput').onchange=e=>e.target.files.length&&handleFiles(e.target.files);
+  $$('.nav-btn').forEach(b=>b.onclick=()=>nav(b.dataset.target));
+  $$('.period-chip').forEach(b=>b.onclick=()=>setPeriod(b.dataset.period));
+  $('#periodPrev').onclick=()=>navigatePeriod(-1);$('#periodNext').onclick=()=>navigatePeriod(1);
+  $('#anchorMonthInput').onchange=e=>{if(/^\d{4}-\d{2}$/.test(e.target.value)){state.anchorMonth=e.target.value;persistPeriodState();renderPeriodControls();renderOverview();renderAnalysis()}};
+  const updateCustom=()=>{
+    state.customFrom=$('#customFrom').value;state.customTo=$('#customTo').value;
+    if(state.customFrom&&state.customTo&&state.customFrom>state.customTo)[state.customFrom,state.customTo]=[state.customTo,state.customFrom];
+    persistPeriodState();renderPeriodControls();renderOverview();renderAnalysis();
+  };
+  $('#customFrom').onchange=updateCustom;$('#customTo').onchange=updateCustom;
+  $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});
+  $('#dayTypeSelect').onchange=renderAnalysis;
+  $$('.daypart-btn').forEach(b=>b.onclick=()=>{state.daypartMode=b.dataset.daypartMode;localStorage.setItem(DAYPART_KEY,state.daypartMode);renderDayparts(currentRange())});
+  $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};
+  $('#confirmReplace').onclick=async()=>{const p=state.pendingImport;$('#replaceModal').classList.add('hidden');if(p)await saveImport(p,true)};
   $('#backupDataBtn').onclick=()=>backupLocalData().catch(e=>alert('Zálohu se nepodařilo vytvořit: '+e.message));
   $('#restoreDataBtn').onclick=()=>$('#backupFileInput').click();
   $('#backupFileInput').onchange=e=>{const file=e.target.files[0];if(file)restoreLocalData(file).catch(err=>alert('Obnova se nepodařila: '+err.message)).finally(()=>e.target.value='')};
   $('#exportBtn').onclick=()=>{const rs=selectedExportRecords();if(!rs.length){alert('Ve zvoleném období nejsou data.');return}const g=$('#exportGranularity').value;if($('#exportFormat').value==='csv')exportCSV(rs,g);else exportXLSX(rs,g);showToast('Export byl vytvořen')};
+
+  let touchStart=null;
+  $('#heroCard').addEventListener('touchstart',e=>{if(state.period!=='month'||e.touches.length!==1||e.target.closest('button,input,select'))return;touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY}},{passive:true});
+  $('#heroCard').addEventListener('touchend',e=>{if(!touchStart||state.period!=='month'||!e.changedTouches.length){touchStart=null;return}const dx=e.changedTouches[0].clientX-touchStart.x,dy=e.changedTouches[0].clientY-touchStart.y;touchStart=null;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.25)navigatePeriod(dx<0?1:-1)},{passive:true});
 }
 
 (async function init(){
