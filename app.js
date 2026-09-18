@@ -9,12 +9,18 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-let state = { records: [], metric: localStorage.getItem('metric') || 'dcc1', period: 'month', pendingImport: null };
+const APP_VERSION = '1.1.0';
+const IS_BETA = location.pathname.includes('/beta/');
+const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
+const PROFILE_ROLES = ['DCC0','DCC1','DKC0','DKC1','DMC0','DMC1'];
+const ROLE_FIELDS = {DCC0:'dcc0',DCC1:'dcc1',DKC0:'dkc0',DKC1:'dkc1',DMC0:'dmc0',DMC1:'dmc1'};
+const PRAGUE_DTF = new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Prague',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+let state = { records: [], months: [], metric: localStorage.getItem('metric') || 'dcc1', period: 'month', pendingImport: null, resetExportRange: false };
 
 // ---------- IndexedDB ----------
 function openDB(){
   return new Promise((resolve,reject)=>{
-    const req=indexedDB.open('energo-prehled',1);
+    const req=indexedDB.open(DB_NAME,1);
     req.onupgradeneeded=()=>{
       const d=req.result;
       const store=d.createObjectStore('intervals',{keyPath:'id'});
@@ -31,17 +37,19 @@ async function getAll(store){return new Promise((res,rej)=>{const r=db.transacti
 async function deleteMonth(monthKey){
   const tx=db.transaction(['intervals','months'],'readwrite'), s=tx.objectStore('intervals'), idx=s.index('monthKey');
   await new Promise((res,rej)=>{const r=idx.openCursor(IDBKeyRange.only(monthKey));r.onsuccess=()=>{const c=r.result;if(c){c.delete();c.continue()}else res()};r.onerror=()=>rej(r.error)});
-  tx.objectStore('months').delete(monthKey); await txDone(tx); await reload(); showToast('Měsíc byl odstraněn');
+  tx.objectStore('months').delete(monthKey); await txDone(tx); state.resetExportRange=true; await reload(); showToast('Měsíc byl odstraněn');
 }
 async function saveImport(payload, replace=false){
-  if(replace){
-    const tx0=db.transaction(['intervals','months'],'readwrite'), s0=tx0.objectStore('intervals'), idx=s0.index('monthKey');
-    await new Promise((res,rej)=>{const r=idx.openCursor(IDBKeyRange.only(payload.month.monthKey));r.onsuccess=()=>{const c=r.result;if(c){c.delete();c.continue()}else res()};r.onerror=()=>rej(r.error)});
-    tx0.objectStore('months').delete(payload.month.monthKey); await txDone(tx0);
-  }
-  const tx=db.transaction(['intervals','months'],'readwrite'), s=tx.objectStore('intervals');
-  payload.records.forEach(r=>s.put(r)); tx.objectStore('months').put(payload.month); await txDone(tx);
-  state.pendingImport=null; await reload(); showToast(`${payload.month.label}: importováno ${payload.records.length.toLocaleString('cs-CZ')} intervalů`);
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(['intervals','months'],'readwrite'), s=tx.objectStore('intervals'), months=tx.objectStore('months');
+    const write=()=>{payload.records.forEach(r=>s.put(r));months.put(payload.month)};
+    tx.oncomplete=()=>resolve(); tx.onerror=()=>reject(tx.error); tx.onabort=()=>reject(tx.error);
+    if(!replace){write();return}
+    const cursor=s.index('monthKey').openCursor(IDBKeyRange.only(payload.month.monthKey));
+    cursor.onerror=()=>{try{tx.abort()}catch{}};
+    cursor.onsuccess=()=>{const c=cursor.result;if(c){c.delete();c.continue()}else{months.delete(payload.month.monthKey);write()}};
+  });
+  state.pendingImport=null; state.resetExportRange=true; await reload(); showToast(`${payload.month.label}: importováno ${payload.records.length.toLocaleString('cs-CZ')} intervalů`);
 }
 
 // ---------- XLSX ZIP reader ----------
@@ -59,16 +67,21 @@ async function unzipXlsx(buffer){
     const ln=u16(view,local+26), lx=u16(view,local+28), start=local+30+ln+lx, comp=bytes.slice(start,start+csize); let out;
     if(method===0) out=comp;
     else if(method===8){
+      if(typeof DecompressionStream==='undefined') throw new Error('Tento prohlížeč neumí lokálně rozbalit XLSX. Aktualizuj prosím iOS/Safari.');
       const ds=new DecompressionStream('deflate-raw');
       out=new Uint8Array(await new Response(new Blob([comp]).stream().pipeThrough(ds)).arrayBuffer());
     } else throw new Error(`Nepodporovaná komprese ZIP (${method}).`);
-    if(usize && out.length!==usize) console.warn('ZIP size mismatch',name);
+    if(usize && out.length!==usize) throw new Error(`Poškozená ZIP položka: ${name}`);
     entries.set(name,out); p+=46+nlen+xlen+clen;
   }
   return entries;
 }
-function xml(bytes){return new DOMParser().parseFromString(new TextDecoder().decode(bytes),'application/xml')}
-function colIndex(ref){let n=0;for(const c of ref.match(/[A-Z]+/)[0]) n=n*26+c.charCodeAt(0)-64;return n-1}
+function xml(bytes){
+  const doc=new DOMParser().parseFromString(new TextDecoder().decode(bytes),'application/xml');
+  if(doc.querySelector('parsererror')) throw new Error('XLSX obsahuje poškozené XML.');
+  return doc;
+}
+function colIndex(ref){const m=String(ref||'').match(/[A-Z]+/);if(!m)return -1;let n=0;for(const c of m[0]) n=n*26+c.charCodeAt(0)-64;return n-1}
 function cellText(c, shared){
   const t=c.getAttribute('t');
   if(t==='inlineStr') return [...c.querySelectorAll('t')].map(x=>x.textContent||'').join('');
@@ -77,31 +90,55 @@ function cellText(c, shared){
   return v;
 }
 function parseCzTimestamp(s){
-  const m=String(s).match(/^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/); if(!m)return null;
-  const [,dd,mm,yyyy,hh,mi,ss='00']=m; return {year:+yyyy,month:+mm,day:+dd,hour:+hh,minute:+mi,second:+ss,dateKey:`${yyyy}-${mm}-${dd}`,monthKey:`${yyyy}-${mm}`,display:`${dd}.${mm}.${yyyy} ${hh}:${mi}`,source:s,sortKey:Date.UTC(+yyyy,+mm-1,+dd,+hh,+mi,+ss)};
+  const m=String(s).trim().match(/^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/); if(!m)return null;
+  const [,dd,mm,yyyy,hh,mi,ss='00']=m;
+  return {year:+yyyy,month:+mm,day:+dd,hour:+hh,minute:+mi,second:+ss,dateKey:`${yyyy}-${mm}-${dd}`,monthKey:`${yyyy}-${mm}`,display:`${dd}.${mm}.${yyyy} ${hh}:${mi}`,source:String(s).trim()};
 }
 function weekdayMon(ts){const d=new Date(Date.UTC(ts.year,ts.month-1,ts.day)).getUTCDay();return d===0?6:d-1}
+function pragueParts(ms){const out={};for(const p of PRAGUE_DTF.formatToParts(new Date(ms)))if(p.type!=='literal')out[p.type]=Number(p.value);return out}
+function pragueUtcCandidates(ts){
+  const base=Date.UTC(ts.year,ts.month-1,ts.day,ts.hour,ts.minute,ts.second||0), found=[];
+  for(const offset of [0,60,120,180]){const ms=base-offset*60000,p=pragueParts(ms);if(p.year===ts.year&&p.month===ts.month&&p.day===ts.day&&p.hour===ts.hour&&p.minute===ts.minute&&p.second===(ts.second||0))found.push(ms)}
+  return [...new Set(found)].sort((a,b)=>a-b);
+}
+function sourceStamp(y,m,d,h,mi){return `${String(d).padStart(2,'0')}.${String(m).padStart(2,'0')}.${y} ${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}:00`}
+function expectedTimestampCounts(year,month){
+  const out=new Map(),days=new Date(Date.UTC(year,month,0)).getUTCDate();
+  for(let d=1;d<=days;d++)for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){const source=sourceStamp(year,month,d,h,mi),ts=parseCzTimestamp(source),count=pragueUtcCandidates(ts).length;if(count)out.set(source,count)}
+  return out;
+}
+function validateMonthTimeline(records,year,month){
+  const expected=expectedTimestampCounts(year,month),actual=new Map(),issues=[];
+  for(const r of records)actual.set(r.sourceTimestamp,(actual.get(r.sourceTimestamp)||0)+1);
+  for(const [stamp,count] of expected){const got=actual.get(stamp)||0;if(got!==count)issues.push(`${stamp}: očekáváno ${count}×, nalezeno ${got}×`)}
+  for(const [stamp,count] of actual)if(!expected.has(stamp))issues.push(`${stamp}: neočekávaný čas (${count}×)`);
+  return {complete:issues.length===0,issues,expectedCount:[...expected.values()].reduce((a,b)=>a+b,0)};
+}
+function strictNumber(value,role,row){const raw=String(value??'').trim();if(!raw)throw new Error(`Řádek ${row}: ${role} nemá hodnotu.`);const n=Number(raw.replace(',','.'));if(!Number.isFinite(n))throw new Error(`Řádek ${row}: ${role} obsahuje neplatnou hodnotu „${raw}“.`);return n}
+function optionalNumber(value,role,row){const raw=String(value??'').trim();if(!raw)return null;const n=Number(raw.replace(',','.'));if(!Number.isFinite(n))throw new Error(`Řádek ${row}: ${role} obsahuje neplatnou hodnotu „${raw}“.`);return n}
+function matrixFromSheet(doc,shared){const matrix=new Map();doc.querySelectorAll('sheetData > row').forEach(row=>{const rn=Number(row.getAttribute('r')),map=new Map();row.querySelectorAll(':scope > c').forEach(c=>{const ci=colIndex(c.getAttribute('r'));if(ci>=0)map.set(ci,cellText(c,shared))});matrix.set(rn,map)});return matrix}
+function findRoleRow(matrix){for(const [rn,row] of matrix){const vals=[...row.values()].map(v=>String(v).trim());if(vals.includes('DCC0')&&vals.includes('DCC1'))return rn}return null}
+function metadataValue(matrix,label){for(const [,row] of matrix)for(const [c,v] of row)if(String(v).trim()===label)return String(row.get(c+1)||'').trim();return ''}
 async function parseReport(file){
-  const entries=await unzipXlsx(await file.arrayBuffer());
-  const shared=[];
+  const entries=await unzipXlsx(await file.arrayBuffer()),shared=[];
   if(entries.has('xl/sharedStrings.xml')){const doc=xml(entries.get('xl/sharedStrings.xml'));doc.querySelectorAll('si').forEach(si=>shared.push([...si.querySelectorAll('t')].map(t=>t.textContent||'').join('')))}
-  const sheetName=[...entries.keys()].filter(k=>/^xl\/worksheets\/sheet\d+\.xml$/.test(k)).sort()[0];
-  if(!sheetName) throw new Error('V XLSX nebyl nalezen list s daty.');
-  const doc=xml(entries.get(sheetName)), rows=[...doc.querySelectorAll('sheetData > row')];
-  const matrix=new Map();
-  rows.forEach(row=>{const rn=Number(row.getAttribute('r'));const map=new Map();row.querySelectorAll(':scope > c').forEach(c=>map.set(colIndex(c.getAttribute('r')),cellText(c,shared)));matrix.set(rn,map)});
-  const row3=matrix.get(3)||new Map(); let dcc0Col=-1,dcc1Col=-1;
-  for(const [col,val] of row3){if(String(val).trim()==='DCC0')dcc0Col=col;if(String(val).trim()==='DCC1')dcc1Col=col}
-  if(dcc0Col<0 || dcc1Col<0){dcc0Col=1;dcc1Col=2}
-  function meta(label){for(let rn=1;rn<=4;rn++){const r=matrix.get(rn);if(!r)continue;for(const [c,v] of r)if(String(v).trim()===label)return String(r.get(c+1)||'').trim()}return ''}
-  const ean=meta('EAN')||'neznámý EAN', meter=meta('Číslo elm.')||'';
-  const records=[]; let first=null,last=null;
-  for(const [rn,r] of matrix){const ts=parseCzTimestamp(r.get(0));if(!ts)continue;first=first||ts;last=ts;const d0=Number(String(r.get(dcc0Col)??'0').replace(',','.'))||0,d1=Number(String(r.get(dcc1Col)??'0').replace(',','.'))||0;records.push({id:`${ean}|${ts.source}|${rn}`,ean,meter,monthKey:ts.monthKey,dateKey:ts.dateKey,sourceTimestamp:ts.source,displayTimestamp:ts.display,sortKey:ts.sortKey,year:ts.year,month:ts.month,day:ts.day,hour:ts.hour,minute:ts.minute,weekday:weekdayMon(ts),dcc0:d0,dcc1:d1})}
-  if(!records.length) throw new Error('V reportu nebyly nalezeny 15minutové hodnoty.');
-  records.sort((a,b)=>a.sortKey-b.sortKey || a.id.localeCompare(b.id));
-  const counts={};records.forEach(r=>counts[r.dateKey]=(counts[r.dateKey]||0)+1);const incomplete=Object.entries(counts).filter(([,c])=>![92,96,100].includes(c));
-  const monthKey=first.monthKey,label=`${MONTH_NAMES[first.month-1]} ${first.year}`;
-  return {records,month:{monthKey,label,year:first.year,month:first.month,ean,meter,count:records.length,first:first.source,last:last.source,incompleteDays:incomplete.length,importedAt:new Date().toISOString(),fileName:file.name}};
+  const sheets=[...entries.keys()].filter(k=>/^xl\/worksheets\/sheet\d+\.xml$/.test(k)).sort((a,b)=>Number(a.match(/\d+/)[0])-Number(b.match(/\d+/)[0]));
+  let matrix=null,roleRow=null;
+  for(const sheet of sheets){const candidate=matrixFromSheet(xml(entries.get(sheet)),shared),rr=findRoleRow(candidate);if(rr!==null){matrix=candidate;roleRow=rr;break}}
+  if(!matrix) throw new Error('V XLSX nebyl nalezen datový list s profily DCC0 a DCC1.');
+  const roleCols={};for(const [col,val] of matrix.get(roleRow)||[])if(PROFILE_ROLES.includes(String(val).trim()))roleCols[String(val).trim()]=col;
+  if(roleCols.DCC0===undefined||roleCols.DCC1===undefined)throw new Error('Report neobsahuje povinné profily DCC0 a DCC1.');
+  const ean=metadataValue(matrix,'EAN'),meter=metadataValue(matrix,'Číslo elm.');if(!ean)throw new Error('V reportu nebylo nalezeno EAN odběrného místa.');
+  const rawRecords=[];
+  for(const [rn,row] of matrix){const ts=parseCzTimestamp(row.get(0));if(!ts)continue;if(ts.minute%15!==0||ts.second!==0)throw new Error(`Řádek ${rn}: čas ${ts.source} není na 15minutové mřížce.`);const profiles={};for(const role of PROFILE_ROLES){const col=roleCols[role];profiles[ROLE_FIELDS[role]]=col===undefined?null:(role==='DCC0'||role==='DCC1'?strictNumber(row.get(col),role,rn):optionalNumber(row.get(col),role,rn))}rawRecords.push({rn,ts,profiles})}
+  if(!rawRecords.length) throw new Error('V reportu nebyly nalezeny 15minutové hodnoty.');
+  const monthKeys=[...new Set(rawRecords.map(x=>x.ts.monthKey))];if(monthKeys.length!==1)throw new Error(`Report obsahuje více kalendářních měsíců (${monthKeys.join(', ')}). Importuj vždy jeden celý měsíc.`);
+  const first=rawRecords[0].ts,{year,month,monthKey}=first,seen=new Map(),records=[];
+  for(const x of rawRecords){const candidates=pragueUtcCandidates(x.ts),occ=seen.get(x.ts.source)||0;if(!candidates.length)throw new Error(`Čas ${x.ts.source} není platný místní čas v Europe/Prague.`);if(occ>=candidates.length)throw new Error(`Čas ${x.ts.source} je v reportu neočekávaně duplicitní.`);seen.set(x.ts.source,occ+1);const ambiguous=candidates.length>1;records.push({id:`${ean}|${x.ts.source}|${occ}`,ean,meter,monthKey,dateKey:x.ts.dateKey,sourceTimestamp:x.ts.source,displayTimestamp:x.ts.display+(ambiguous?` [${occ+1}]`:''),occurrenceIndex:occ,sortKey:candidates[occ],year:x.ts.year,month:x.ts.month,day:x.ts.day,hour:x.ts.hour,minute:x.ts.minute,weekday:weekdayMon(x.ts),intervalMinutes:15,...x.profiles})}
+  records.sort((a,b)=>a.sortKey-b.sortKey||a.id.localeCompare(b.id));
+  const validation=validateMonthTimeline(records,year,month);if(!validation.complete)throw new Error(`Report není kompletní 15minutový měsíc. ${validation.issues.slice(0,4).join(' | ')}${validation.issues.length>4?' …':''}`);
+  const label=`${MONTH_NAMES[month-1]} ${year}`;
+  return {records,month:{monthKey,label,year,month,ean,meter,count:records.length,expectedCount:validation.expectedCount,complete:true,incompleteDays:0,validationVersion:2,first:records[0].sourceTimestamp,last:records[records.length-1].sourceTimestamp,importedAt:new Date().toISOString(),fileName:file.name}};
 }
 
 // ---------- Analytics ----------
