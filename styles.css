@@ -11,3 +11,21 @@
 @media(min-width:680px){main{padding-left:24px;padding-right:24px}.kpi-grid{grid-template-columns:repeat(4,1fr)}.hero-card{padding:28px}.hero-value{font-size:56px}.chart-box{min-height:220px}}
 
 .backup-actions{display:flex;gap:9px;flex-wrap:wrap}.backup-actions .secondary-btn{flex:1;min-width:150px}
+
+.period-panel{margin-bottom:12px}
+.period-navigator{display:grid;grid-template-columns:48px 1fr 48px;gap:8px;align-items:center;margin:0 0 12px}
+.period-arrow{height:48px;border:1px solid var(--border);border-radius:15px;background:var(--surface);color:var(--text);font-size:28px;line-height:1;box-shadow:var(--shadow)}
+.period-anchor{position:relative;min-height:48px;border:1px solid var(--border);border-radius:15px;background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 38px;text-align:center;overflow:hidden;box-shadow:var(--shadow)}
+.period-anchor strong{font-size:15px;line-height:1.2}.period-anchor small{font-size:10px;color:var(--muted);margin-top:2px}
+.period-anchor input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.custom-period{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end;margin-bottom:12px}
+.custom-period label{display:grid;gap:5px}.custom-period label span{font-size:11px;font-weight:700;color:var(--muted)}
+.custom-period input{width:100%;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text)}
+.custom-separator{padding-bottom:11px;color:var(--muted)}
+.period-all-label{text-align:center;padding:12px 14px;margin-bottom:12px;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--muted);font-size:13px;font-weight:700}
+#heroCard{touch-action:pan-y}
+.mini-toggle{display:flex;gap:3px;padding:3px;border-radius:11px;background:var(--bg);border:1px solid var(--border)}
+.daypart-btn{border:0;background:transparent;color:var(--muted);padding:7px 9px;border-radius:8px;font-size:11px;font-weight:750;white-space:nowrap}
+.daypart-btn.active{background:var(--surface);color:var(--text);box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.daypart-value{text-align:right;font-weight:750;white-space:nowrap}
+@media(max-width:420px){.period-anchor{padding-left:18px;padding-right:18px}.custom-period{grid-template-columns:1fr 1fr}.custom-separator{display:none}.daypart-row{grid-template-columns:68px 1fr 70px}}
