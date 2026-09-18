@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.3.0'"),'App version must be 1.3.0');
+assert.ok(app.includes("APP_VERSION = '1.3.1'"),'App version must be 1.3.0');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -62,6 +62,10 @@ assert.ok(app.includes('data-month-invoice'),'Invoice input missing');
 assert.ok(app.includes('function costForRecords'),'Cost allocation missing');
 assert.ok(app.includes("data-dashboard-mode=\"cost\"")||index.includes('data-dashboard-mode="cost"'),'Cost dashboard mode missing');
 assert.ok(app.includes("unit:'Kč/kWh'"),'Effective price chart unit missing');
+assert.ok(app.includes("$('.dashboard-mode-btn').forEach"),'Dashboard mode must bind all toggle buttons');
+assert.ok(app.includes("$('.metric-btn').forEach"),'Metric mode must bind all toggle buttons');
+assert.ok(!app.includes("\n  $('.dashboard-mode-btn').forEach"),'Dashboard mode incorrectly uses single-element selector');
+assert.ok(!app.includes("\n  $('.metric-btn').forEach"),'Metric mode incorrectly uses single-element selector');
 
 const analyticsStart=app.indexOf('const val = r =>');
 const analyticsEnd=app.indexOf('// ---------- SVG charts ----------',analyticsStart);
@@ -109,4 +113,4 @@ assert.equal(periodTest.currentRange().length,2);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.3 smoke tests OK');
+console.log('Energo Přehled Beta 1.3.1 smoke tests OK');
