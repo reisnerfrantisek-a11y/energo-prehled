@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.3.1';
+const APP_VERSION = '1.3.2';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -660,6 +660,23 @@ async function restoreLocalData(file){
 }
 
 // ---------- UI events ----------
+async function forceUpdateApp(){
+  if(!confirm('Vynutit stažení nejnovější verze aplikace? Importovaná data, ceny faktur a nastavení zůstanou zachované.'))return;
+  try{
+    showToast('Čistím cache aplikace…');
+    const base=new URL('./',location.href).href;
+    if('serviceWorker' in navigator){
+      const regs=await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.filter(r=>r.scope===base).map(r=>r.unregister()));
+    }
+    if('caches' in window){
+      const keys=await caches.keys();
+      await Promise.all(keys.filter(k=>k.startsWith('energo-prehled-beta-')||k==='energo-prehled-v1.1.0').map(k=>caches.delete(k)));
+    }
+    const target=new URL('./',location.href);target.searchParams.set('fresh',Date.now().toString());
+    location.replace(target.href);
+  }catch(e){console.error(e);alert('Aktualizaci se nepodařilo dokončit: '+e.message)}
+}
 function showToast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>t.classList.remove('show'),2600)}
 function nav(target){$$('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===target));$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.target===target));$('#screenTitle').textContent={overview:'Přehled',analysis:'Analýza',data:'Data',export:'Export'}[target];window.scrollTo({top:0,behavior:'smooth'});if(target==='analysis')renderAnalysis();if(target==='data')renderMonths()}
 function bind(){
@@ -682,6 +699,8 @@ function bind(){
   $$('.daypart-btn').forEach(b=>b.onclick=()=>{state.daypartMode=b.dataset.daypartMode;localStorage.setItem(DAYPART_KEY,state.daypartMode);renderDayparts(currentRange())});
   $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};
   $('#confirmReplace').onclick=async()=>{const p=state.pendingImport;$('#replaceModal').classList.add('hidden');if(p)await saveImport(p,true)};
+  $('#forceUpdateBtn').onclick=forceUpdateApp;
+  $('#appVersionText').textContent=APP_VERSION;
   $('#backupDataBtn').onclick=()=>backupLocalData().catch(e=>alert('Zálohu se nepodařilo vytvořit: '+e.message));
   $('#restoreDataBtn').onclick=()=>$('#backupFileInput').click();
   $('#backupFileInput').onchange=e=>{const file=e.target.files[0];if(file)restoreLocalData(file).catch(err=>alert('Obnova se nepodařila: '+err.message)).finally(()=>e.target.value='')};
@@ -693,6 +712,8 @@ function bind(){
 }
 
 (async function init(){
-  if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(console.warn);
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
+  }
   try{db=await openDB();bind();await reload()}catch(e){console.error(e);alert('Aplikaci se nepodařilo inicializovat: '+e.message)}
 })();
