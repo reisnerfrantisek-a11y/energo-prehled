@@ -615,14 +615,15 @@ function zipStored(files){
 }
 function exportXLSX(rs,g){
   const agg=aggregateExport(rs,g),daily=aggregateExport(rs,'day');const h=groupAvg(rs,r=>r.hour,val);const dateTotals=group(rs,r=>r.dateKey);const dateWeek={};rs.forEach(r=>dateWeek[r.dateKey]=r.weekday);const sums=Array(7).fill(0),cnt=Array(7).fill(0);for(const [d,v] of dateTotals){sums[dateWeek[d]]+=v;cnt[dateWeek[d]]++}
-  const total=sumEnergy(rs),peak=rs.length?rs.reduce((a,b)=>val(b)>val(a)?b:a):null;
+  const total=sumEnergy(rs),peak=rs.length?rs.reduce((a,b)=>val(b)>val(a)?b:a):null,costs=costForRecords(rs),financeMonths=[...new Set(rs.map(r=>r.monthKey))].sort();
   const sheets=[
-    {name:'Souhrn',rows:[['Energo Přehled'],['Od',$('#exportFrom').value],['Do',$('#exportTo').value],['Metrika',state.metric.toUpperCase()],['Celková energie (kWh)',total],['Průměr / den (kWh)',total/Math.max(1,dateTotals.size)],['Maximum výkonu (kW)',peak?val(peak):0],['Čas maxima',peak?(peak.displayTimestamp||peak.sourceTimestamp):'']]},
+    {name:'Souhrn',rows:[['Energo Přehled'],['Od',$('#exportFrom').value],['Do',$('#exportTo').value],['Metrika',state.metric.toUpperCase()],['Celková energie (kWh)',total],['Průměr / den (kWh)',total/Math.max(1,dateTotals.size)],['Maximum výkonu (kW)',peak?val(peak):0],['Čas maxima',peak?(peak.displayTimestamp||peak.sourceTimestamp):''],['Přepočtené náklady (Kč)',costs.knownMonths?costs.total:''],['Efektivní cena (Kč/kWh)',costs.coveredEnergy>0?costs.total/costs.coveredEnergy:'']]},
     {name:'Data',rows:[['Období','Průměrný výkon (kW)','Energie (kWh)'],...agg.map(r=>[r.period,r.powerKw,r.energyKwh])]},
     {name:'Zdrojová data',rows:[['Čas','Výskyt','DCC0 (kW)','DCC1 (kW)','DKC0 (kVAr)','DKC1 (kVAr)','DMC0 (kVAr)','DMC1 (kVAr)'],...rs.map(r=>[r.sourceTimestamp,(r.occurrenceIndex||0)+1,r.dcc0,r.dcc1,r.dkc0??'',r.dkc1??'',r.dmc0??'',r.dmc1??''])]},
     {name:'Denní souhrny',rows:[['Datum','Průměrný výkon (kW)','Energie (kWh)'],...daily.map(r=>[r.period,r.powerKw,r.energyKwh])]},
     {name:'Hodinový profil',rows:[['Hodina','Průměrný výkon (kW)'],...Array.from({length:24},(_,i)=>[`${String(i).padStart(2,'0')}:00`,h.get(i)||0])]},
-    {name:'Dny v týdnu',rows:[['Den','Průměrná spotřeba dne (kWh)'],...WEEK_MON.map((d,i)=>[d,cnt[i]?sums[i]/cnt[i]:0])]}
+    {name:'Dny v týdnu',rows:[['Den','Průměrná spotřeba dne (kWh)'],...WEEK_MON.map((d,i)=>[d,cnt[i]?sums[i]/cnt[i]:0])]},
+    {name:'Finanční přehled',rows:[['Měsíc','Faktura celkem (Kč)','DCC1 spotřeba (kWh)','Efektivní cena (Kč/kWh)'],...financeMonths.map(k=>{const invoice=monthInvoice(k),kwh=monthBillingEnergy(k),price=invoice!==null&&kwh>0?invoice/kwh:'';return [monthLabel(k),invoice??'',kwh,price]})]}
   ];
   const files=[];files.push({name:'[Content_Types].xml',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`});
   files.push({name:'_rels/.rels',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`});
@@ -633,7 +634,7 @@ function exportXLSX(rs,g){
 
 // ---------- Backup / restore ----------
 async function backupLocalData(){
-  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,ui:{period:state.period,anchorMonth:state.anchorMonth,customFrom:state.customFrom,customTo:state.customTo,daypartMode:state.daypartMode},records:await getAll('intervals'),months:await getAll('months')};
+  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,ui:{period:state.period,anchorMonth:state.anchorMonth,customFrom:state.customFrom,customTo:state.customTo,daypartMode:state.daypartMode,dashboardMode:state.dashboardMode},records:await getAll('intervals'),months:await getAll('months')};
   downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`energo_prehled_zaloha_${new Date().toISOString().slice(0,10)}.json`);
   showToast('Záloha dat byla vytvořena');
 }
@@ -642,6 +643,7 @@ async function restoreLocalData(file){
   if(payload?.format!=='energo-prehled-backup'||payload.version!==1||!Array.isArray(payload.records)||!Array.isArray(payload.months))throw new Error('Soubor není kompatibilní záloha Energo Přehled.');
   if(payload.records.some(r=>!r||typeof r.id!=='string'||typeof r.monthKey!=='string'||typeof r.dateKey!=='string'||!Number.isFinite(Number(r.dcc0))||!Number.isFinite(Number(r.dcc1))))throw new Error('Záloha obsahuje neplatné intervalové záznamy.');
   if(payload.months.some(m=>!m||typeof m.monthKey!=='string'||!Number.isFinite(Number(m.count))))throw new Error('Záloha obsahuje neplatná metadata měsíců.');
+  if(payload.months.some(m=>{const v=m?.finance?.invoiceTotal;return v!==undefined&&v!==null&&(!Number.isFinite(Number(v))||Number(v)<0)}))throw new Error('Záloha obsahuje neplatnou cenu faktury.');
   if(!confirm(`Obnovit zálohu z ${payload.createdAt?new Date(payload.createdAt).toLocaleString('cs-CZ'):'neznámého data'}? Současná lokální data budou nahrazena.`))return;
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'),s=tx.objectStore('intervals'),m=tx.objectStore('months');
@@ -655,7 +657,8 @@ async function restoreLocalData(file){
     if(/^\d{4}-\d{2}-\d{2}$/.test(payload.ui.customFrom||''))state.customFrom=payload.ui.customFrom;
     if(/^\d{4}-\d{2}-\d{2}$/.test(payload.ui.customTo||''))state.customTo=payload.ui.customTo;
     if(['percent','average'].includes(payload.ui.daypartMode))state.daypartMode=payload.ui.daypartMode;
-    localStorage.setItem(DAYPART_KEY,state.daypartMode);persistPeriodState();
+    if(['energy','cost'].includes(payload.ui.dashboardMode))state.dashboardMode=payload.ui.dashboardMode;
+    localStorage.setItem(DAYPART_KEY,state.daypartMode);localStorage.setItem(DASHBOARD_MODE_KEY,state.dashboardMode);persistPeriodState();
   }
   state.resetExportRange=true;await reload();showToast('Záloha byla obnovena');
 }
@@ -677,7 +680,8 @@ function bind(){
     persistPeriodState();renderPeriodControls();renderOverview();renderAnalysis();
   };
   $('#customFrom').onchange=updateCustom;$('#customTo').onchange=updateCustom;
-  $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});
+  $('.dashboard-mode-btn').forEach(b=>b.onclick=()=>{state.dashboardMode=b.dataset.dashboardMode;localStorage.setItem(DASHBOARD_MODE_KEY,state.dashboardMode);renderOverview()});
+  $('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});
   $('#dayTypeSelect').onchange=renderAnalysis;
   $$('.daypart-btn').forEach(b=>b.onclick=()=>{state.daypartMode=b.dataset.daypartMode;localStorage.setItem(DAYPART_KEY,state.daypartMode);renderDayparts(currentRange())});
   $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};
