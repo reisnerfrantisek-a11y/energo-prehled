@@ -12,10 +12,11 @@ let db;
 const APP_VERSION = '1.1.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
+const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
 const PROFILE_ROLES = ['DCC0','DCC1','DKC0','DKC1','DMC0','DMC1'];
 const ROLE_FIELDS = {DCC0:'dcc0',DCC1:'dcc1',DKC0:'dkc0',DKC1:'dkc1',DMC0:'dmc0',DMC1:'dmc1'};
 const PRAGUE_DTF = new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Prague',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
-let state = { records: [], months: [], metric: localStorage.getItem('metric') || 'dcc1', period: 'month', pendingImport: null, resetExportRange: false };
+let state = { records: [], months: [], metric: localStorage.getItem(METRIC_KEY) || 'dcc1', period: 'month', pendingImport: null, resetExportRange: false };
 
 // ---------- IndexedDB ----------
 function openDB(){
@@ -35,9 +36,14 @@ function openDB(){
 function txDone(tx){return new Promise((res,rej)=>{tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error)})}
 async function getAll(store){return new Promise((res,rej)=>{const r=db.transaction(store,'readonly').objectStore(store).getAll();r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
 async function deleteMonth(monthKey){
-  const tx=db.transaction(['intervals','months'],'readwrite'), s=tx.objectStore('intervals'), idx=s.index('monthKey');
-  await new Promise((res,rej)=>{const r=idx.openCursor(IDBKeyRange.only(monthKey));r.onsuccess=()=>{const c=r.result;if(c){c.delete();c.continue()}else res()};r.onerror=()=>rej(r.error)});
-  tx.objectStore('months').delete(monthKey); await txDone(tx); state.resetExportRange=true; await reload(); showToast('Měsíc byl odstraněn');
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(['intervals','months'],'readwrite'),s=tx.objectStore('intervals'),months=tx.objectStore('months'),idx=s.index('monthKey');
+    tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+    const r=idx.openCursor(IDBKeyRange.only(monthKey));
+    r.onerror=()=>{try{tx.abort()}catch{}};
+    r.onsuccess=()=>{const c=r.result;if(c){c.delete();c.continue()}else months.delete(monthKey)};
+  });
+  state.resetExportRange=true; await reload(); showToast('Měsíc byl odstraněn');
 }
 async function saveImport(payload, replace=false){
   await new Promise((resolve,reject)=>{
@@ -288,7 +294,7 @@ function exportXLSX(rs,g){
   const agg=aggregateExport(rs,g),daily=aggregateExport(rs,'day');const h=groupAvg(rs,r=>r.hour,val);const dateTotals=group(rs,r=>r.dateKey);const dateWeek={};rs.forEach(r=>dateWeek[r.dateKey]=r.weekday);const sums=Array(7).fill(0),cnt=Array(7).fill(0);for(const [d,v] of dateTotals){sums[dateWeek[d]]+=v;cnt[dateWeek[d]]++}
   const total=sumEnergy(rs),peak=rs.length?rs.reduce((a,b)=>val(b)>val(a)?b:a):null;
   const sheets=[
-    {name:'Souhrn',rows:[['Energo Přehled'],['Od',$('#exportFrom').value],['Do',$('#exportTo').value],['Metrika',state.metric.toUpperCase()],['Celková energie (kWh)',total],['Průměr / den (kWh)',total/Math.max(1,dateTotals.size)],['Maximum výkonu (kW)',peak?val(peak):0],['Čas maxima',peak?peak.sourceTimestamp:'']]},
+    {name:'Souhrn',rows:[['Energo Přehled'],['Od',$('#exportFrom').value],['Do',$('#exportTo').value],['Metrika',state.metric.toUpperCase()],['Celková energie (kWh)',total],['Průměr / den (kWh)',total/Math.max(1,dateTotals.size)],['Maximum výkonu (kW)',peak?val(peak):0],['Čas maxima',peak?(peak.displayTimestamp||peak.sourceTimestamp):'']]},
     {name:'Data',rows:[['Období','Průměrný výkon (kW)','Energie (kWh)'],...agg.map(r=>[r.period,r.powerKw,r.energyKwh])]},
     {name:'Zdrojová data',rows:[['Čas','Výskyt','DCC0 (kW)','DCC1 (kW)','DKC0 (kVAr)','DKC1 (kVAr)','DMC0 (kVAr)','DMC1 (kVAr)'],...rs.map(r=>[r.sourceTimestamp,(r.occurrenceIndex||0)+1,r.dcc0,r.dcc1,r.dkc0??'',r.dkc1??'',r.dmc0??'',r.dmc1??''])]},
     {name:'Denní souhrny',rows:[['Datum','Průměrný výkon (kW)','Energie (kWh)'],...daily.map(r=>[r.period,r.powerKw,r.energyKwh])]},
@@ -305,19 +311,21 @@ function exportXLSX(rs,g){
 // ---------- Backup / restore ----------
 async function backupLocalData(){
   const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,records:await getAll('intervals'),months:await getAll('months')};
-  downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`energo_prehlad_zaloha_${new Date().toISOString().slice(0,10)}.json`);
+  downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`energo_prehled_zaloha_${new Date().toISOString().slice(0,10)}.json`);
   showToast('Záloha dat byla vytvořena');
 }
 async function restoreLocalData(file){
   let payload;try{payload=JSON.parse(await file.text())}catch{throw new Error('Soubor není platná JSON záloha.')}
   if(payload?.format!=='energo-prehled-backup'||payload.version!==1||!Array.isArray(payload.records)||!Array.isArray(payload.months))throw new Error('Soubor není kompatibilní záloha Energo Přehled.');
+  if(payload.records.some(r=>!r||typeof r.id!=='string'||typeof r.monthKey!=='string'||typeof r.dateKey!=='string'||!Number.isFinite(Number(r.dcc0))||!Number.isFinite(Number(r.dcc1))))throw new Error('Záloha obsahuje neplatné intervalové záznamy.');
+  if(payload.months.some(m=>!m||typeof m.monthKey!=='string'||!Number.isFinite(Number(m.count))))throw new Error('Záloha obsahuje neplatná metadata měsíců.');
   if(!confirm(`Obnovit zálohu z ${payload.createdAt?new Date(payload.createdAt).toLocaleString('cs-CZ'):'neznámého data'}? Současná lokální data budou nahrazena.`))return;
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'),s=tx.objectStore('intervals'),m=tx.objectStore('months');
     s.clear();m.clear();payload.records.forEach(r=>s.put(r));payload.months.forEach(x=>m.put(x));
     tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
   });
-  if(payload.metric==='dcc0'||payload.metric==='dcc1'){state.metric=payload.metric;localStorage.setItem('metric',state.metric)}
+  if(payload.metric==='dcc0'||payload.metric==='dcc1'){state.metric=payload.metric;localStorage.setItem(METRIC_KEY,state.metric)}
   state.resetExportRange=true;await reload();showToast('Záloha byla obnovena');
 }
 
@@ -327,7 +335,7 @@ function nav(target){$$('.screen').forEach(s=>s.classList.toggle('active',s.data
 function bind(){
   const choose=()=>$('#fileInput').click();$('#importBtn').onclick=choose;$('#emptyImportBtn').onclick=choose;$('#dataImportBtn').onclick=choose;$('#fileInput').onchange=e=>e.target.files[0]&&handleFile(e.target.files[0]);
   $$('.nav-btn').forEach(b=>b.onclick=()=>nav(b.dataset.target));$$('.period-chip').forEach(b=>b.onclick=()=>{state.period=b.dataset.period;$$('.period-chip').forEach(x=>x.classList.toggle('active',x===b));renderOverview();renderAnalysis()});
-  $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem('metric',state.metric);renderAll()});$('#dayTypeSelect').onchange=renderAnalysis;
+  $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});$('#dayTypeSelect').onchange=renderAnalysis;
   $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};$('#confirmReplace').onclick=async()=>{const p=state.pendingImport;$('#replaceModal').classList.add('hidden');if(p)await saveImport(p,true)};
   $('#backupDataBtn').onclick=()=>backupLocalData().catch(e=>alert('Zálohu se nepodařilo vytvořit: '+e.message));
   $('#restoreDataBtn').onclick=()=>$('#backupFileInput').click();
