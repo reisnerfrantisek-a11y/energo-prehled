@@ -9,14 +9,31 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
+const PERIOD_KEY = IS_BETA ? 'period-beta' : 'period';
+const ANCHOR_KEY = IS_BETA ? 'anchor-beta' : 'anchor';
+const CUSTOM_FROM_KEY = IS_BETA ? 'custom-from-beta' : 'custom-from';
+const CUSTOM_TO_KEY = IS_BETA ? 'custom-to-beta' : 'custom-to';
+const DAYPART_KEY = IS_BETA ? 'daypart-beta' : 'daypart';
 const PROFILE_ROLES = ['DCC0','DCC1','DKC0','DKC1','DMC0','DMC1'];
 const ROLE_FIELDS = {DCC0:'dcc0',DCC1:'dcc1',DKC0:'dkc0',DKC1:'dkc1',DMC0:'dmc0',DMC1:'dmc1'};
 const PRAGUE_DTF = new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Prague',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
-let state = { records: [], months: [], metric: localStorage.getItem(METRIC_KEY) || 'dcc1', period: 'month', pendingImport: null, resetExportRange: false };
+const savedPeriod=localStorage.getItem(PERIOD_KEY);
+let state = {
+  records: [],
+  months: [],
+  metric: localStorage.getItem(METRIC_KEY) || 'dcc1',
+  period: ['month','3m','year','custom','all'].includes(savedPeriod)?savedPeriod:'month',
+  anchorMonth: localStorage.getItem(ANCHOR_KEY) || '',
+  customFrom: localStorage.getItem(CUSTOM_FROM_KEY) || '',
+  customTo: localStorage.getItem(CUSTOM_TO_KEY) || '',
+  daypartMode: localStorage.getItem(DAYPART_KEY)==='average'?'average':'percent',
+  pendingImport: null,
+  resetExportRange: false
+};
 
 // ---------- IndexedDB ----------
 function openDB(){
@@ -45,7 +62,7 @@ async function deleteMonth(monthKey){
   });
   state.resetExportRange=true; await reload(); showToast('Měsíc byl odstraněn');
 }
-async function saveImport(payload, replace=false){
+async function persistImport(payload, replace=false){
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'), s=tx.objectStore('intervals'), months=tx.objectStore('months');
     const write=()=>{payload.records.forEach(r=>s.put(r));months.put(payload.month)};
@@ -55,7 +72,12 @@ async function saveImport(payload, replace=false){
     cursor.onerror=()=>{try{tx.abort()}catch{}};
     cursor.onsuccess=()=>{const c=cursor.result;if(c){c.delete();c.continue()}else{months.delete(payload.month.monthKey);write()}};
   });
-  state.pendingImport=null; state.resetExportRange=true; await reload(); showToast(`${payload.month.label}: importováno ${payload.records.length.toLocaleString('cs-CZ')} intervalů`);
+}
+async function saveImport(payload, replace=false){
+  await persistImport(payload,replace);
+  state.pendingImport=null; state.resetExportRange=true;
+  if(!state.anchorMonth)state.anchorMonth=payload.month.monthKey;
+  await reload(); showToast(`${payload.month.label}: importováno ${payload.records.length.toLocaleString('cs-CZ')} intervalů`);
 }
 
 // ---------- XLSX ZIP reader ----------
