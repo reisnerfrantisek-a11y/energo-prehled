@@ -10,7 +10,7 @@
   <title>Energo Přehled</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=1.3.2" />
 </head>
 <body>
   <div id="app">
@@ -146,6 +146,12 @@
           </div>
           <p class="fineprint">Záloha obsahuje importované intervaly, aktivaci měsíců, finanční údaje i nastavení aplikace. Soubor zůstává pod tvou kontrolou.</p>
         </section>
+        <section class="panel">
+          <div class="panel-head"><div><h2>Aktualizace aplikace</h2><p>Vynutí stažení nejnovější verze bez smazání energetických dat</p></div></div>
+          <button class="secondary-btn full-btn" id="forceUpdateBtn">Vynutit aktualizaci aplikace</button>
+          <p class="fineprint">Smaže pouze cache a Service Worker této beta aplikace. Importované měsíce, ceny faktur a nastavení zůstanou zachované.</p>
+          <p class="fineprint">Aktuální kód: <strong id="appVersionText">—</strong></p>
+        </section>
         <section class="privacy-card">
           <strong>Soukromí</strong>
           <p>Report se při importu zpracovává přímo v prohlížeči. Energetická data se neposílají na hosting ani na server aplikace.</p>
@@ -181,6 +187,6 @@
       </div>
     </div>
   </div>
-  <script src="app.js" defer></script>
+  <script src="app.js?v=1.3.2" defer></script>
 </body>
 </html>
