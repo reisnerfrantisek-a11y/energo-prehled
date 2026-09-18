@@ -354,6 +354,7 @@ async function fetchEgdMonth(token,monthKey){
 async function persistEgdMonth(payload){
   if(!payload)return {saved:false,reason:'no-data'};
   const previous=state.months.find(m=>m.monthKey===payload.month.monthKey);
+  if(previous?.complete&&previous.source!=='egd-api')return {saved:false,reason:'kept-xlsx'};
   if(previous?.complete&&payload.month.complete!==true)return {saved:false,reason:'kept-complete'};
   await persistImport(payload,!!previous);return {saved:true,reason:payload.month.complete?'complete':'partial'};
 }
@@ -473,6 +474,7 @@ function expectedPreviousMonthKeys(){
   return [];
 }
 function monthIsComplete(k){const m=state.months.find(x=>x.monthKey===k);return !!m&&m.enabled!==false&&(m.complete===true||(m.complete===undefined&&m.incompleteDays===0))}
+function monthIsLivePartial(k){const m=state.months.find(x=>x.monthKey===k);return !!m&&m.enabled!==false&&m.source==='egd-api'&&m.complete!==true&&!!m.lastAvailableAt}
 function monthIsDisabled(k){const m=state.months.find(x=>x.monthKey===k);return !!m&&m.enabled===false}
 function keysContainDisabled(keys){return keys.some(monthIsDisabled)}
 function keysComplete(keys){return keys.length>0&&keys.every(monthIsComplete)}
@@ -542,7 +544,7 @@ async function reload(){state.records=await getAll('intervals');state.months=awa
 function renderAll(){
   const has=state.records.length>0;
   $('#emptyState').classList.toggle('hidden',has);$('#overviewContent').classList.toggle('hidden',!has);
-  renderPeriodControls();renderOverview();renderAnalysis();renderMonths();renderExportDefaults();
+  renderPeriodControls();renderOverview();renderAnalysis();renderMonths();renderExportDefaults();renderEgdPanel();
 }
 function renderPeriodControls(){
   $$('.period-chip').forEach(b=>b.classList.toggle('active',b.dataset.period===state.period));
@@ -635,6 +637,10 @@ function renderOverview(){
   else{
     const currentKeys=expectedCurrentMonthKeys(),prevKeys=expectedPreviousMonthKeys(),prev=previousComparable(),prevTotal=sumEnergy(prev);
     if(keysContainDisabled(currentKeys))$('#heroDelta').textContent='Období obsahuje vypnutý měsíc';
+    else if(currentKeys.some(monthIsLivePartial)){
+      const live=state.months.find(m=>currentKeys.includes(m.monthKey)&&monthIsLivePartial(m.monthKey));
+      $('#heroDelta').textContent=live?.lastAvailableAt?`Průběžná data do ${new Date(live.lastAvailableAt).toLocaleString('cs-CZ')}`:'Průběžná data z EG.D';
+    }
     else if(!keysComplete(currentKeys))$('#heroDelta').textContent='Neúplné období · chybí importované měsíce';
     else if(!keysComplete(prevKeys))$('#heroDelta').textContent='Předchozí srovnatelné období není kompletní';
     else if(prevTotal===0)$('#heroDelta').textContent='Předchozí období: 0 kWh';
