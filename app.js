@@ -215,6 +215,34 @@ const val = r => {const n=Number(r[state.metric]);return Number.isFinite(n)?n:0}
 const energy = r => val(r)*((Number(r.intervalMinutes)||15)/60);
 function monthEnabled(k){const m=state.months.find(x=>x.monthKey===k);return !m||m.enabled!==false}
 function sortedRecords(){return state.records.filter(r=>monthEnabled(r.monthKey)).sort((a,b)=>a.sortKey-b.sortKey||a.id.localeCompare(b.id))}
+const billingEnergy = r => {const n=Number(r.dcc1);return Number.isFinite(n)?n*((Number(r.intervalMinutes)||15)/60):0};
+function monthMeta(k){return state.months.find(m=>m.monthKey===k)||null}
+function monthInvoice(k){const m=monthMeta(k),f=normalizeFinance(m?.finance);return f.invoiceTotal}
+function monthBillingEnergy(k){return state.records.filter(r=>r.monthKey===k).reduce((sum,r)=>sum+billingEnergy(r),0)}
+function monthEffectivePrice(k){const invoice=monthInvoice(k),kwh=monthBillingEnergy(k);return invoice!==null&&kwh>0?invoice/kwh:null}
+function costForRecords(rs){
+  const groups=new Map();for(const r of rs){if(!groups.has(r.monthKey))groups.set(r.monthKey,[]);groups.get(r.monthKey).push(r)}
+  let total=0,coveredEnergy=0,knownMonths=0;const missing=[],unallocatable=[],monthCosts=new Map();
+  for(const [k,selected] of groups){
+    const invoice=monthInvoice(k);if(invoice===null){missing.push(k);continue}
+    const full=state.records.filter(r=>r.monthKey===k),fullEnergy=full.reduce((a,r)=>a+billingEnergy(r),0),selectedEnergy=selected.reduce((a,r)=>a+billingEnergy(r),0),isFull=selected.length===full.length;
+    let cost=null;
+    if(isFull)cost=invoice;
+    else if(fullEnergy>0)cost=invoice*(selectedEnergy/fullEnergy);
+    else unallocatable.push(k);
+    if(cost!==null){total+=cost;coveredEnergy+=selectedEnergy;knownMonths++;monthCosts.set(k,cost)}
+  }
+  return {total,coveredEnergy,knownMonths,missing,unallocatable,monthCosts,groupCount:groups.size};
+}
+function dailyCostData(rs){
+  const out=new Map(),groups=new Map();for(const r of rs){if(!groups.has(r.monthKey))groups.set(r.monthKey,[]);groups.get(r.monthKey).push(r)}
+  for(const [k,selected] of groups){
+    const invoice=monthInvoice(k),fullEnergy=monthBillingEnergy(k);if(invoice===null||fullEnergy<=0)continue;
+    const rate=invoice/fullEnergy;
+    for(const r of selected)out.set(r.dateKey,(out.get(r.dateKey)||0)+billingEnergy(r)*rate);
+  }
+  return out;
+}
 function monthLabel(k){const [y,m]=String(k).split('-').map(Number);return y&&m?`${MONTH_NAMES[m-1]} ${y}`:'—'}
 function monthIndex(k){const [y,m]=String(k).split('-').map(Number);return Number.isFinite(y)&&Number.isFinite(m)?y*12+(m-1):null}
 function monthKeyFromIndex(idx){const y=Math.floor(idx/12),m=((idx%12)+12)%12+1;return `${y}-${String(m).padStart(2,'0')}`}
