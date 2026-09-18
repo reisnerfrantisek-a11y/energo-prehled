@@ -685,10 +685,15 @@ async function renderMonths(){
   const months=[...state.months].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));
   $('#monthsList').innerHTML=months.length?months.map(m=>{
     const enabled=m.enabled!==false,finance=normalizeFinance(m.finance),invoice=finance.invoiceTotal,kwh=monthBillingEnergy(m.monthKey),effective=invoice!==null&&kwh>0?invoice/kwh:null;
+    const isApi=m.source==='egd-api',partial=isApi&&m.complete!==true,quality=m.apiStatusCounts||{},sourceTag=isApi?'<span class="month-source">EG.D</span>':'<span class="month-source">XLSX</span>';
+    const qualityText=isApi?`W ${quality.W||0} · G ${quality.G||0} · F ${quality.F||0}`:'';
+    const availability=partial&&m.lastAvailableAt?` · do ${new Date(m.lastAvailableAt).toLocaleString('cs-CZ')}`:'';
+    const stateText=monthIsComplete(m.monthKey)?'✓ kompletní':partial&&enabled?'● průběžně':enabled?'⚠ zkontrolovat':'—';
     return `<div class="month-row ${enabled?'':'month-disabled'}">
       <div class="month-main">
-        <strong>${escapeHtml(m.label)}</strong>
-        <div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}</div>
+        <strong>${escapeHtml(m.label)} ${sourceTag}</strong>
+        <div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}${escapeHtml(availability)}</div>
+        ${isApi?`<div class="month-quality">Kvalita EG.D: ${escapeHtml(qualityText)} · profil ${escapeHtml(m.apiProfile||'—')} · ${escapeHtml(m.apiUnits||'—')}</div>`:''}
         <div class="month-finance">
           <label class="invoice-field"><span>Faktura</span><input inputmode="decimal" data-month-invoice="${m.monthKey}" value="${invoice===null?'':String(invoice).replace('.',',')}" placeholder="např. 1842"><b>Kč</b></label>
           <span class="effective-price">${effective===null?(invoice!==null&&kwh===0?'0 kWh · cenu/kWh nelze určit':'Cena/kWh —'):`Efektivně <strong>${fmt.format(effective)} Kč/kWh</strong>`}</span>
@@ -701,11 +706,11 @@ async function renderMonths(){
           <span class="toggle-track"><span></span></span>
           <em>${enabled?'Aktivní':'Vypnuto'}</em>
         </label>
-        <div class="month-value">${monthIsComplete(m.monthKey)?'✓ kompletní':enabled?'⚠ zkontrolovat':'—'}</div>
+        <div class="month-value">${stateText}</div>
         <button class="trash-btn" data-delete="${m.monthKey}" aria-label="Smazat">×</button>
       </div>
     </div>`
-  }).join(''):'<div class="chart-empty">Žádné importované měsíce</div>';
+  }).join(''):'<div class="chart-empty">Žádná uložená data</div>';
   $$('[data-month-toggle]').forEach(x=>x.onchange=()=>setMonthEnabled(x.dataset.monthToggle,x.checked).catch(e=>{console.error(e);alert('Změnu se nepodařilo uložit: '+e.message)}));
   $$('[data-month-invoice]').forEach(x=>x.onchange=()=>setMonthInvoice(x.dataset.monthInvoice,x.value).catch(e=>{console.error(e);alert('Cenu se nepodařilo uložit: '+e.message);renderMonths()}));
   $$('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm(`Opravdu odstranit ${monthLabel(b.dataset.delete)}?`))deleteMonth(b.dataset.delete)});
