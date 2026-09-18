@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.2.1'"),'App version must be 1.2.0');
+assert.ok(app.includes("APP_VERSION = '1.2.2'"),'App version must be 1.2.2');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -55,6 +55,8 @@ assert.equal(monthRun.monthKeyFromIndex(augIndex),'2026-08');
 assert.equal(monthRun.monthKeyFromIndex(augIndex-1),'2026-07');
 assert.equal(monthRun.monthKeyFromIndex(augIndex+1),'2026-09');
 assert.ok(app.includes("const jump=state.period==='year'?12:1"),'3-month navigation must slide by one month');
+assert.ok(app.includes('data-month-toggle'),'Month enable/disable control missing');
+assert.ok(app.includes('async function setMonthEnabled'),'Month enable/disable persistence missing');
 
 const analyticsStart=app.indexOf('const val = r =>');
 const analyticsEnd=app.indexOf('// ---------- SVG charts ----------',analyticsStart);
@@ -87,5 +89,14 @@ periodTest.state.period='custom';
 assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-07','2026-08']);
 periodTest.state.period='all';
 assert.equal(periodTest.currentRange().length,3);
+periodTest.state.months.find(m=>m.monthKey==='2026-07').enabled=false;
+periodTest.state.period='3m';
+assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-06','2026-08']);
+periodTest.state.period='custom';
+assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-08']);
+periodTest.state.period='all';
+assert.equal(periodTest.currentRange().length,2);
+periodTest.state.months.forEach(m=>m.enabled=false);
+assert.equal(periodTest.currentRange().length,0);
 
 console.log('Energo Přehled Beta 1.2 smoke tests OK');
