@@ -58,14 +58,19 @@
             <div class="period-all-label hidden" id="allPeriodLabel">Všechna importovaná data</div>
           </section>
 
+          <div class="dashboard-mode-toggle" id="dashboardModeToggle" aria-label="Režim dashboardu">
+            <button class="dashboard-mode-btn active" data-dashboard-mode="energy">Spotřeba</button>
+            <button class="dashboard-mode-btn" data-dashboard-mode="cost">Náklady</button>
+          </div>
+
           <section class="hero-card" id="heroCard">
             <div class="hero-top">
               <div>
                 <div class="muted" id="heroPeriod">—</div>
-                <div class="hero-value"><span id="heroKwh">0,00</span> <small>kWh</small></div>
+                <div class="hero-value"><span id="heroKwh">0,00</span> <small id="heroUnit">kWh</small></div>
                 <div class="delta" id="heroDelta">—</div>
               </div>
-              <div class="metric-toggle">
+              <div class="metric-toggle" id="metricToggle">
                 <button data-metric="dcc1" class="metric-btn active">DCC1</button>
                 <button data-metric="dcc0" class="metric-btn">DCC0</button>
               </div>
@@ -74,15 +79,20 @@
           </section>
 
           <div class="kpi-grid">
-            <article class="kpi-card"><div class="kpi-label">Denní průměr</div><div class="kpi-value" id="avgDay">—</div><div class="kpi-unit">kWh / den</div></article>
-            <article class="kpi-card"><div class="kpi-label">Maximum</div><div class="kpi-value" id="maxPower">—</div><div class="kpi-unit" id="maxPowerSub">kW</div></article>
-            <article class="kpi-card"><div class="kpi-label">Nejsilnější den</div><div class="kpi-value" id="bestDay">—</div><div class="kpi-unit" id="bestDaySub">—</div></article>
-            <article class="kpi-card"><div class="kpi-label">Základní odběr</div><div class="kpi-value" id="baseLoad">—</div><div class="kpi-unit">průměr 00–06 h</div></article>
+            <article class="kpi-card"><div class="kpi-label" id="avgDayLabel">Denní průměr</div><div class="kpi-value" id="avgDay">—</div><div class="kpi-unit" id="avgDayUnit">kWh / den</div></article>
+            <article class="kpi-card"><div class="kpi-label" id="maxPowerLabel">Maximum</div><div class="kpi-value" id="maxPower">—</div><div class="kpi-unit" id="maxPowerSub">kW</div></article>
+            <article class="kpi-card"><div class="kpi-label" id="bestDayLabel">Nejsilnější den</div><div class="kpi-value" id="bestDay">—</div><div class="kpi-unit" id="bestDaySub">—</div></article>
+            <article class="kpi-card"><div class="kpi-label" id="baseLoadLabel">Základní odběr</div><div class="kpi-value" id="baseLoad">—</div><div class="kpi-unit" id="baseLoadUnit">průměr 00–06 h</div></article>
           </div>
 
           <section class="panel">
-            <div class="panel-head"><div><h2>Spotřeba po měsících</h2><p>Dlouhodobý vývoj importovaných dat</p></div></div>
+            <div class="panel-head"><div><h2 id="monthlyChartTitle">Spotřeba po měsících</h2><p id="monthlyChartSubtitle">Dlouhodobý vývoj importovaných dat</p></div></div>
             <div id="monthlyChart" class="chart-box medium"></div>
+          </section>
+
+          <section class="panel hidden" id="effectivePricePanel">
+            <div class="panel-head"><div><h2>Efektivní cena po měsících</h2><p>Celková faktura dělená fakturační spotřebou DCC1</p></div></div>
+            <div id="effectivePriceChart" class="chart-box medium"></div>
           </section>
         </div>
       </section>
@@ -124,7 +134,7 @@
 
       <section class="screen" data-screen="data">
         <section class="panel">
-          <div class="panel-head between"><div><h2>Importované měsíce</h2><p>Vypnutý měsíc zůstane uložený, ale nebude vstupovat do výpočtů ani exportů</p></div><button class="secondary-btn" id="dataImportBtn">Importovat</button></div>
+          <div class="panel-head between"><div><h2>Importované měsíce</h2><p>Ke každému měsíci můžeš doplnit celkovou cenu faktury. Vypnutý měsíc se nepočítá.</p></div><button class="secondary-btn" id="dataImportBtn">Importovat</button></div>
           <div id="monthsList" class="months-list"></div>
         </section>
         <section class="panel">
@@ -134,7 +144,7 @@
             <button class="secondary-btn" id="restoreDataBtn">Obnovit zálohu</button>
             <input id="backupFileInput" type="file" accept="application/json,.json" hidden />
           </div>
-          <p class="fineprint">Záloha obsahuje importované intervaly, metadata měsíců a zvolenou metriku. Soubor zůstává pod tvou kontrolou.</p>
+          <p class="fineprint">Záloha obsahuje importované intervaly, aktivaci měsíců, finanční údaje i nastavení aplikace. Soubor zůstává pod tvou kontrolou.</p>
         </section>
         <section class="privacy-card">
           <strong>Soukromí</strong>
