@@ -374,6 +374,49 @@ async function handleFile(file){
   }catch(e){console.error(e);alert(`Import se nepodařil:\n${e.message}`)}
   finally{$('#fileInput').value=''}
 }
+async function handleFiles(fileList){
+  const files=[...fileList].filter(f=>/\.xlsx$/i.test(f.name));
+  if(!files.length)return;
+  if(files.length===1){await handleFile(files[0]);return}
+  const parsed=[],failed=[],skipped=[];
+  try{
+    for(let i=0;i<files.length;i++){
+      const file=files[i];showToast(`Kontroluji ${i+1}/${files.length}: ${file.name}`);
+      try{parsed.push({file,payload:await parseReport(file)})}
+      catch(e){console.error(file.name,e);failed.push(`${file.name}: ${e.message}`)}
+    }
+    if(!parsed.length){alert(`Žádný z ${files.length} souborů nebyl importovatelný.\n\n${failed.slice(0,5).join('\n')}`);return}
+    const existingEans=[...new Set(state.records.map(r=>r.ean).filter(Boolean))];
+    if(existingEans.length>1){alert('Databáze obsahuje více EAN a hromadný import byl z bezpečnostních důvodů zastaven.');return}
+    const targetEan=existingEans[0]||parsed[0].payload.month.ean,unique=[],seenMonths=new Set();
+    for(const item of parsed.sort((a,b)=>a.payload.month.monthKey.localeCompare(b.payload.month.monthKey))){
+      const p=item.payload;
+      if(p.month.ean!==targetEan){failed.push(`${item.file.name}: jiné EAN (${p.month.ean})`);continue}
+      if(seenMonths.has(p.month.monthKey)){failed.push(`${item.file.name}: duplicitní měsíc ${p.month.monthKey} ve výběru`);continue}
+      seenMonths.add(p.month.monthKey);unique.push(item);
+    }
+    const existingMonths=new Set(state.months.map(m=>m.monthKey)),overlaps=unique.filter(x=>existingMonths.has(x.payload.month.monthKey));
+    let replaceExisting=false;
+    if(overlaps.length){
+      replaceExisting=confirm(`${overlaps.length} vybraných měsíců už v aplikaci existuje.\n\nOK = nahradit novými reporty\nZrušit = existující měsíce přeskočit`);
+    }
+    let imported=0,replaced=0;
+    for(let i=0;i<unique.length;i++){
+      const {file,payload}=unique[i],exists=existingMonths.has(payload.month.monthKey);
+      if(exists&&!replaceExisting){skipped.push(`${file.name}: ${payload.month.label} už existuje`);continue}
+      showToast(`Ukládám ${i+1}/${unique.length}: ${payload.month.label}`);
+      try{await persistImport(payload,exists);imported++;if(exists)replaced++}
+      catch(e){console.error(file.name,e);failed.push(`${file.name}: zápis selhal – ${e.message}`)}
+    }
+    if(imported){
+      if(!state.records.length){const importedMonths=unique.map(x=>x.payload.month.monthKey).sort();state.anchorMonth=importedMonths.at(-1)||state.anchorMonth}
+      state.resetExportRange=true;await reload();
+    }
+    const lines=[`Zpracováno souborů: ${files.length}`,`Importováno: ${imported}`,`Z toho nahrazeno: ${replaced}`,`Přeskočeno: ${skipped.length}`,`Chyby: ${failed.length}`];
+    if(failed.length)lines.push('',...failed.slice(0,5),failed.length>5?`… a dalších ${failed.length-5}`:'');
+    alert(lines.filter(Boolean).join('\n'));
+  }finally{$('#fileInput').value=''}
+}
 
 // ---------- Export ----------
 function selectedExportRecords(){const from=$('#exportFrom').value,to=$('#exportTo').value;if(!from||!to)return [];return sortedRecords().filter(r=>r.dateKey>=from&&r.dateKey<=to)}
@@ -419,7 +462,7 @@ function exportXLSX(rs,g){
 
 // ---------- Backup / restore ----------
 async function backupLocalData(){
-  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,records:await getAll('intervals'),months:await getAll('months')};
+  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,ui:{period:state.period,anchorMonth:state.anchorMonth,customFrom:state.customFrom,customTo:state.customTo,daypartMode:state.daypartMode},records:await getAll('intervals'),months:await getAll('months')};
   downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`energo_prehled_zaloha_${new Date().toISOString().slice(0,10)}.json`);
   showToast('Záloha dat byla vytvořena');
 }
@@ -435,6 +478,14 @@ async function restoreLocalData(file){
     tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
   });
   if(payload.metric==='dcc0'||payload.metric==='dcc1'){state.metric=payload.metric;localStorage.setItem(METRIC_KEY,state.metric)}
+  if(payload.ui&&typeof payload.ui==='object'){
+    if(['month','3m','year','custom','all'].includes(payload.ui.period))state.period=payload.ui.period;
+    if(/^\d{4}-\d{2}$/.test(payload.ui.anchorMonth||''))state.anchorMonth=payload.ui.anchorMonth;
+    if(/^\d{4}-\d{2}-\d{2}$/.test(payload.ui.customFrom||''))state.customFrom=payload.ui.customFrom;
+    if(/^\d{4}-\d{2}-\d{2}$/.test(payload.ui.customTo||''))state.customTo=payload.ui.customTo;
+    if(['percent','average'].includes(payload.ui.daypartMode))state.daypartMode=payload.ui.daypartMode;
+    localStorage.setItem(DAYPART_KEY,state.daypartMode);persistPeriodState();
+  }
   state.resetExportRange=true;await reload();showToast('Záloha byla obnovena');
 }
 
@@ -442,14 +493,32 @@ async function restoreLocalData(file){
 function showToast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>t.classList.remove('show'),2600)}
 function nav(target){$$('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===target));$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.target===target));$('#screenTitle').textContent={overview:'Přehled',analysis:'Analýza',data:'Data',export:'Export'}[target];window.scrollTo({top:0,behavior:'smooth'});if(target==='analysis')renderAnalysis();if(target==='data')renderMonths()}
 function bind(){
-  const choose=()=>$('#fileInput').click();$('#importBtn').onclick=choose;$('#emptyImportBtn').onclick=choose;$('#dataImportBtn').onclick=choose;$('#fileInput').onchange=e=>e.target.files[0]&&handleFile(e.target.files[0]);
-  $$('.nav-btn').forEach(b=>b.onclick=()=>nav(b.dataset.target));$$('.period-chip').forEach(b=>b.onclick=()=>{state.period=b.dataset.period;$$('.period-chip').forEach(x=>x.classList.toggle('active',x===b));renderOverview();renderAnalysis()});
-  $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});$('#dayTypeSelect').onchange=renderAnalysis;
-  $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};$('#confirmReplace').onclick=async()=>{const p=state.pendingImport;$('#replaceModal').classList.add('hidden');if(p)await saveImport(p,true)};
+  const choose=()=>$('#fileInput').click();
+  $('#importBtn').onclick=choose;$('#emptyImportBtn').onclick=choose;$('#dataImportBtn').onclick=choose;
+  $('#fileInput').onchange=e=>e.target.files.length&&handleFiles(e.target.files);
+  $$('.nav-btn').forEach(b=>b.onclick=()=>nav(b.dataset.target));
+  $$('.period-chip').forEach(b=>b.onclick=()=>setPeriod(b.dataset.period));
+  $('#periodPrev').onclick=()=>navigatePeriod(-1);$('#periodNext').onclick=()=>navigatePeriod(1);
+  $('#anchorMonthInput').onchange=e=>{if(/^\d{4}-\d{2}$/.test(e.target.value)){state.anchorMonth=e.target.value;persistPeriodState();renderPeriodControls();renderOverview();renderAnalysis()}};
+  const updateCustom=()=>{
+    state.customFrom=$('#customFrom').value;state.customTo=$('#customTo').value;
+    if(state.customFrom&&state.customTo&&state.customFrom>state.customTo)[state.customFrom,state.customTo]=[state.customTo,state.customFrom];
+    persistPeriodState();renderPeriodControls();renderOverview();renderAnalysis();
+  };
+  $('#customFrom').onchange=updateCustom;$('#customTo').onchange=updateCustom;
+  $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});
+  $('#dayTypeSelect').onchange=renderAnalysis;
+  $$('.daypart-btn').forEach(b=>b.onclick=()=>{state.daypartMode=b.dataset.daypartMode;localStorage.setItem(DAYPART_KEY,state.daypartMode);renderDayparts(currentRange())});
+  $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};
+  $('#confirmReplace').onclick=async()=>{const p=state.pendingImport;$('#replaceModal').classList.add('hidden');if(p)await saveImport(p,true)};
   $('#backupDataBtn').onclick=()=>backupLocalData().catch(e=>alert('Zálohu se nepodařilo vytvořit: '+e.message));
   $('#restoreDataBtn').onclick=()=>$('#backupFileInput').click();
   $('#backupFileInput').onchange=e=>{const file=e.target.files[0];if(file)restoreLocalData(file).catch(err=>alert('Obnova se nepodařila: '+err.message)).finally(()=>e.target.value='')};
   $('#exportBtn').onclick=()=>{const rs=selectedExportRecords();if(!rs.length){alert('Ve zvoleném období nejsou data.');return}const g=$('#exportGranularity').value;if($('#exportFormat').value==='csv')exportCSV(rs,g);else exportXLSX(rs,g);showToast('Export byl vytvořen')};
+
+  let touchStart=null;
+  $('#heroCard').addEventListener('touchstart',e=>{if(state.period!=='month'||e.touches.length!==1||e.target.closest('button,input,select'))return;touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY}},{passive:true});
+  $('#heroCard').addEventListener('touchend',e=>{if(!touchStart||state.period!=='month'||!e.changedTouches.length){touchStart=null;return}const dx=e.changedTouches[0].clientX-touchStart.x,dy=e.changedTouches[0].clientY-touchStart.y;touchStart=null;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.25)navigatePeriod(dx<0?1:-1)},{passive:true});
 }
 
 (async function init(){
