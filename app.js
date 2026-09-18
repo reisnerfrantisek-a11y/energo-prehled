@@ -365,6 +365,8 @@ function currentAndPreviousMonthKeys(){
 async function syncEgdData(){
   await saveEgdSelections();
   if(!state.egd.clientId||!state.egd.clientSecret||!state.egd.ean||!state.egd.profile)throw new Error('Nejdřív ověř EG.D připojení a vyber odběrné místo a profil.');
+  const localEans=[...new Set(state.records.map(r=>r.ean).filter(Boolean))];
+  if(localEans.length&&(!localEans.includes(state.egd.ean)||localEans.length>1))throw new Error(`Lokální databáze patří EAN ${localEans.join(', ')}. Vybrané EG.D odběrné místo ${state.egd.ean} nelze do stejné databáze přimíchat.`);
   setEgdUiState('warn','Synchronizuji…','Stahuji předchozí a aktuální měsíc z EG.D.');
   try{
     const token=await egdToken(),results=[];
@@ -395,6 +397,7 @@ function costForRecords(rs){
   let total=0,coveredEnergy=0,knownMonths=0;const missing=[],unallocatable=[],monthCosts=new Map();
   for(const [k,selected] of groups){
     const invoice=monthInvoice(k);if(invoice===null){missing.push(k);continue}
+    const meta=monthMeta(k);if(meta&&meta.complete!==true){unallocatable.push(k);continue}
     const full=state.records.filter(r=>r.monthKey===k),fullEnergy=full.reduce((a,r)=>a+billingEnergy(r),0),selectedEnergy=selected.reduce((a,r)=>a+billingEnergy(r),0),isFull=selected.length===full.length;
     let cost=null;
     if(isFull)cost=invoice;
@@ -701,7 +704,7 @@ async function renderMonths(){
         <div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}${escapeHtml(availability)}</div>
         ${isApi?`<div class="month-quality">Kvalita EG.D: ${escapeHtml(qualityText)} · profil ${escapeHtml(m.apiProfile||'—')} · ${escapeHtml(m.apiUnits||'—')}</div>`:''}
         <div class="month-finance">
-          <label class="invoice-field"><span>Faktura</span><input inputmode="decimal" data-month-invoice="${m.monthKey}" value="${invoice===null?'':String(invoice).replace('.',',')}" placeholder="např. 1842"><b>Kč</b></label>
+          <label class="invoice-field"><span>Faktura</span><input inputmode="decimal" data-month-invoice="${m.monthKey}" value="${invoice===null?'':String(invoice).replace('.',',')}" placeholder="${partial?'po uzavření':'např. 1842'}" ${partial?'disabled':''}><b>Kč</b></label>
           <span class="effective-price">${effective===null?(invoice!==null&&kwh===0?'0 kWh · cenu/kWh nelze určit':'Cena/kWh —'):`Efektivně <strong>${fmt.format(effective)} Kč/kWh</strong>`}</span>
         </div>
         <div class="finance-note">Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.</div>
