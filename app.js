@@ -507,9 +507,17 @@ function renderPeaks(rs){const peaks=[...rs].sort((a,b)=>val(b)-val(a)).slice(0,
 async function renderMonths(){
   const months=[...state.months].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));
   $('#monthsList').innerHTML=months.length?months.map(m=>{
-    const enabled=m.enabled!==false;
+    const enabled=m.enabled!==false,finance=normalizeFinance(m.finance),invoice=finance.invoiceTotal,kwh=monthBillingEnergy(m.monthKey),effective=invoice!==null&&kwh>0?invoice/kwh:null;
     return `<div class="month-row ${enabled?'':'month-disabled'}">
-      <div class="month-main"><strong>${escapeHtml(m.label)}</strong><div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}</div></div>
+      <div class="month-main">
+        <strong>${escapeHtml(m.label)}</strong>
+        <div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}</div>
+        <div class="month-finance">
+          <label class="invoice-field"><span>Faktura</span><input inputmode="decimal" data-month-invoice="${m.monthKey}" value="${invoice===null?'':String(invoice).replace('.',',')}" placeholder="např. 1842"><b>Kč</b></label>
+          <span class="effective-price">${effective===null?(invoice!==null&&kwh===0?'0 kWh · cenu/kWh nelze určit':'Cena/kWh —'):`Efektivně <strong>${fmt.format(effective)} Kč/kWh</strong>`}</span>
+        </div>
+        <div class="finance-note">Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.</div>
+      </div>
       <div class="month-actions">
         <label class="month-toggle" title="${enabled?'Vypnout měsíc':'Zapnout měsíc'}">
           <input type="checkbox" data-month-toggle="${m.monthKey}" ${enabled?'checked':''} aria-label="${enabled?'Vypnout':'Zapnout'} ${escapeHtml(m.label)}">
@@ -522,9 +530,10 @@ async function renderMonths(){
     </div>`
   }).join(''):'<div class="chart-empty">Žádné importované měsíce</div>';
   $$('[data-month-toggle]').forEach(x=>x.onchange=()=>setMonthEnabled(x.dataset.monthToggle,x.checked).catch(e=>{console.error(e);alert('Změnu se nepodařilo uložit: '+e.message)}));
+  $$('[data-month-invoice]').forEach(x=>x.onchange=()=>setMonthInvoice(x.dataset.monthInvoice,x.value).catch(e=>{console.error(e);alert('Cenu se nepodařilo uložit: '+e.message);renderMonths()}));
   $$('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm(`Opravdu odstranit ${monthLabel(b.dataset.delete)}?`))deleteMonth(b.dataset.delete)});
 }
-function renderExportDefaults(){if(!state.records.length)return;const all=sortedRecords(),min=all[0].dateKey,max=all.at(-1).dateKey,from=$('#exportFrom'),to=$('#exportTo');if(state.resetExportRange||!from.value)from.value=min;if(state.resetExportRange||!to.value)to.value=max;state.resetExportRange=false}
+function renderExportDefaults(){const all=sortedRecords();if(!all.length)return;const min=all[0].dateKey,max=all.at(-1).dateKey,from=$('#exportFrom'),to=$('#exportTo');if(state.resetExportRange||!from.value)from.value=min;if(state.resetExportRange||!to.value)to.value=max;state.resetExportRange=false}
 
 // ---------- Import ----------
 async function handleFile(file){
