@@ -263,12 +263,13 @@ async function handleFile(file){
 // ---------- Export ----------
 function selectedExportRecords(){const from=$('#exportFrom').value,to=$('#exportTo').value;if(!from||!to)return [];return sortedRecords().filter(r=>r.dateKey>=from&&r.dateKey<=to)}
 function aggregateExport(rs,g){
-  if(g==='15m')return rs.map(r=>({period:r.sourceTimestamp,powerKw:val(r),energyKwh:energy(r)}));
+  if(g==='15m')return rs.map(r=>({period:r.displayTimestamp||r.sourceTimestamp,powerKw:val(r),energyKwh:energy(r)}));
   const keyFn=g==='hour'?r=>`${r.dateKey} ${String(r.hour).padStart(2,'0')}:00`:g==='day'?r=>r.dateKey:r=>r.monthKey;const map=new Map();rs.forEach(r=>{const k=keyFn(r),o=map.get(k)||{period:k,powerSum:0,count:0,energyKwh:0};o.powerSum+=val(r);o.count++;o.energyKwh+=energy(r);map.set(k,o)});return [...map.values()].map(o=>({period:o.period,powerKw:o.powerSum/o.count,energyKwh:o.energyKwh}))
 }
 function csvEscape(v){const s=String(v??'');return /[;"\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s}
 function downloadBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
-function exportCSV(rs,g){const rows=aggregateExport(rs,g),text='Období;Průměrný výkon (kW);Energie (kWh)\n'+rows.map(r=>[r.period,r.powerKw.toFixed(4),r.energyKwh.toFixed(4)].map(csvEscape).join(';')).join('\n');downloadBlob(new Blob(['\ufeff'+text],{type:'text/csv;charset=utf-8'}),`energo_${$('#exportFrom').value}_${$('#exportTo').value}.csv`)}
+function csvNum(n){return Number(n).toFixed(4).replace('.',',')}
+function exportCSV(rs,g){const rows=aggregateExport(rs,g),text='Období;Průměrný výkon (kW);Energie (kWh)\n'+rows.map(r=>[r.period,csvNum(r.powerKw),csvNum(r.energyKwh)].map(csvEscape).join(';')).join('\n');downloadBlob(new Blob(['\ufeff'+text],{type:'text/csv;charset=utf-8'}),`energo_${$('#exportFrom').value}_${$('#exportTo').value}.csv`)}
 function xmlEscape(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function sheetXml(rows){
   const cols=Math.max(...rows.map(r=>r.length),1);let xmls='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
@@ -289,6 +290,7 @@ function exportXLSX(rs,g){
   const sheets=[
     {name:'Souhrn',rows:[['Energo Přehled'],['Od',$('#exportFrom').value],['Do',$('#exportTo').value],['Metrika',state.metric.toUpperCase()],['Celková energie (kWh)',total],['Průměr / den (kWh)',total/Math.max(1,dateTotals.size)],['Maximum výkonu (kW)',peak?val(peak):0],['Čas maxima',peak?peak.sourceTimestamp:'']]},
     {name:'Data',rows:[['Období','Průměrný výkon (kW)','Energie (kWh)'],...agg.map(r=>[r.period,r.powerKw,r.energyKwh])]},
+    {name:'Zdrojová data',rows:[['Čas','Výskyt','DCC0 (kW)','DCC1 (kW)','DKC0 (kVAr)','DKC1 (kVAr)','DMC0 (kVAr)','DMC1 (kVAr)'],...rs.map(r=>[r.sourceTimestamp,(r.occurrenceIndex||0)+1,r.dcc0,r.dcc1,r.dkc0??'',r.dkc1??'',r.dmc0??'',r.dmc1??''])]},
     {name:'Denní souhrny',rows:[['Datum','Průměrný výkon (kW)','Energie (kWh)'],...daily.map(r=>[r.period,r.powerKw,r.energyKwh])]},
     {name:'Hodinový profil',rows:[['Hodina','Průměrný výkon (kW)'],...Array.from({length:24},(_,i)=>[`${String(i).padStart(2,'0')}:00`,h.get(i)||0])]},
     {name:'Dny v týdnu',rows:[['Den','Průměrná spotřeba dne (kWh)'],...WEEK_MON.map((d,i)=>[d,cnt[i]?sums[i]/cnt[i]:0])]}
@@ -300,6 +302,25 @@ function exportXLSX(rs,g){
   sheets.forEach((s,i)=>files.push({name:`xl/worksheets/sheet${i+1}.xml`,data:sheetXml(s.rows)}));const zip=zipStored(files);downloadBlob(new Blob([zip],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),`energo_${$('#exportFrom').value}_${$('#exportTo').value}.xlsx`)
 }
 
+// ---------- Backup / restore ----------
+async function backupLocalData(){
+  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,records:await getAll('intervals'),months:await getAll('months')};
+  downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`energo_prehlad_zaloha_${new Date().toISOString().slice(0,10)}.json`);
+  showToast('Záloha dat byla vytvořena');
+}
+async function restoreLocalData(file){
+  let payload;try{payload=JSON.parse(await file.text())}catch{throw new Error('Soubor není platná JSON záloha.')}
+  if(payload?.format!=='energo-prehled-backup'||payload.version!==1||!Array.isArray(payload.records)||!Array.isArray(payload.months))throw new Error('Soubor není kompatibilní záloha Energo Přehled.');
+  if(!confirm(`Obnovit zálohu z ${payload.createdAt?new Date(payload.createdAt).toLocaleString('cs-CZ'):'neznámého data'}? Současná lokální data budou nahrazena.`))return;
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(['intervals','months'],'readwrite'),s=tx.objectStore('intervals'),m=tx.objectStore('months');
+    s.clear();m.clear();payload.records.forEach(r=>s.put(r));payload.months.forEach(x=>m.put(x));
+    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+  });
+  if(payload.metric==='dcc0'||payload.metric==='dcc1'){state.metric=payload.metric;localStorage.setItem('metric',state.metric)}
+  state.resetExportRange=true;await reload();showToast('Záloha byla obnovena');
+}
+
 // ---------- UI events ----------
 function showToast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>t.classList.remove('show'),2600)}
 function nav(target){$$('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===target));$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.target===target));$('#screenTitle').textContent={overview:'Přehled',analysis:'Analýza',data:'Data',export:'Export'}[target];window.scrollTo({top:0,behavior:'smooth'});if(target==='analysis')renderAnalysis();if(target==='data')renderMonths()}
@@ -308,6 +329,9 @@ function bind(){
   $$('.nav-btn').forEach(b=>b.onclick=()=>nav(b.dataset.target));$$('.period-chip').forEach(b=>b.onclick=()=>{state.period=b.dataset.period;$$('.period-chip').forEach(x=>x.classList.toggle('active',x===b));renderOverview();renderAnalysis()});
   $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem('metric',state.metric);renderAll()});$('#dayTypeSelect').onchange=renderAnalysis;
   $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};$('#confirmReplace').onclick=async()=>{const p=state.pendingImport;$('#replaceModal').classList.add('hidden');if(p)await saveImport(p,true)};
+  $('#backupDataBtn').onclick=()=>backupLocalData().catch(e=>alert('Zálohu se nepodařilo vytvořit: '+e.message));
+  $('#restoreDataBtn').onclick=()=>$('#backupFileInput').click();
+  $('#backupFileInput').onchange=e=>{const file=e.target.files[0];if(file)restoreLocalData(file).catch(err=>alert('Obnova se nepodařila: '+err.message)).finally(()=>e.target.value='')};
   $('#exportBtn').onclick=()=>{const rs=selectedExportRecords();if(!rs.length){alert('Ve zvoleném období nejsou data.');return}const g=$('#exportGranularity').value;if($('#exportFormat').value==='csv')exportCSV(rs,g);else exportXLSX(rs,g);showToast('Export byl vytvořen')};
 }
 
