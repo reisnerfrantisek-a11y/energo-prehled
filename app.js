@@ -188,8 +188,8 @@ function monthLabel(k){const [y,m]=String(k).split('-').map(Number);return y&&m?
 function monthIndex(k){const [y,m]=String(k).split('-').map(Number);return Number.isFinite(y)&&Number.isFinite(m)?y*12+(m-1):null}
 function monthKeyFromIndex(idx){const y=Math.floor(idx/12),m=((idx%12)+12)%12+1;return `${y}-${String(m).padStart(2,'0')}`}
 function latestMonthKey(){return state.months.length?[...state.months].sort((a,b)=>a.monthKey.localeCompare(b.monthKey)).at(-1).monthKey:(state.records.length?sortedRecords().at(-1).monthKey:'')}
-function earliestDateKey(){return state.records.length?sortedRecords()[0].dateKey:''}
-function latestDateKey(){return state.records.length?sortedRecords().at(-1).dateKey:''}
+function earliestDateKey(){const all=sortedRecords();return all.length?all[0].dateKey:''}
+function latestDateKey(){const all=sortedRecords();return all.length?all.at(-1).dateKey:''}
 function formatDateKey(k){if(!k)return '—';const [y,m,d]=k.split('-');return `${d}.${m}.${y}`}
 function persistPeriodState(){
   localStorage.setItem(PERIOD_KEY,state.period);
