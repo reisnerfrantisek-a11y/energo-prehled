@@ -10,7 +10,7 @@ new Function(sw);
 
 for(const id of [
   'backupDataBtn','restoreDataBtn','backupFileInput','exportBtn','fileInput','replaceModal','monthsList','heroDelta',
-  'periodNavigator','periodPrev','periodNext','periodAnchorLabel','anchorMonthInput','customPeriodControls','customFrom','customTo','heroCard','daypartSubtitle'
+  'periodNavigator','periodPrev','periodNext','periodAnchorLabel','anchorMonthInput','customPeriodControls','customFrom','customTo','heroCard','daypartSubtitle','dashboardModeToggle','heroUnit','metricToggle','effectivePricePanel','effectivePriceChart'
 ]){
   assert.ok(index.includes(`id="${id}"`), `Missing UI element #${id}`);
 }
@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.2.2'"),'App version must be 1.2.2');
+assert.ok(app.includes("APP_VERSION = '1.3.0'"),'App version must be 1.3.0');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -57,6 +57,11 @@ assert.equal(monthRun.monthKeyFromIndex(augIndex+1),'2026-09');
 assert.ok(app.includes("const jump=state.period==='year'?12:1"),'3-month navigation must slide by one month');
 assert.ok(app.includes('data-month-toggle'),'Month enable/disable control missing');
 assert.ok(app.includes('async function setMonthEnabled'),'Month enable/disable persistence missing');
+assert.ok(app.includes('async function setMonthInvoice'),'Invoice persistence missing');
+assert.ok(app.includes('data-month-invoice'),'Invoice input missing');
+assert.ok(app.includes('function costForRecords'),'Cost allocation missing');
+assert.ok(app.includes("data-dashboard-mode=\"cost\"")||index.includes('data-dashboard-mode="cost"'),'Cost dashboard mode missing');
+assert.ok(app.includes("unit:'Kč/kWh'"),'Effective price chart unit missing');
 
 const analyticsStart=app.indexOf('const val = r =>');
 const analyticsEnd=app.indexOf('// ---------- SVG charts ----------',analyticsStart);
@@ -66,16 +71,17 @@ const periodTest=new Function(`
 const MONTH_NAMES=['leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec'];
 const localStorage={setItem:()=>{}};
 const PERIOD_KEY='period',ANCHOR_KEY='anchor',CUSTOM_FROM_KEY='from',CUSTOM_TO_KEY='to';
+const normalizeFinance=f=>({invoiceTotal:f?.invoiceTotal===null||f?.invoiceTotal===undefined?null:Number(f.invoiceTotal),components:f?.components||{}});
 const renderPeriodControls=()=>{},renderOverview=()=>{},renderAnalysis=()=>{};
 const state={metric:'dcc1',period:'month',anchorMonth:'2026-08',customFrom:'2026-07-01',customTo:'2026-08-31',records:[
-{id:'jun',sortKey:1,monthKey:'2026-06',dateKey:'2026-06-01',year:2026,month:6,dcc1:1,intervalMinutes:15},
-{id:'jul',sortKey:2,monthKey:'2026-07',dateKey:'2026-07-01',year:2026,month:7,dcc1:1,intervalMinutes:15},
-{id:'aug',sortKey:3,monthKey:'2026-08',dateKey:'2026-08-01',year:2026,month:8,dcc1:1,intervalMinutes:15}
+{id:'jun',sortKey:1,monthKey:'2026-06',dateKey:'2026-06-01',year:2026,month:6,dcc1:4,intervalMinutes:15},
+{id:'jul',sortKey:2,monthKey:'2026-07',dateKey:'2026-07-01',year:2026,month:7,dcc1:4,intervalMinutes:15},
+{id:'aug',sortKey:3,monthKey:'2026-08',dateKey:'2026-08-01',year:2026,month:8,dcc1:4,intervalMinutes:15}
 ],months:[
-{monthKey:'2026-06',complete:true},{monthKey:'2026-07',complete:true},{monthKey:'2026-08',complete:true}
+{monthKey:'2026-06',complete:true,finance:{invoiceTotal:100}},{monthKey:'2026-07',complete:true,finance:{invoiceTotal:200}},{monthKey:'2026-08',complete:true,finance:{invoiceTotal:300}}
 ]};
 ${analyticsCode}
-return {state,currentRange,expectedCurrentMonthKeys,selectedPeriodLabel};
+return {state,currentRange,expectedCurrentMonthKeys,selectedPeriodLabel,costForRecords,monthEffectivePrice};
 `)();
 periodTest.state.period='month';
 assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-08']);
@@ -89,6 +95,10 @@ periodTest.state.period='custom';
 assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-07','2026-08']);
 periodTest.state.period='all';
 assert.equal(periodTest.currentRange().length,3);
+const fullCosts=periodTest.costForRecords(periodTest.currentRange());
+assert.equal(fullCosts.total,600);
+assert.equal(fullCosts.coveredEnergy,3);
+assert.equal(periodTest.monthEffectivePrice('2026-08'),300);
 periodTest.state.months.find(m=>m.monthKey==='2026-07').enabled=false;
 periodTest.state.period='3m';
 assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-06','2026-08']);
@@ -99,4 +109,4 @@ assert.equal(periodTest.currentRange().length,2);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.2 smoke tests OK');
+console.log('Energo Přehled Beta 1.3 smoke tests OK');
