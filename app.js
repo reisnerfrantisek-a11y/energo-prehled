@@ -76,15 +76,9 @@ async function setMonthEnabled(monthKey,enabled){
 }
 function emptyFinance(){return {invoiceTotal:null,components:{energy:null,distribution:null,fixed:null,other:null}}}
 function normalizeFinance(finance){
-  const f=finance&&typeof finance==='object'?finance:{};
-  const total=f.invoiceTotal===null||f.invoiceTotal===undefined||f.invoiceTotal===''?null:Number(f.invoiceTotal);
+  const f=finance&&typeof finance==='object'?finance:{},nullable=v=>{if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)&&n>=0?n:null};
   const c=f.components&&typeof f.components==='object'?f.components:{};
-  return {invoiceTotal:Number.isFinite(total)&&total>=0?total:null,components:{
-    energy:Number.isFinite(Number(c.energy))?Number(c.energy):null,
-    distribution:Number.isFinite(Number(c.distribution))?Number(c.distribution):null,
-    fixed:Number.isFinite(Number(c.fixed))?Number(c.fixed):null,
-    other:Number.isFinite(Number(c.other))?Number(c.other):null
-  }};
+  return {invoiceTotal:nullable(f.invoiceTotal),components:{energy:nullable(c.energy),distribution:nullable(c.distribution),fixed:nullable(c.fixed),other:nullable(c.other)}};
 }
 function parseMoneyInput(raw){
   const text=String(raw??'').replace(/[\s\u00a0]/g,'').replace(',','.').trim();
@@ -349,6 +343,7 @@ function lineChart(el,data,{hero=false,unit='kWh'}={}){
   const grid=hero?'rgba(255,255,255,.13)':'var(--border)',text=hero?'#afbdd0':'var(--muted)';
   el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="graf">
     <defs><linearGradient id="g${hero?'h':'l'}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${hero?'#67a9ff':'var(--accent)'}" stop-opacity=".32"/><stop offset="1" stop-color="${hero?'#67a9ff':'var(--accent)'}" stop-opacity="0"/></linearGradient></defs>
+    <text class="chart-y-label" x="${p.l}" y="12" text-anchor="start" fill="${text}">${escapeHtml(unit)}</text>
     ${ticks.map(t=>`<line x1="${p.l}" x2="${w-p.r}" y1="${y(t)}" y2="${y(t)}" stroke="${grid}" stroke-width="1"/><text class="chart-y-label" x="${p.l-7}" y="${y(t)+3}" text-anchor="end" fill="${text}">${escapeHtml(chartValue(t,unit).replace(' '+unit,''))}</text>`).join('')}
     <polygon points="${area}" fill="url(#g${hero?'h':'l'})"/>
     <polyline points="${pts}" fill="none" stroke="${hero?'#8fc1ff':'var(--accent)'}" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>
@@ -360,6 +355,7 @@ function barChart(el,data,{unit='kWh',showValues=true}={}){
   if(!data.length){el.innerHTML='<div class="chart-empty">Zatím nejsou data</div>';return}
   const w=700,h=225,p={l:58,r:10,t:28,b:38},vals=data.map(d=>Number(d.value)||0),axisMax=niceAxisMax(Math.max(...vals,0.001)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4),slot=(w-p.l-p.r)/data.length,bw=Math.max(5,slot*.56),y=v=>p.t+(1-v/axisMax)*(h-p.t-p.b);
   el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <text class="chart-y-label" x="${p.l}" y="12" text-anchor="start" fill="var(--muted)">${escapeHtml(unit)}</text>
     ${ticks.map(t=>`<line x1="${p.l}" x2="${w-p.r}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-width="1"/><text class="chart-y-label" x="${p.l-7}" y="${y(t)+3}" text-anchor="end" fill="var(--muted)">${escapeHtml(chartValue(t,unit).replace(' '+unit,''))}</text>`).join('')}
     ${data.map((d,i)=>{const v=vals[i],bh=(v/axisMax)*(h-p.t-p.b),x=p.l+i*slot+(slot-bw)/2,yy=h-p.b-bh,label=showValues&&data.length<=12?`<text class="chart-value-label" x="${x+bw/2}" y="${Math.max(11,yy-6)}" text-anchor="middle" fill="var(--muted)">${escapeHtml(chartValue(v,unit).replace(' '+unit,''))}</text>`:'';return `<rect x="${x}" y="${yy}" width="${bw}" height="${Math.max(1,bh)}" rx="5" fill="var(--accent)" opacity="${.55+.4*(v/axisMax)}"><title>${escapeHtml(d.label)}: ${escapeHtml(chartValue(v,unit))}</title></rect>${label}<text x="${x+bw/2}" y="${h-13}" text-anchor="middle" font-size="9" fill="var(--muted)">${escapeHtml(d.short||d.label)}</text>`}).join('')}
   </svg>`;
@@ -452,7 +448,7 @@ function renderOverview(){
     $('#avgDayLabel').textContent='Průměr / den';$('#avgDay').textContent=cb.knownMonths?fmt.format(cb.total/dayCount):'—';$('#avgDayUnit').textContent='Kč / den';
     $('#maxPowerLabel').textContent='Efektivní cena';$('#maxPower').textContent=cb.coveredEnergy>0?fmt.format(cb.total/cb.coveredEnergy):'—';$('#maxPowerSub').textContent='Kč / kWh · podle DCC1';
     const expensive=[...cb.monthCosts].sort((a,b)=>b[1]-a[1])[0];
-    $('#bestDayLabel').textContent='Nejdražší měsíc';$('#bestDay').textContent=expensive?monthLabel(expensive[0]).replace(/\s\d{4}$/,''):'—';$('#bestDaySub').textContent=expensive?`${fmt.format(expensive[1])} Kč`:'—';
+    $('#bestDayLabel').textContent='Nejdražší měsíc';$('#bestDay').textContent=expensive?`${expensive[0].slice(5,7)}/${expensive[0].slice(2,4)}`:'—';$('#bestDaySub').textContent=expensive?`${fmt.format(expensive[1])} Kč`:'—';
     $('#baseLoadLabel').textContent='Pokrytí faktur';$('#baseLoad').textContent=`${cb.knownMonths}/${cb.groupCount}`;$('#baseLoadUnit').textContent='měsíců s cenou';
     return;
   }
@@ -617,7 +613,7 @@ function exportXLSX(rs,g){
   const agg=aggregateExport(rs,g),daily=aggregateExport(rs,'day');const h=groupAvg(rs,r=>r.hour,val);const dateTotals=group(rs,r=>r.dateKey);const dateWeek={};rs.forEach(r=>dateWeek[r.dateKey]=r.weekday);const sums=Array(7).fill(0),cnt=Array(7).fill(0);for(const [d,v] of dateTotals){sums[dateWeek[d]]+=v;cnt[dateWeek[d]]++}
   const total=sumEnergy(rs),peak=rs.length?rs.reduce((a,b)=>val(b)>val(a)?b:a):null,costs=costForRecords(rs),financeMonths=[...new Set(rs.map(r=>r.monthKey))].sort();
   const sheets=[
-    {name:'Souhrn',rows:[['Energo Přehled'],['Od',$('#exportFrom').value],['Do',$('#exportTo').value],['Metrika',state.metric.toUpperCase()],['Celková energie (kWh)',total],['Průměr / den (kWh)',total/Math.max(1,dateTotals.size)],['Maximum výkonu (kW)',peak?val(peak):0],['Čas maxima',peak?(peak.displayTimestamp||peak.sourceTimestamp):''],['Přepočtené náklady (Kč)',costs.knownMonths?costs.total:''],['Efektivní cena (Kč/kWh)',costs.coveredEnergy>0?costs.total/costs.coveredEnergy:'']]},
+    {name:'Souhrn',rows:[['Energo Přehled'],['Od',$('#exportFrom').value],['Do',$('#exportTo').value],['Metrika',state.metric.toUpperCase()],['Celková energie (kWh)',total],['Průměr / den (kWh)',total/Math.max(1,dateTotals.size)],['Maximum výkonu (kW)',peak?val(peak):0],['Čas maxima',peak?(peak.displayTimestamp||peak.sourceTimestamp):''],['Přepočtené náklady (Kč)',costs.knownMonths?costs.total:''],['Efektivní cena (Kč/kWh)',costs.coveredEnergy>0?costs.total/costs.coveredEnergy:''],['Finanční pokrytí',`${costs.knownMonths}/${costs.groupCount} měsíců`]]},
     {name:'Data',rows:[['Období','Průměrný výkon (kW)','Energie (kWh)'],...agg.map(r=>[r.period,r.powerKw,r.energyKwh])]},
     {name:'Zdrojová data',rows:[['Čas','Výskyt','DCC0 (kW)','DCC1 (kW)','DKC0 (kVAr)','DKC1 (kVAr)','DMC0 (kVAr)','DMC1 (kVAr)'],...rs.map(r=>[r.sourceTimestamp,(r.occurrenceIndex||0)+1,r.dcc0,r.dcc1,r.dkc0??'',r.dkc1??'',r.dmc0??'',r.dmc1??''])]},
     {name:'Denní souhrny',rows:[['Datum','Průměrný výkon (kW)','Energie (kWh)'],...daily.map(r=>[r.period,r.powerKw,r.energyKwh])]},
