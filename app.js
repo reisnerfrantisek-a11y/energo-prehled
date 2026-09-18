@@ -241,7 +241,7 @@ function previousComparable(){
 }
 function navigatePeriod(direction){
   if(!['month','3m','year'].includes(state.period)||!state.months.length)return;
-  const jump=state.period==='3m'?3:state.period==='year'?12:1,current=anchorIndex(),target=current+direction*jump,keys=state.months.map(m=>m.monthKey).sort(),min=monthIndex(keys[0]),max=monthIndex(keys.at(-1));
+  const jump=state.period==='year'?12:1,current=anchorIndex(),target=current+direction*jump,keys=state.months.map(m=>m.monthKey).sort(),min=monthIndex(keys[0]),max=monthIndex(keys.at(-1));
   if(target<min||target>max)return;
   state.anchorMonth=monthKeyFromIndex(target);
   persistPeriodState();renderPeriodControls();renderOverview();renderAnalysis();
@@ -294,7 +294,7 @@ function renderPeriodControls(){
     $('#anchorMonthInput').value=state.anchorMonth||'';
     const keys=state.months.map(m=>m.monthKey).sort(),first=keys[0],last=keys.at(-1);
     if(first)$('#anchorMonthInput').min=first;if(last)$('#anchorMonthInput').max=last;
-    const idx=anchorIndex(),firstIdx=first?monthIndex(first):idx,lastIdx=last?monthIndex(last):idx,jump=state.period==='3m'?3:state.period==='year'?12:1;
+    const idx=anchorIndex(),firstIdx=first?monthIndex(first):idx,lastIdx=last?monthIndex(last):idx,jump=state.period==='year'?12:1;
     $('#periodPrev').disabled=idx-jump<firstIdx;
     $('#periodNext').disabled=idx+jump>lastIdx;
   }
