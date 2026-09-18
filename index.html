@@ -20,7 +20,7 @@
         <h1 id="screenTitle">Přehled</h1>
       </div>
       <button class="icon-btn" id="importBtn" aria-label="Importovat report">＋</button>
-      <input id="fileInput" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+      <input id="fileInput" type="file" multiple accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
     </header>
 
     <main>
@@ -28,19 +28,37 @@
         <div id="emptyState" class="empty-state hidden">
           <div class="empty-icon">⚡</div>
           <h2>Zatím žádná data</h2>
-          <p>Nahraj měsíční XLSX report. Data zůstanou pouze v tomto zařízení.</p>
-          <button class="primary-btn" id="emptyImportBtn">Importovat první report</button>
+          <p>Nahraj jeden nebo více měsíčních XLSX reportů. Data zůstanou pouze v tomto zařízení.</p>
+          <button class="primary-btn" id="emptyImportBtn">Importovat reporty</button>
         </div>
 
         <div id="overviewContent">
-          <div class="period-row">
-            <button class="period-chip active" data-period="month">Měsíc</button>
-            <button class="period-chip" data-period="3m">3 měsíce</button>
-            <button class="period-chip" data-period="year">Rok</button>
-            <button class="period-chip" data-period="all">Vše</button>
-          </div>
+          <section class="period-panel" aria-label="Výběr období">
+            <div class="period-row">
+              <button class="period-chip active" data-period="month">Měsíc</button>
+              <button class="period-chip" data-period="3m">3 měsíce</button>
+              <button class="period-chip" data-period="year">Rok</button>
+              <button class="period-chip" data-period="custom">Vlastní</button>
+              <button class="period-chip" data-period="all">Vše</button>
+            </div>
+            <div class="period-navigator" id="periodNavigator">
+              <button class="period-arrow" id="periodPrev" aria-label="Předchozí období">‹</button>
+              <label class="period-anchor" id="periodAnchor">
+                <strong id="periodAnchorLabel">—</strong>
+                <small>Klepnutím vyber období</small>
+                <input id="anchorMonthInput" type="month" aria-label="Vybrat měsíc" />
+              </label>
+              <button class="period-arrow" id="periodNext" aria-label="Následující období">›</button>
+            </div>
+            <div class="custom-period hidden" id="customPeriodControls">
+              <label><span>Od</span><input type="date" id="customFrom" /></label>
+              <span class="custom-separator">→</span>
+              <label><span>Do</span><input type="date" id="customTo" /></label>
+            </div>
+            <div class="period-all-label hidden" id="allPeriodLabel">Všechna importovaná data</div>
+          </section>
 
-          <section class="hero-card">
+          <section class="hero-card" id="heroCard">
             <div class="hero-top">
               <div>
                 <div class="muted" id="heroPeriod">—</div>
@@ -88,7 +106,13 @@
         </section>
 
         <section class="panel">
-          <div class="panel-head"><div><h2>Rozdělení dne</h2><p>Podíl energie v částech dne</p></div></div>
+          <div class="panel-head between">
+            <div><h2>Rozdělení dne</h2><p id="daypartSubtitle">Podíl energie v částech dne</p></div>
+            <div class="mini-toggle" aria-label="Zobrazení rozdělení dne">
+              <button class="daypart-btn active" data-daypart-mode="percent">%</button>
+              <button class="daypart-btn" data-daypart-mode="average">kWh/den</button>
+            </div>
+          </div>
           <div id="daypartList" class="daypart-list"></div>
         </section>
 
