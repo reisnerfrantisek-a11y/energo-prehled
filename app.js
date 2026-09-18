@@ -218,6 +218,167 @@ async function parseReport(file){
   return {records,month:{monthKey,label,year,month,ean,meter,count:records.length,expectedCount:validation.expectedCount,complete:true,incompleteDays:0,validationVersion:2,enabled:true,finance:emptyFinance(),first:records[0].sourceTimestamp,last:records[records.length-1].sourceTimestamp,importedAt:new Date().toISOString(),fileName:file.name}};
 }
 
+// ---------- EG.D OpenAPI ----------
+function egdConnectionConfig(){
+  return {clientId:state.egd.clientId,clientSecret:state.egd.clientSecret,ean:state.egd.ean,profile:state.egd.profile,lastSync:state.egd.lastSync||null};
+}
+async function saveEgdConfig(){await setSetting('egd-config',egdConnectionConfig())}
+function egdNetworkError(e){
+  if(e instanceof TypeError)return new Error('Přímé spojení s EG.D se z prohlížeče nepodařilo navázat. Může jít o síťovou chybu nebo CORS blokaci na straně EG.D.');
+  return e;
+}
+async function egdToken(clientId=state.egd.clientId,clientSecret=state.egd.clientSecret){
+  if(!clientId||!clientSecret)throw new Error('Vyplň Client ID a Client secret.');
+  let resp;
+  try{
+    resp=await fetch(EGD_TOKEN_URL,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},cache:'no-store',body:JSON.stringify({grant_type:'client_credentials',client_id:clientId,client_secret:clientSecret,scope:EGD_SCOPE})});
+  }catch(e){throw egdNetworkError(e)}
+  let body=null;try{body=await resp.json()}catch{}
+  if(!resp.ok)throw new Error(`EG.D odmítlo přihlášení (HTTP ${resp.status})${body?.error_description?': '+body.error_description:''}.`);
+  if(!body?.access_token)throw new Error('EG.D nevrátilo access_token.');
+  return body.access_token;
+}
+async function egdGet(path,token,params=null){
+  const url=new URL(EGD_DATA_BASE+path);
+  if(params)for(const [k,v] of Object.entries(params))if(v!==null&&v!==undefined)url.searchParams.set(k,v);
+  let resp;
+  try{resp=await fetch(url,{headers:{Authorization:`Bearer ${token}`,Accept:'application/json'},cache:'no-store'})}
+  catch(e){throw egdNetworkError(e)}
+  let body=null;try{body=await resp.json()}catch{}
+  if(!resp.ok)throw new Error(`EG.D API ${path} vrátilo HTTP ${resp.status}.`);
+  return body;
+}
+function chooseConsumptionProfile(profiles,typMereni,current=''){
+  const electric=profiles.filter(p=>String(p.komodita||'').toUpperCase()==='ELEKTRINA');
+  if(current&&electric.some(p=>p.kod===current))return current;
+  const type=String(typMereni||'').toUpperCase();
+  const preferred=electric.find(p=>/spotřeb|odebran/i.test(String(p.nazev||''))&&(!type||String(p.nazev||'').toUpperCase().includes(type)))
+    ||electric.find(p=>/spotřeb|odebran/i.test(String(p.nazev||'')))
+    ||electric[0];
+  return preferred?.kod||'';
+}
+async function testEgdConnection(){
+  const clientId=$('#egdClientId').value.trim(),clientSecret=$('#egdClientSecret').value.trim();
+  state.egd.clientId=clientId;state.egd.clientSecret=clientSecret;state.egd.lastError=null;
+  await saveEgdConfig();
+  setEgdUiState('warn','Ověřuji…','Získávám token a číselníky EG.D.');
+  try{
+    const token=await egdToken(clientId,clientSecret);
+    const oms=await egdGet('/om',token),profiles=await egdGet('/profily',token),statuses=await egdGet('/statusy',token);
+    state.egd.oms=Array.isArray(oms)?oms:[];
+    state.egd.profiles=Array.isArray(profiles)?profiles:[];
+    state.egd.statuses=Array.isArray(statuses)?statuses:[];
+    if(!state.egd.oms.length)throw new Error('EG.D nevrátilo žádné odběrné místo dostupné pro OpenAPI.');
+    const localEans=[...new Set(state.records.map(r=>r.ean).filter(Boolean))];
+    if(!state.egd.ean||!state.egd.oms.some(x=>x.ean===state.egd.ean)){
+      state.egd.ean=state.egd.oms.find(x=>localEans.includes(x.ean))?.ean||state.egd.oms[0].ean;
+    }
+    const om=state.egd.oms.find(x=>x.ean===state.egd.ean);
+    state.egd.profile=chooseConsumptionProfile(state.egd.profiles,om?.typMereni,state.egd.profile);
+    if(!state.egd.profile)throw new Error('V číselníku EG.D nebyl nalezen elektrický profil spotřeby.');
+    state.egd.verified=true;await saveEgdConfig();renderEgdPanel();
+    setEgdUiState('ok','Připojeno',`Ověřeno · ${state.egd.oms.length} odběrných míst · profil ${state.egd.profile}`);
+  }catch(e){
+    state.egd.verified=false;state.egd.lastError=e.message;renderEgdPanel();setEgdUiState('error','Chyba připojení',e.message);throw e;
+  }
+}
+function setEgdUiState(kind,label,message){
+  const status=$('#egdStatus'),result=$('#egdResult');if(!status||!result)return;
+  status.className='egd-status'+(kind?' '+kind:'');status.textContent=label;result.textContent=message;
+}
+async function disconnectEgd(){
+  if(!confirm('Odpojit EG.D OpenAPI z tohoto zařízení? Naměřená data už uložená v aplikaci zůstanou zachovaná.'))return;
+  await deleteSetting('egd-config');
+  state.egd={clientId:'',clientSecret:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,verified:false};
+  renderEgdPanel();showToast('EG.D připojení bylo odstraněno');
+}
+async function saveEgdSelections(){
+  state.egd.ean=$('#egdEanSelect').value||state.egd.ean;
+  state.egd.profile=$('#egdProfileSelect').value||state.egd.profile;
+  await saveEgdConfig();
+}
+function renderEgdPanel(){
+  const hasCreds=!!(state.egd.clientId&&state.egd.clientSecret),hasSelection=!!(state.egd.ean&&state.egd.profile);
+  $('#egdClientId').value=state.egd.clientId||'';
+  $('#egdClientSecret').value=state.egd.clientSecret||'';
+  $('#egdConfig').classList.toggle('hidden',!state.egd.oms.length);
+  $('#egdSyncBtn').classList.toggle('hidden',!(hasCreds&&hasSelection));
+  $('#egdDisconnectBtn').classList.toggle('hidden',!hasCreds);
+  const eanSel=$('#egdEanSelect'),profSel=$('#egdProfileSelect');
+  if(state.egd.oms.length){
+    eanSel.innerHTML=state.egd.oms.map(o=>`<option value="${escapeHtml(o.ean)}" ${o.ean===state.egd.ean?'selected':''}>${escapeHtml(o.ean)} · ${escapeHtml(o.typMereni||'')}</option>`).join('');
+    const electric=state.egd.profiles.filter(p=>String(p.komodita||'').toUpperCase()==='ELEKTRINA');
+    profSel.innerHTML=electric.map(p=>`<option value="${escapeHtml(p.kod)}" ${p.kod===state.egd.profile?'selected':''}>${escapeHtml(p.nazev||p.kod)} · ${escapeHtml(p.kod)}</option>`).join('');
+  }
+  if(state.egd.verified)setEgdUiState('ok','Připojeno',state.egd.lastSync?`Poslední synchronizace: ${new Date(state.egd.lastSync).toLocaleString('cs-CZ')}`:'Připojení ověřeno. Data lze synchronizovat.');
+  else if(state.egd.lastError)setEgdUiState('error','Chyba připojení',state.egd.lastError);
+  else if(hasCreds)setEgdUiState('warn','Připraveno','Přístupové údaje jsou uložené lokálně. Ověř připojení nebo spusť synchronizaci.');
+  else setEgdUiState('','Nepřipojeno','Po ověření připojení aplikace načte dostupná odběrná místa a profily.');
+}
+function apiValueToKw(value,units,intervalMinutes=15){
+  const n=Number(value);if(!Number.isFinite(n))return null;
+  const u=String(units||'').toUpperCase().replace(/\s+/g,'');
+  if(u==='KW')return n;if(u==='W')return n/1000;if(u==='MW')return n*1000;
+  const hours=intervalMinutes/60;
+  if(u==='KWH')return n/hours;if(u==='WH')return n/1000/hours;if(u==='MWH')return n*1000/hours;
+  throw new Error(`Nepodporovaná jednotka z EG.D: ${units||'neuvedena'}.`);
+}
+function pragueMonthQueryBounds(monthKey){
+  const [year,month]=monthKey.split('-').map(Number),nextMonth=month===12?1:month+1,nextYear=month===12?year+1:year;
+  const start=pragueUtcCandidates(parseCzTimestamp(`01.${String(month).padStart(2,'0')}.${year} 00:00:00`))[0];
+  const next=pragueUtcCandidates(parseCzTimestamp(`01.${String(nextMonth).padStart(2,'0')}.${nextYear} 00:00:00`))[0];
+  if(!Number.isFinite(start)||!Number.isFinite(next))throw new Error('Nepodařilo se určit UTC hranice měsíce.');
+  const fullEnd=next-15*60000,nowRounded=Math.floor(Date.now()/(15*60000))*(15*60000);
+  return {from:new Date(start).toISOString(),to:new Date(Math.min(fullEnd,nowRounded)).toISOString(),start,end:fullEnd,isPast:Date.now()>=next};
+}
+function apiLocalRecord(ean,profile,units,item,seen){
+  const ms=Date.parse(item.timestamp);if(!Number.isFinite(ms))return null;
+  const p=pragueParts(ms),source=sourceStamp(p.year,p.month,p.day,p.hour,p.minute),occ=seen.get(source)||0;seen.set(source,occ+1);
+  const kw=apiValueToKw(item.value,units,15);if(kw===null)return null;
+  return {id:`${ean}|egd|${ms}`,ean,meter:'EG.D OpenAPI',monthKey:`${p.year}-${String(p.month).padStart(2,'0')}`,dateKey:`${p.year}-${String(p.month).padStart(2,'0')}-${String(p.day).padStart(2,'0')}`,sourceTimestamp:source,displayTimestamp:`${String(p.day).padStart(2,'0')}.${String(p.month).padStart(2,'0')}.${p.year} ${String(p.hour).padStart(2,'0')}:${String(p.minute).padStart(2,'0')}${occ?' ['+(occ+1)+']':''}`,occurrenceIndex:occ,sortKey:ms,year:p.year,month:p.month,day:p.day,hour:p.hour,minute:p.minute,weekday:weekdayMon(p),intervalMinutes:15,dcc0:null,dcc1:kw,dkc0:null,dkc1:null,dmc0:null,dmc1:null,apiStatus:String(item.status||''),apiProfile:profile,apiUnits:units,source:'egd-api'};
+}
+async function fetchEgdMonth(token,monthKey){
+  const bounds=pragueMonthQueryBounds(monthKey);
+  if(Date.parse(bounds.to)<Date.parse(bounds.from))return null;
+  const raw=await egdGet('/spotreby',token,{ean:state.egd.ean,profile:state.egd.profile,from:bounds.from,to:bounds.to});
+  const groups=Array.isArray(raw)?raw:[raw],group=groups.find(x=>x?.profile===state.egd.profile)||groups.find(x=>Array.isArray(x?.data));
+  if(!group||!Array.isArray(group.data)||!group.data.length)return null;
+  const units=String(group.units||''),statusCounts={};for(const x of group.data){const k=String(x.status||'?');statusCounts[k]=(statusCounts[k]||0)+1}
+  const seen=new Map(),records=group.data.slice().sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)).map(x=>apiLocalRecord(state.egd.ean,state.egd.profile,units,x,seen)).filter(Boolean).filter(r=>r.monthKey===monthKey);
+  if(!records.length)return null;
+  const [year,month]=monthKey.split('-').map(Number),validation=bounds.isPast?validateMonthTimeline(records,year,month):{complete:false,expectedCount:[...expectedTimestampCounts(year,month).values()].reduce((a,b)=>a+b,0),issues:[]};
+  const complete=bounds.isPast&&validation.complete&&(statusCounts.F||0)===0;
+  const lastMs=Math.max(...records.map(r=>r.sortKey)),label=`${MONTH_NAMES[month-1]} ${year}`;
+  return {records,month:{monthKey,label,year,month,ean:state.egd.ean,meter:'EG.D OpenAPI',count:records.length,expectedCount:validation.expectedCount,complete,incompleteDays:complete?0:1,validationVersion:3,enabled:true,finance:emptyFinance(),first:records[0].sourceTimestamp,last:records.at(-1).sourceTimestamp,importedAt:new Date().toISOString(),fileName:'EG.D OpenAPI',source:'egd-api',apiProfile:state.egd.profile,apiUnits:units,apiStatusCounts:statusCounts,lastAvailableAt:new Date(lastMs).toISOString(),syncedAt:new Date().toISOString()}};
+}
+async function persistEgdMonth(payload){
+  if(!payload)return {saved:false,reason:'no-data'};
+  const previous=state.months.find(m=>m.monthKey===payload.month.monthKey);
+  if(previous?.complete&&payload.month.complete!==true)return {saved:false,reason:'kept-complete'};
+  await persistImport(payload,!!previous);return {saved:true,reason:payload.month.complete?'complete':'partial'};
+}
+function currentAndPreviousMonthKeys(){
+  const p=pragueParts(Date.now()),idx=monthIndex(`${p.year}-${String(p.month).padStart(2,'0')}`);
+  return [monthKeyFromIndex(idx-1),monthKeyFromIndex(idx)];
+}
+async function syncEgdData(){
+  await saveEgdSelections();
+  if(!state.egd.clientId||!state.egd.clientSecret||!state.egd.ean||!state.egd.profile)throw new Error('Nejdřív ověř EG.D připojení a vyber odběrné místo a profil.');
+  setEgdUiState('warn','Synchronizuji…','Stahuji předchozí a aktuální měsíc z EG.D.');
+  try{
+    const token=await egdToken(),results=[];
+    for(const key of currentAndPreviousMonthKeys()){
+      showToast(`EG.D: načítám ${monthLabel(key)}…`);
+      const payload=await fetchEgdMonth(token,key),saved=await persistEgdMonth(payload);results.push({key,payload,saved});
+    }
+    state.egd.lastSync=new Date().toISOString();state.egd.verified=true;state.egd.lastError=null;await saveEgdConfig();
+    state.resetExportRange=true;await reload();
+    const saved=results.filter(x=>x.saved.saved).length,noData=results.filter(x=>!x.payload).length,last=results.map(x=>x.payload?.month?.lastAvailableAt).filter(Boolean).sort().at(-1);
+    setEgdUiState('ok','Připojeno',`Synchronizováno ${saved} měsíců${noData?' · bez dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''}`);
+    showToast('EG.D data byla synchronizována');
+  }catch(e){state.egd.lastError=e.message;setEgdUiState('error','Chyba synchronizace',e.message);throw e}
+}
+
 // ---------- Analytics ----------
 const val = r => {const n=Number(r[state.metric]);return Number.isFinite(n)?n:0};
 const energy = r => val(r)*((Number(r.intervalMinutes)||15)/60);
