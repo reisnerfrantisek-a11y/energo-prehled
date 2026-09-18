@@ -10,7 +10,7 @@ new Function(sw);
 
 for(const id of [
   'backupDataBtn','restoreDataBtn','backupFileInput','exportBtn','fileInput','replaceModal','monthsList','heroDelta',
-  'periodNavigator','periodPrev','periodNext','periodAnchorLabel','anchorMonthInput','customPeriodControls','customFrom','customTo','heroCard','daypartSubtitle','dashboardModeToggle','heroUnit','metricToggle','effectivePricePanel','effectivePriceChart','forceUpdateBtn','appVersionText'
+  'periodNavigator','periodPrev','periodNext','periodAnchorLabel','anchorMonthInput','customPeriodControls','customFrom','customTo','heroCard','daypartSubtitle','dashboardModeToggle','heroUnit','metricToggle','effectivePricePanel','effectivePriceChart','forceUpdateBtn','appVersionText','egdPanel','egdStatus','egdClientId','egdClientSecret','egdConfig','egdEanSelect','egdProfileSelect','egdTestBtn','egdSyncBtn','egdDisconnectBtn','egdResult'
 ]){
   assert.ok(index.includes(`id="${id}"`), `Missing UI element #${id}`);
 }
@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.3.2'"),'App version must be 1.3.2');
+assert.ok(app.includes("APP_VERSION = '1.4.0'"),'App version must be 1.4.0');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -36,6 +36,16 @@ assert.equal(sumExpected(2026,3),2972);
 assert.equal(sumExpected(2026,10),2980);
 assert.equal(run.pragueUtcCandidates(run.parseCzTimestamp('29.03.2026 02:00:00')).length,0);
 assert.equal(run.pragueUtcCandidates(run.parseCzTimestamp('25.10.2026 02:00:00')).length,2);
+
+const apiStart=app.indexOf('function apiValueToKw');
+const apiEnd=app.indexOf('function pragueMonthQueryBounds',apiStart);
+assert.ok(apiStart>=0&&apiEnd>apiStart,'API unit conversion block not found');
+const apiUnitCode=app.slice(apiStart,apiEnd);
+const apiRun=new Function(`${apiUnitCode}; return {apiValueToKw};`)();
+assert.equal(apiRun.apiValueToKw(2,'KW'),2);
+assert.equal(apiRun.apiValueToKw(1000,'W'),1);
+assert.equal(apiRun.apiValueToKw(1,'KWH'),4);
+assert.equal(apiRun.apiValueToKw(250,'WH'),1);
 
 const aug=run.make(2026,8);
 assert.equal(run.validateMonthTimeline(aug,2026,8).complete,true);
@@ -70,12 +80,24 @@ assert.ok(app.includes('async function forceUpdateApp'),'Safe force-update funct
 assert.ok(app.includes("k.startsWith('energo-prehled-beta-')"),'Force update must target beta cache only');
 assert.ok(!app.includes('indexedDB.deleteDatabase'),'Force update must not delete IndexedDB');
 assert.ok(!app.includes('localStorage.clear()'),'Force update must not clear localStorage');
-assert.ok(index.includes('app.js?v=1.3.2'),'App script must be cache-busted');
-assert.ok(index.includes('styles.css?v=1.3.2'),'Stylesheet must be cache-busted');
+assert.ok(index.includes('app.js?v=1.4.0'),'App script must be cache-busted');
+assert.ok(index.includes('styles.css?v=1.4.0'),'Stylesheet must be cache-busted');
 const refresh=fs.readFileSync('refresh.html','utf8');
 assert.ok(refresh.includes("energo-prehled-beta-"),'Recovery page must clear beta cache');
 assert.ok(!refresh.includes('indexedDB.deleteDatabase'),'Recovery page must preserve IndexedDB');
 assert.ok(!refresh.includes('localStorage.clear()'),'Recovery page must preserve localStorage');
+assert.ok(app.includes("indexedDB.open(DB_NAME,2)"),'IndexedDB schema must migrate to v2');
+assert.ok(app.includes("objectStoreNames.contains('settings')"),'EG.D settings store migration missing');
+assert.ok(app.includes("https://idm.distribuce24.cz/oauth/token"),'Official EG.D token endpoint missing');
+assert.ok(app.includes("https://data.distribuce24.cz/rest"),'Official EG.D data endpoint missing');
+assert.ok(app.includes("namerena_data_openapi"),'EG.D OAuth scope missing');
+assert.ok(app.includes("async function testEgdConnection"),'EG.D diagnostic missing');
+assert.ok(app.includes("async function syncEgdData"),'EG.D sync missing');
+assert.ok(app.includes("async function fetchEgdMonth"),'EG.D monthly fetch missing');
+assert.ok(app.includes("previous.source!=='egd-api'"),'Completed XLSX months must be protected from API replacement');
+assert.ok(app.includes("r.source==='egd-api'"),'API source semantics missing');
+assert.ok(!app.slice(app.indexOf('async function backupLocalData'),app.indexOf('async function restoreLocalData')).includes("getAll('settings')"),'Secrets must not be included in backup');
+assert.ok(index.includes('Client secret'),'EG.D credential UI missing');
 
 const analyticsStart=app.indexOf('const val = r =>');
 const analyticsEnd=app.indexOf('// ---------- SVG charts ----------',analyticsStart);
@@ -123,4 +145,4 @@ assert.equal(periodTest.currentRange().length,2);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.3.2 smoke tests OK');
+console.log('Energo Přehled Beta 1.4.0 smoke tests OK');
