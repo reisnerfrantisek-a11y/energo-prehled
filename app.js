@@ -240,9 +240,10 @@ function previousComparable(){
   const set=new Set(keys);return sortedRecords().filter(r=>set.has(r.monthKey));
 }
 function navigatePeriod(direction){
-  if(!['month','3m','year'].includes(state.period))return;
-  const jump=state.period==='3m'?3:state.period==='year'?12:1;
-  state.anchorMonth=monthKeyFromIndex(anchorIndex()+direction*jump);
+  if(!['month','3m','year'].includes(state.period)||!state.months.length)return;
+  const jump=state.period==='3m'?3:state.period==='year'?12:1,current=anchorIndex(),target=current+direction*jump,keys=state.months.map(m=>m.monthKey).sort(),min=monthIndex(keys[0]),max=monthIndex(keys.at(-1));
+  if(target<min||target>max)return;
+  state.anchorMonth=monthKeyFromIndex(target);
   persistPeriodState();renderPeriodControls();renderOverview();renderAnalysis();
 }
 function setPeriod(period){
@@ -400,16 +401,16 @@ async function handleFiles(fileList){
     if(overlaps.length){
       replaceExisting=confirm(`${overlaps.length} vybraných měsíců už v aplikaci existuje.\n\nOK = nahradit novými reporty\nZrušit = existující měsíce přeskočit`);
     }
-    let imported=0,replaced=0;
+    let imported=0,replaced=0;const importedMonthKeys=[];
     for(let i=0;i<unique.length;i++){
       const {file,payload}=unique[i],exists=existingMonths.has(payload.month.monthKey);
       if(exists&&!replaceExisting){skipped.push(`${file.name}: ${payload.month.label} už existuje`);continue}
       showToast(`Ukládám ${i+1}/${unique.length}: ${payload.month.label}`);
-      try{await persistImport(payload,exists);imported++;if(exists)replaced++}
+      try{await persistImport(payload,exists);imported++;importedMonthKeys.push(payload.month.monthKey);if(exists)replaced++}
       catch(e){console.error(file.name,e);failed.push(`${file.name}: zápis selhal – ${e.message}`)}
     }
     if(imported){
-      if(!state.records.length){const importedMonths=unique.map(x=>x.payload.month.monthKey).sort();state.anchorMonth=importedMonths.at(-1)||state.anchorMonth}
+      if(!state.records.length){state.anchorMonth=importedMonthKeys.sort().at(-1)||state.anchorMonth}
       state.resetExportRange=true;await reload();
     }
     const lines=[`Zpracováno souborů: ${files.length}`,`Importováno: ${imported}`,`Z toho nahrazeno: ${replaced}`,`Přeskočeno: ${skipped.length}`,`Chyby: ${failed.length}`];
