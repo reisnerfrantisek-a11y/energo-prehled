@@ -55,4 +55,36 @@ assert.equal(monthRun.monthKeyFromIndex(augIndex),'2026-08');
 assert.equal(monthRun.monthKeyFromIndex(augIndex-1),'2026-07');
 assert.equal(monthRun.monthKeyFromIndex(augIndex+1),'2026-09');
 
+const analyticsStart=app.indexOf('const val = r =>');
+const analyticsEnd=app.indexOf('// ---------- SVG charts ----------',analyticsStart);
+assert.ok(analyticsStart>=0&&analyticsEnd>analyticsStart,'Analytics block not found');
+const analyticsCode=app.slice(analyticsStart,analyticsEnd);
+const periodTest=new Function(`
+const MONTH_NAMES=['leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec'];
+const localStorage={setItem:()=>{}};
+const PERIOD_KEY='period',ANCHOR_KEY='anchor',CUSTOM_FROM_KEY='from',CUSTOM_TO_KEY='to';
+const renderPeriodControls=()=>{},renderOverview=()=>{},renderAnalysis=()=>{};
+const state={metric:'dcc1',period:'month',anchorMonth:'2026-08',customFrom:'2026-07-01',customTo:'2026-08-31',records:[
+{id:'jun',sortKey:1,monthKey:'2026-06',dateKey:'2026-06-01',year:2026,month:6,dcc1:1,intervalMinutes:15},
+{id:'jul',sortKey:2,monthKey:'2026-07',dateKey:'2026-07-01',year:2026,month:7,dcc1:1,intervalMinutes:15},
+{id:'aug',sortKey:3,monthKey:'2026-08',dateKey:'2026-08-01',year:2026,month:8,dcc1:1,intervalMinutes:15}
+],months:[
+{monthKey:'2026-06',complete:true},{monthKey:'2026-07',complete:true},{monthKey:'2026-08',complete:true}
+]};
+${analyticsCode}
+return {state,currentRange,expectedCurrentMonthKeys,selectedPeriodLabel};
+`)();
+periodTest.state.period='month';
+assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-08']);
+periodTest.state.period='3m';
+assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-06','2026-07','2026-08']);
+assert.deepEqual(periodTest.expectedCurrentMonthKeys(),['2026-06','2026-07','2026-08']);
+periodTest.state.period='year';
+assert.equal(periodTest.currentRange().length,3);
+assert.equal(periodTest.selectedPeriodLabel(),'2026');
+periodTest.state.period='custom';
+assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-07','2026-08']);
+periodTest.state.period='all';
+assert.equal(periodTest.currentRange().length,3);
+
 console.log('Energo Přehled Beta 1.2 smoke tests OK');
