@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.6.5';
+const APP_VERSION = '1.6.6';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -171,11 +171,15 @@ async function extractPdfTextCandidates(file){
 }
 function invoiceComponentRows(finance){
   const f=normalizeFinance(finance),c=f.components;
-  return [
+  const fixedDetail=[c.supplierFixed,c.breaker,c.distributionFixed,c.poze].some(v=>v!==null&&Number.isFinite(Number(v))&&Number(v)!==0);
+  const rows=[
     ['Silová elektřina',c.supplyEnergy],['Stálý plat dodavatele',c.supplierFixed],['Daň z elektřiny',c.electricityTax],
     ['Distribuce podle spotřeby',c.distributionEnergy],['Plat za jistič',c.breaker],['Systémové služby',c.systemServices],
-    ['Nesíťová infrastruktura',c.distributionFixed],['POZE',c.poze],['Ostatní',c.other],['DPH',c.vat]
-  ].filter(([,v])=>v!==null&&Number.isFinite(Number(v)));
+    ['Nesíťová infrastruktura',c.distributionFixed],['POZE',c.poze]
+  ];
+  if(!fixedDetail&&c.fixed!==null)rows.push(['Fixní složky souhrnně',c.fixed]);
+  rows.push(['Ostatní',c.other],['DPH',c.vat]);
+  return rows.filter(([,v])=>v!==null&&Number.isFinite(Number(v)));
 }
 function renderInvoiceReview(){
   const pending=state.pendingInvoicePdf,box=$('#invoiceReviewSummary'),components=$('#invoiceReviewComponents'),warnings=$('#invoiceReviewWarnings'),save=$('#confirmInvoicePdf'),cancel=$('#cancelInvoicePdf');
