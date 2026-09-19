@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.5.8';
+const APP_VERSION = '1.5.9';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -381,6 +381,7 @@ function egdStatusInfo(status){
   if(code==='IU021')return {code,label:'interpolovaná hodnota',usable:true,provisional:true,kind:'estimated'};
   if(code==='IU022')return {code,label:'externě manuálně změněná',usable:true,provisional:true,kind:'adjusted'};
   if(code==='IU023')return {code,label:'verze mimo platnost',usable:false,provisional:false,kind:'obsolete'};
+  if(code==='B'||code==='W')return {code,label:'hodnota vrácená EG.D s nestandardním statusem',usable:true,provisional:true,kind:'api-provisional'};
   return {code,label:code?'neznámý status':'status neuveden',usable:false,provisional:false,kind:'unknown'};
 }
 function recordUsable(r){
@@ -1294,7 +1295,7 @@ async function renderMonths(){
       <div class="month-main">
         <strong>${escapeHtml(m.label)} ${sourceTag} ${liveTag}</strong>
         <div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}${escapeHtml(availability)}</div>
-        ${isApi?`<div class="month-quality">Kvalita EG.D: ${escapeHtml(qualityText||'bez stavových kódů')}${escapeHtml(qualityUsage)} · platné i odhadnuté hodnoty se zobrazují, nepoužitelné se vyřazují · profil ${escapeHtml(m.apiProfile||'—')} · ${escapeHtml(m.apiUnits||'—')}</div>`:''}
+        ${isApi?`<div class="month-quality">Kvalita EG.D: ${escapeHtml(qualityText||'bez stavových kódů')}${escapeHtml(qualityUsage)} · B/W se zobrazují jako předběžné; explicitně nepoužitelné IU statusy se vyřazují · profil ${escapeHtml(m.apiProfile||'—')} · ${escapeHtml(m.apiUnits||'—')}</div>`:''}
         <div class="month-finance">
           <label class="invoice-field"><span>Faktura</span><input inputmode="decimal" data-month-invoice="${m.monthKey}" value="${invoice===null?'':String(invoice).replace('.',',')}" placeholder="${partial?'po uzavření':'např. 1842'}" ${partial?'disabled':''}><b>Kč</b></label>
           <span class="effective-price">${effective===null?(invoice!==null&&kwh===0?'0 kWh · cenu/kWh nelze určit':'Cena/kWh —'):`Efektivně <strong>${fmt.format(effective)} Kč/kWh</strong>`}</span>
