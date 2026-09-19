@@ -43,6 +43,18 @@
 .dashboard-mode-toggle{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin:0 0 12px;border:1px solid var(--border);border-radius:15px;background:var(--surface);box-shadow:var(--shadow)}
 .dashboard-mode-btn{border:0;background:transparent;color:var(--muted);padding:10px 12px;border-radius:11px;font-size:13px;font-weight:800}
 .dashboard-mode-btn.active{background:var(--text);color:var(--surface)}
+.energy-chart-controls{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 0;padding-top:10px;border-top:1px solid rgba(255,255,255,.10)}
+.chart-mode-toggle{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12)}
+.chart-mode-btn{border:0;background:transparent;color:#c3cfdd;padding:7px 10px;border-radius:8px;font-size:11px;font-weight:800;white-space:nowrap}
+.chart-mode-btn.active{background:#fff;color:#0b1220;box-shadow:0 2px 8px rgba(0,0,0,.14)}
+.compare-previous{display:flex;align-items:center;gap:7px;color:#c6d2e2;font-size:11px;font-weight:750;cursor:pointer;user-select:none}
+.compare-previous input{width:16px;height:16px;accent-color:#8fc1ff}
+.energy-chart-legend{display:flex;gap:12px;align-items:center;flex-wrap:wrap;min-height:18px;margin:0 0 -18px 66px;color:#afbdd0;font-size:10px;font-weight:750;position:relative;z-index:2;pointer-events:none}
+.energy-chart-legend span{display:inline-flex;align-items:center;gap:5px}
+.energy-chart-legend i{display:inline-block;width:18px;height:3px;border-radius:99px}
+.energy-chart-legend i.band{height:8px;opacity:.25}
+.energy-chart-legend i.dash{height:2px;opacity:.8}
+@media(max-width:480px){.energy-chart-controls{align-items:flex-start;flex-direction:column}.compare-previous{font-size:10px}.energy-chart-legend{margin-left:64px;gap:8px;font-size:9px}}
 .chart-y-label{font-size:13px;font-weight:650}.chart-x-label{font-size:13px;font-weight:650}.chart-value-label{font-size:14px;font-weight:800}
 .month-main{min-width:0;flex:1}.month-finance{margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .invoice-field{display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--border);border-radius:10px;background:var(--bg)}
