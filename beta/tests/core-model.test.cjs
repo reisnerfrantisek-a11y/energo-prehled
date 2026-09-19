@@ -2,6 +2,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const Core=require('../core/model.js');
 const Invoice=require('../core/invoice.js');
+const Forecast=require('../core/forecast.js');
 
 test('ICQ2 energy conversion is reversible',()=>{
   assert.equal(Core.apiValueToKw(0.25,'kWh',15),1);
@@ -40,4 +41,22 @@ test('legacy finance normalizes into invoice-ready schema',()=>{
   assert.equal(f.components.distribution,200);
   assert.ok(Object.hasOwn(f.components,'poze'));
   assert.ok(Object.hasOwn(f,'invoiceMeta'));
+});
+
+
+test('forecast allocation and cumulative band preserve totals',()=>{
+  const estimate={actualEnergy:10,predictedEnergy:16,lowEnergy:14,highEnergy:19};
+  const allocated=Forecast.allocateRemaining(estimate,[1,2,1]);
+  assert.ok(Math.abs(Core.sumFinite(allocated.central)-6)<1e-12);
+  assert.ok(Math.abs(Core.sumFinite(allocated.low)-4)<1e-12);
+  assert.ok(Math.abs(Core.sumFinite(allocated.high)-9)<1e-12);
+  const rows=[
+    {kind:'actual',value:5,low:5,high:5},
+    {kind:'forecast',value:2,low:1,high:3},
+    {kind:'forecast',value:4,low:3,high:6}
+  ];
+  const cum=Forecast.toCumulative(rows);
+  assert.deepEqual(cum.map(x=>x.value),[5,7,11]);
+  assert.deepEqual(cum.map(x=>x.low),[5,6,9]);
+  assert.deepEqual(cum.map(x=>x.high),[5,8,14]);
 });
