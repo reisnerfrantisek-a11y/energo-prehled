@@ -174,7 +174,8 @@ test('data health scores a complete past month at 100',()=>{
   api.state.months.push({monthKey:key,enabled:true,complete:true,source:'xlsx'});
   for(let d=1;d<=31;d++)for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){
     const dateKey=`${y}-08-${String(d).padStart(2,'0')}`,wd0=new Date(Date.UTC(y,m-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;
-    api.state.records.push({id:`${key}-${d}-${h}-${mi}`,monthKey:key,dateKey,sortKey:Date.UTC(y,m-1,d,h,mi),year:y,month:m,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:.1,source:'xlsx'});
+    const stamp=`${String(d).padStart(2,'0')}.08.2026 ${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}:00`,parsed=Time.parseCzTimestamp(stamp),sortKey=Time.pragueUtcCandidates(parsed)[0];
+    api.state.records.push({id:`${key}-${d}-${h}-${mi}`,monthKey:key,dateKey,sourceTimestamp:stamp,sortKey,year:y,month:m,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:.1,source:'xlsx'});
   }
   const health=api.monthDataHealth(key);
   assert.equal(health.score,100);
