@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.4.3'"),'App version must be 1.4.3');
+assert.ok(app.includes("APP_VERSION = '1.4.4'"),'App version must be 1.4.4');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -80,8 +80,8 @@ assert.ok(app.includes('async function forceUpdateApp'),'Safe force-update funct
 assert.ok(app.includes("k.startsWith('energo-prehled-beta-')"),'Force update must target beta cache only');
 assert.ok(!app.includes('indexedDB.deleteDatabase'),'Force update must not delete IndexedDB');
 assert.ok(!app.includes('localStorage.clear()'),'Force update must not clear localStorage');
-assert.ok(index.includes('app.js?v=1.4.3'),'App script must be cache-busted');
-assert.ok(index.includes('styles.css?v=1.4.3'),'Stylesheet must be cache-busted');
+assert.ok(index.includes('app.js?v=1.4.4'),'App script must be cache-busted');
+assert.ok(index.includes('styles.css?v=1.4.4'),'Stylesheet must be cache-busted');
 const refresh=fs.readFileSync('refresh.html','utf8');
 assert.ok(refresh.includes("energo-prehled-beta-"),'Recovery page must clear beta cache');
 assert.ok(!refresh.includes('indexedDB.deleteDatabase'),'Recovery page must preserve IndexedDB');
@@ -106,6 +106,11 @@ assert.ok(app.includes("if(type==='B')"),'Type B profile selection guard missing
 assert.ok(app.includes("toUpperCase()==='ICC1'"),'Type B must prefer ICC1');
 assert.ok(app.includes('lastClosedDayEnd=todayStart-15*60000'),'Current month must stop at previous closed day');
 assert.ok(app.includes('function estimateRateForMonth'),'Three-month cost estimate missing');
+assert.ok(app.includes('function weightedCostModel'),'Dynamic fixed-variable cost model missing');
+assert.ok(app.includes('function modeledRateAtEnergy'),'Dynamic price curve missing');
+assert.ok(app.includes('function predictMonthEnergy'),'Month-end consumption forecast missing');
+assert.ok(app.includes('fixed+c.variableRate*p.energy'),'Cost model must regress total invoice against consumption');
+assert.ok(app.includes('spreadScore'),'Cost model confidence must account for consumption spread');
 assert.ok(app.includes('function estimatedMonthCost'),'Live month cost estimate missing');
 assert.ok(app.includes('function costProjectionForRecords'),'Estimated cost dashboard projection missing');
 assert.ok(app.includes('async function maybeAutoSyncEgd'),'Daily EG.D auto-sync missing');
@@ -144,7 +149,7 @@ const state={metric:'dcc1',period:'month',anchorMonth:'2026-08',customFrom:'2026
 {monthKey:'2026-06',complete:true,finance:{invoiceTotal:100}},{monthKey:'2026-07',complete:true,finance:{invoiceTotal:300}},{monthKey:'2026-08',complete:true,finance:{invoiceTotal:600}}
 ]};
 ${analyticsCode}
-return {state,currentRange,expectedCurrentMonthKeys,selectedPeriodLabel,costForRecords,monthEffectivePrice,estimateRateForMonth,estimatedMonthCost,costProjectionForRecords};
+return {state,currentRange,expectedCurrentMonthKeys,selectedPeriodLabel,costForRecords,monthEffectivePrice,estimateRateForMonth,estimatedMonthCost,costProjectionForRecords,weightedCostModel,modeledRateAtEnergy,predictMonthEnergy};
 `)();
 periodTest.state.period='month';
 assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-08']);
@@ -164,14 +169,29 @@ assert.equal(fullCosts.coveredEnergy,6);
 assert.equal(periodTest.monthEffectivePrice('2026-08'),200);
 periodTest.state.records.push({id:'sep',sortKey:4,monthKey:'2026-09',dateKey:'2026-09-01',year:2026,month:9,dcc1:4,intervalMinutes:15,source:'egd-api'});
 periodTest.state.months.push({monthKey:'2026-09',complete:false,source:'egd-api',lastAvailableAt:'2026-09-18T21:45:00.000Z',finance:{invoiceTotal:null}});
+const syntheticModel=periodTest.weightedCostModel([
+{key:'a',energy:100,cost:900,weight:1},
+{key:'b',energy:200,cost:1300,weight:2},
+{key:'c',energy:400,cost:2100,weight:3}
+]);
+assert.ok(Math.abs(syntheticModel.fixed-500)<1e-9,'Dynamic model must recover the fixed monthly component');
+assert.ok(Math.abs(syntheticModel.variableRate-4)<1e-9,'Dynamic model must recover the variable Kč/kWh component');
+assert.ok(syntheticModel.confidence>.99,'Well-separated exact data should have high model confidence');
+const lowUseRate=periodTest.modeledRateAtEnergy(syntheticModel,100);
+const highUseRate=periodTest.modeledRateAtEnergy(syntheticModel,500);
+assert.ok(highUseRate<lowUseRate,'Effective Kč/kWh must decline as consumption rises');
+
 const sepRate=periodTest.estimateRateForMonth('2026-09');
 assert.equal(sepRate.count,3);
-assert.ok(Math.abs(sepRate.rate-(1000/6))<1e-9,'Estimate must be weighted by total invoice / total kWh');
+assert.ok(Number.isFinite(sepRate.rate),'Live month must produce a finite dynamic rate');
+assert.ok(sepRate.predictedEnergy>=sepRate.actualEnergy,'Month-end energy forecast cannot be below already measured energy');
 const sepEstimate=periodTest.estimatedMonthCost('2026-09');
-assert.ok(Math.abs(sepEstimate.cost-(1000/6))<1e-9,'Live month estimate must use weighted three-month rate');
+assert.ok(Number.isFinite(sepEstimate.cost),'Live month cost estimate must be finite');
+assert.ok(Number.isFinite(sepEstimate.projectedCost),'Projected full-month invoice must be finite');
+assert.ok(sepEstimate.projectedCost>=sepEstimate.cost,'Projected full-month invoice should not be below accrued estimate');
 const sepProjection=periodTest.costProjectionForRecords(periodTest.state.records.filter(r=>r.monthKey==='2026-09'));
 assert.equal(sepProjection.estimatedMonths.size,1);
-assert.ok(Math.abs(sepProjection.totalWithEstimate-(1000/6))<1e-9);
+assert.ok(Math.abs(sepProjection.totalWithEstimate-sepEstimate.cost)<1e-9);
 periodTest.state.months.find(m=>m.monthKey==='2026-07').enabled=false;
 periodTest.state.period='3m';
 assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-06','2026-08']);
@@ -182,4 +202,4 @@ assert.equal(periodTest.currentRange().length,3);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.4.3 smoke tests OK');
+console.log('Energo Přehled Beta 1.4.4 smoke tests OK');
