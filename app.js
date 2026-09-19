@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.1';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -36,7 +36,7 @@ let state = {
   customTo: localStorage.getItem(CUSTOM_TO_KEY) || '',
   daypartMode: localStorage.getItem(DAYPART_KEY)==='average'?'average':'percent',
   dashboardMode: localStorage.getItem(DASHBOARD_MODE_KEY)==='cost'?'cost':'energy',
-  egd: {clientId:'',clientSecret:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null},
+  egd: {clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null},
   pendingImport: null,
   resetExportRange: false
 };
@@ -220,12 +220,29 @@ async function parseReport(file){
 
 // ---------- EG.D OpenAPI ----------
 function egdConnectionConfig(){
-  return {clientId:state.egd.clientId,clientSecret:state.egd.clientSecret,ean:state.egd.ean,profile:state.egd.profile,lastSync:state.egd.lastSync||null};
+  return {clientId:state.egd.clientId,clientSecret:state.egd.clientSecret,proxyUrl:state.egd.proxyUrl||'',ean:state.egd.ean,profile:state.egd.profile,lastSync:state.egd.lastSync||null};
 }
 async function saveEgdConfig(){await setSetting('egd-config',egdConnectionConfig())}
 function egdNetworkError(e){
   if(e instanceof TypeError)return new Error('Přímé spojení s EG.D se z prohlížeče nepodařilo navázat. Může jít o síťovou chybu nebo CORS blokaci na straně EG.D.');
   return e;
+}
+function normalizeProxyUrl(raw){
+  const text=String(raw||'').trim();if(!text)return '';
+  let u;try{u=new URL(text)}catch{throw new Error('Proxy URL není platná adresa.')}
+  if(u.protocol!=='https:')throw new Error('Proxy URL musí používat HTTPS.');
+  u.hash='';return u.href.replace(/\/$/,'');
+}
+async function egdProxyPost(action,payload={}){
+  const proxyUrl=normalizeProxyUrl(state.egd.proxyUrl);
+  if(!proxyUrl)throw new Error('Vyplň Proxy URL z Vercelu.');
+  let resp;
+  try{
+    resp=await fetch(proxyUrl,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},cache:'no-store',body:JSON.stringify({clientId:state.egd.clientId,clientSecret:state.egd.clientSecret,action,...payload})});
+  }catch(e){throw new Error('Vercel proxy není dostupná nebo ji prohlížeč zablokoval.')}
+  let body=null;try{body=await resp.json()}catch{}
+  if(!resp.ok)throw new Error(body?.details||body?.message||`Proxy vrátila HTTP ${resp.status}.`);
+  return body;
 }
 async function egdToken(clientId=state.egd.clientId,clientSecret=state.egd.clientSecret){
   if(!clientId||!clientSecret)throw new Error('Vyplň Client ID a Client secret.');
@@ -258,13 +275,18 @@ function chooseConsumptionProfile(profiles,typMereni,current=''){
   return preferred?.kod||'';
 }
 async function testEgdConnection(){
-  const clientId=$('#egdClientId').value.trim(),clientSecret=$('#egdClientSecret').value.trim();
-  state.egd.clientId=clientId;state.egd.clientSecret=clientSecret;state.egd.lastError=null;
+  const clientId=$('#egdClientId').value.trim(),clientSecret=$('#egdClientSecret').value.trim(),proxyUrl=normalizeProxyUrl($('#egdProxyUrl').value);
+  state.egd.clientId=clientId;state.egd.clientSecret=clientSecret;state.egd.proxyUrl=proxyUrl;state.egd.lastError=null;
   await saveEgdConfig();
   setEgdUiState('warn','Ověřuji…','Získávám token a číselníky EG.D.');
   try{
-    const token=await egdToken(clientId,clientSecret);
-    const oms=await egdGet('/om',token),profiles=await egdGet('/profily',token),statuses=await egdGet('/statusy',token);
+    let oms,profiles,statuses;
+    if(state.egd.proxyUrl){
+      const out=await egdProxyPost('diagnostics');oms=out.om;profiles=out.profily;statuses=out.statusy;
+    }else{
+      const token=await egdToken(clientId,clientSecret);
+      oms=await egdGet('/om',token);profiles=await egdGet('/profily',token);statuses=await egdGet('/statusy',token);
+    }
     state.egd.oms=Array.isArray(oms)?oms:[];
     state.egd.profiles=Array.isArray(profiles)?profiles:[];
     state.egd.statuses=Array.isArray(statuses)?statuses:[];
@@ -289,7 +311,7 @@ function setEgdUiState(kind,label,message){
 async function disconnectEgd(){
   if(!confirm('Odpojit EG.D OpenAPI z tohoto zařízení? Naměřená data už uložená v aplikaci zůstanou zachovaná.'))return;
   await deleteSetting('egd-config');
-  state.egd={clientId:'',clientSecret:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,verified:false};
+  state.egd={clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,verified:false};
   renderEgdPanel();showToast('EG.D připojení bylo odstraněno');
 }
 async function saveEgdSelections(){
@@ -301,6 +323,7 @@ function renderEgdPanel(){
   const hasCreds=!!(state.egd.clientId&&state.egd.clientSecret),hasSelection=!!(state.egd.ean&&state.egd.profile);
   $('#egdClientId').value=state.egd.clientId||'';
   $('#egdClientSecret').value=state.egd.clientSecret||'';
+  $('#egdProxyUrl').value=state.egd.proxyUrl||'';
   $('#egdConfig').classList.toggle('hidden',!state.egd.oms.length);
   $('#egdSyncBtn').classList.toggle('hidden',!(hasCreds&&hasSelection));
   $('#egdDisconnectBtn').classList.toggle('hidden',!hasCreds);
@@ -340,7 +363,9 @@ function apiLocalRecord(ean,profile,units,item,seen){
 async function fetchEgdMonth(token,monthKey){
   const bounds=pragueMonthQueryBounds(monthKey);
   if(Date.parse(bounds.to)<Date.parse(bounds.from))return null;
-  const raw=await egdGet('/spotreby',token,{ean:state.egd.ean,profile:state.egd.profile,from:bounds.from,to:bounds.to});
+  const raw=state.egd.proxyUrl
+    ?(await egdProxyPost('spotreby',{ean:state.egd.ean,profile:state.egd.profile,from:bounds.from,to:bounds.to})).data
+    :await egdGet('/spotreby',token,{ean:state.egd.ean,profile:state.egd.profile,from:bounds.from,to:bounds.to,pageStart:1,pageSize:3000});
   const groups=Array.isArray(raw)?raw:[raw],group=groups.find(x=>x?.profile===state.egd.profile)||groups.find(x=>Array.isArray(x?.data));
   if(!group||!Array.isArray(group.data)||!group.data.length)return null;
   const units=String(group.units||''),statusCounts={};for(const x of group.data){const k=String(x.status||'?');statusCounts[k]=(statusCounts[k]||0)+1}
@@ -369,7 +394,7 @@ async function syncEgdData(){
   if(localEans.length&&(!localEans.includes(state.egd.ean)||localEans.length>1))throw new Error(`Lokální databáze patří EAN ${localEans.join(', ')}. Vybrané EG.D odběrné místo ${state.egd.ean} nelze do stejné databáze přimíchat.`);
   setEgdUiState('warn','Synchronizuji…','Stahuji předchozí a aktuální měsíc z EG.D.');
   try{
-    const token=await egdToken(),results=[];
+    const token=state.egd.proxyUrl?null:await egdToken(),results=[];
     for(const key of currentAndPreviousMonthKeys()){
       showToast(`EG.D: načítám ${monthLabel(key)}…`);
       const payload=await fetchEgdMonth(token,key),saved=await persistEgdMonth(payload);results.push({key,payload,saved});
