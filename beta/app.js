@@ -468,8 +468,7 @@ function incrementalEgdBounds(monthKey,bounds){
   const existing=existingEgdRecords(monthKey);
   if(!existing.length)return {...bounds,incremental:false,existing};
   const lastMs=Math.max(...existing.map(r=>Number(r.sortKey)).filter(Number.isFinite));
-  const overlap=2*24*60*60*1000;
-  const fromMs=Math.max(bounds.start,lastMs-overlap);
+  const fromMs=Math.max(bounds.start,lastMs+15*60000);
   return {...bounds,from:new Date(fromMs).toISOString(),incremental:true,existing,lastExistingMs:lastMs};
 }
 function apiLocalRecord(ean,profile,units,item,seen){
