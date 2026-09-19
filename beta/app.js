@@ -1268,8 +1268,8 @@ function analysisContext(rs){
 }
 function renderAnalysisContext(rs){
   const ctx=analysisContext(rs),card=$('#analysisContext');if(!card)return;
-  $('[data-analysis-mode]').forEach(b=>b.classList.toggle('active',b.dataset.analysisMode===state.analysisMode));
-  $('[data-analysis-badge]').forEach(b=>b.textContent=state.analysisMode==='robust'?'Typický profil':'Všechna data');
+  $$('[data-analysis-mode]').forEach(b=>b.classList.toggle('active',b.dataset.analysisMode===state.analysisMode));
+  $$('[data-analysis-badge]').forEach(b=>b.textContent=state.analysisMode==='robust'?'Typický profil':'Všechna data');
   if(!ctx.intervals){
     $('#analysisPeriod').textContent='Bez aktivních dat';$('#analysisMeta').textContent='—';$('#analysisMethod').textContent='Změň období nebo aktivuj data v záložce Data.';return;
   }
