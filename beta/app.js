@@ -1,7 +1,7 @@
 'use strict';
 
-const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice,TIME=window.EnergoTime;
-if(!CORE||!INVOICE||!TIME)throw new Error('Chybí core moduly Energo aplikace.');
+const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice,TIME=window.EnergoTime,FORECAST=window.EnergoForecast;
+if(!CORE||!INVOICE||!TIME||!FORECAST)throw new Error('Chybí core moduly Energo aplikace.');
 
 const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
@@ -835,9 +835,7 @@ function forecastEnergyDailySeries(monthKey){
   if(!lastObserved)return null;
   const future=dates.filter(d=>d>lastObserved),baseline=forecastWeekdayBaseline(monthKey);
   const weights=future.map(d=>Math.max(.0001,(baseline[weekdayFromDateKey(d)]||1)*(estimate.scale||1)));
-  const central=CORE.distributeTotal(Math.max(0,estimate.predictedEnergy-estimate.actualEnergy),weights);
-  const low=CORE.distributeTotal(Math.max(0,estimate.lowEnergy-estimate.actualEnergy),weights);
-  const high=CORE.distributeTotal(Math.max(0,estimate.highEnergy-estimate.actualEnergy),weights);
+  const allocated=FORECAST.allocateRemaining(estimate,weights),central=allocated.central,low=allocated.low,high=allocated.high;
   const index=new Map(future.map((d,i)=>[d,i]));
   const data=dates.map(d=>{
     if(d<=lastObserved){
@@ -869,18 +867,8 @@ function prepareEnergyChartSeries(monthKey){
   }
   const prev=state.comparePrevious?previousMonthEnergySeries(monthKey,data.length):null;
   if(state.chartMode==='cumulative'){
-    let acc=0,lowAcc=0,highAcc=0;
-    data=data.map(d=>{
-      if(d.kind==='missing')return {...d,value:null,low:null,high:null};
-      acc+=Number(d.value)||0;
-      lowAcc+=Number.isFinite(d.low)?Number(d.low):Number(d.value)||0;
-      highAcc+=Number.isFinite(d.high)?Number(d.high):Number(d.value)||0;
-      return {...d,value:acc,low:lowAcc,high:highAcc};
-    });
-    if(prev){
-      let pacc=0;
-      prev.values=prev.values.map(v=>{if(v===null)return null;pacc+=Number(v)||0;return pacc});
-    }
+    data=FORECAST.toCumulative(data);
+    if(prev)prev.values=FORECAST.cumulativeNullable(prev.values);
   }
   return {data,comparison:prev,live,estimate:forecast?.estimate||null};
 }
