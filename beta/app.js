@@ -424,6 +424,13 @@ function apiValueToKw(value,units,intervalMinutes=15){
   if(u==='KWH')return n/hours;if(u==='WH')return n/1000/hours;if(u==='MWH')return n*1000/hours;
   throw new Error(`Nepodporovaná jednotka z EG.D: ${units||'neuvedena'}.`);
 }
+function apiValueFromKw(kw,units,intervalMinutes=15){
+  const n=Number(kw);if(!Number.isFinite(n))return null;
+  const u=String(units||'').toUpperCase().replace(/\s+/g,''),hours=intervalMinutes/60;
+  if(u==='KW')return n;if(u==='W')return n*1000;if(u==='MW')return n/1000;
+  if(u==='KWH')return n*hours;if(u==='WH')return n*1000*hours;if(u==='MWH')return n*hours/1000;
+  return null;
+}
 function pragueMonthQueryBounds(monthKey){
   const [year,month]=monthKey.split('-').map(Number),nextMonth=month===12?1:month+1,nextYear=month===12?year+1:year;
   const start=pragueUtcCandidates(parseCzTimestamp(`01.${String(month).padStart(2,'0')}.${year} 00:00:00`))[0];
@@ -637,14 +644,14 @@ async function syncEgdData({silent=false}={}){
       renderPeriodControls();renderOverview();renderAnalysis();
     }
     await captureLiveForecastSnapshots();
-    const saved=results.filter(x=>x.saved?.saved).length,noData=results.filter(x=>!x.payload&&!x.skipped&&!x.error).length,skipped=results.filter(x=>x.skipped).length,last=latestEgdAvailability(),incremental=results.some(x=>x.payload?.month?.incremental),fallback=results.some(x=>x.payload?.month?.chunkFallback),profileFallback=results.find(x=>x.profileFallback);
+    const saved=results.filter(x=>x.saved?.saved).length,noData=results.filter(x=>!x.payload&&!x.skipped&&!x.error).length,skipped=results.filter(x=>x.skipped).length,last=latestEgdAvailability(),incremental=results.some(x=>x.payload?.month?.incremental),fallback=results.some(x=>x.payload?.month?.chunkFallback),profileFallback=results.find(x=>x.profileFallback),gapRecovered=results.reduce((sum,x)=>sum+Number(x.payload?.month?.gapRepairRecovered||0),0),gapRemaining=results.reduce((sum,x)=>sum+Number(x.payload?.month?.gapRepairRemaining||0),0);
     if(recoverable.length){
       const msg=`${recoverable[0].error.message} Synchronizaci můžeš zkusit později; aplikace dál používá poslední uložená data.`;
       setEgdUiState('warn','EG.D dočasně nedostupné',msg);
       if(!silent)showToast('EG.D nevrátilo nová data; starší data zůstala zachována');
       return {ok:false,recoverable:true,results};
     }
-    const message=`Synchronizováno ${saved} měsíců${skipped?' · kompletní přeskočeno: '+skipped:''}${noData?' · bez nových dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''}${incremental?' · přírůstková aktualizace':''}${fallback?' · načteno po menších blocích':''}${profileFallback?' · automaticky použit profil '+profileFallback.profile:''}${overviewMoved?' · Přehled přepnut na '+monthLabel(currentKey):''}`;
+    const message=`Synchronizováno ${saved} měsíců${skipped?' · kompletní přeskočeno: '+skipped:''}${noData?' · bez nových dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''}${incremental?' · přírůstková aktualizace':''}${fallback?' · načteno po menších blocích':''}${gapRecovered?' · doplněno chybějících intervalů: '+gapRecovered:''}${gapRemaining?' · stále chybí: '+gapRemaining:''}${profileFallback?' · automaticky použit profil '+profileFallback.profile:''}${overviewMoved?' · Přehled přepnut na '+monthLabel(currentKey):''}`;
     setEgdUiState('ok','Připojeno',message);
     if(!silent)showToast('EG.D data byla synchronizována');
     return {ok:true,results};
@@ -1309,8 +1316,8 @@ async function renderMonths(){
     const isApi=m.source==='egd-api',partial=isApi&&m.complete!==true,estimate=partial?estimatedMonthCost(m.monthKey):null,quality=m.apiStatusCounts||{},sourceTag=isApi?'<span class="month-source">EG.D</span>':'<span class="month-source">XLSX</span>';
     const liveTag=partial?'<span class="month-live-badge">PRŮBĚŽNÝ</span>':'';
     const qualityText=isApi?Object.entries(quality).sort(([a],[b])=>a.localeCompare(b)).map(([code,count])=>`${code} ${count}`).join(' · '):'';
-    const monthRecords=state.records.filter(r=>r.monthKey===m.monthKey),usableCount=monthRecords.filter(recordUsable).length,provisionalCount=monthRecords.filter(recordProvisional).length;
-    const qualityUsage=isApi?` · použito ${usableCount.toLocaleString('cs-CZ')}/${Number(m.count||0).toLocaleString('cs-CZ')}${provisionalCount?` · předběžných ${provisionalCount.toLocaleString('cs-CZ')}`:''}`:'';
+    const monthRecords=state.records.filter(r=>r.monthKey===m.monthKey),usableCount=monthRecords.filter(recordUsable).length,provisionalCount=monthRecords.filter(recordProvisional).length,gaps=isApi?closedIntervalGaps(monthRecords,m.monthKey):[],gapDays=new Set(gaps.map(g=>g.dateKey)).size;
+    const qualityUsage=isApi?` · použito ${usableCount.toLocaleString('cs-CZ')}/${Number(m.count||0).toLocaleString('cs-CZ')}${provisionalCount?` · předběžných ${provisionalCount.toLocaleString('cs-CZ')}`:''}${gaps.length?` · chybí ${gaps.length} intervalů ve ${gapDays} dnech`:' · uzavřené dny bez mezer'}`:'';
     const availability=partial&&m.lastAvailableAt?` · do ${new Date(m.lastAvailableAt).toLocaleString('cs-CZ')}`:'';
     const stateText=monthIsComplete(m.monthKey)?'✓ kompletní':partial&&enabled?'● průběžně':enabled?'⚠ zkontrolovat':'—';
     let estimateHtml='';
@@ -1441,7 +1448,7 @@ function exportXLSX(rs,g){
     {name:'Finanční přehled',rows:[['Měsíc','Faktura celkem (Kč)','DCC1 spotřeba (kWh)','Efektivní cena (Kč/kWh)'],...financeMonths.map(k=>{const invoice=monthInvoice(k),kwh=monthBillingEnergy(k),price=invoice!==null&&kwh>0?invoice/kwh:'';return [monthLabel(k),invoice??'',kwh,price]})]}
   ];
   const apiRows=rs.filter(r=>r.source==='egd-api');
-  if(apiRows.length)sheets.splice(3,0,{name:'EG.D raw',rows:[['UTC timestamp','Místní čas','Profil','Jednotka','Raw hodnota','Normalizovaný výkon (kW)','Energie intervalu (kWh)','Status','Klasifikace','Použitelné','Předběžné'],...apiRows.map(r=>{const q=egdStatusInfo(r.apiStatus);return [r.apiTimestampUtc||new Date(r.sortKey).toISOString(),r.displayTimestamp||r.sourceTimestamp,r.apiProfile||'',r.apiUnits||'',r.apiRawValue??'',Number(r.dcc1)||0,billingEnergy(r),r.apiStatus||'',q.kind,q.usable?'ano':'ne',q.provisional?'ano':'ne']})]});
+  if(apiRows.length)sheets.splice(3,0,{name:'EG.D raw',rows:[['UTC timestamp','Místní čas','Profil','Jednotka','Raw hodnota','Rekonstruovaná hodnota','Původ hodnoty','Normalizovaný výkon (kW)','Energie intervalu (kWh)','Status','Klasifikace','Použitelné','Předběžné'],...apiRows.map(r=>{const q=egdStatusInfo(r.apiStatus),reconstructed=apiValueFromKw(r.dcc1,r.apiUnits,r.intervalMinutes||15),hasRaw=Number.isFinite(Number(r.apiRawValue));return [r.apiTimestampUtc||new Date(r.sortKey).toISOString(),r.displayTimestamp||r.sourceTimestamp,r.apiProfile||'',r.apiUnits||'',hasRaw?Number(r.apiRawValue):'',reconstructed??'',hasRaw?'raw z EG.D':'rekonstrukce ze staršího záznamu',Number(r.dcc1)||0,billingEnergy(r),r.apiStatus||'',q.kind,q.usable?'ano':'ne',q.provisional?'ano':'ne']})]});
   const files=[];files.push({name:'[Content_Types].xml',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`});
   files.push({name:'_rels/.rels',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`});
   files.push({name:'xl/workbook.xml',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((s,i)=>`<sheet name="${xmlEscape(s.name)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')}</sheets></workbook>`});
