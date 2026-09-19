@@ -51,6 +51,17 @@
     return items.reduce((a,x)=>a+(x.unit==='MWh'?x.quantity*1000:x.unit==='kWh'?x.quantity:0),0);
   }
   function monthlyUnits(items){return items.reduce((a,x)=>a+(x.unit==='Měsíc'?x.quantity:0),0)}
+  function exactCharge(items){
+    return items.reduce((a,x)=>{
+      if(x.unit==='MWh'||x.unit==='Měsíc')return a+x.quantity*x.unitPrice;
+      if(x.unit==='kWh')return a+(x.quantity*x.unitPrice);
+      return a;
+    },0);
+  }
+  function variableRatePerKwh(items){
+    const kwh=kwhFrom(items);if(!(kwh>0))return 0;
+    return exactCharge(items)/kwh;
+  }
   function aggregate(items){
     const total=sum(items),kwh=kwhFrom(items),months=monthlyUnits(items);
     return {total:Math.round(total*100)/100,kwh,months,perKwh:kwh>0?total/kwh:null,perMonth:months>0?total/months:null};
@@ -103,7 +114,9 @@
     if(Number.isFinite(unmatched)&&Math.abs(unmatched)>0.05)warnings.push(`Součet rozpoznaných položek se liší od ceny bez DPH o ${unmatched.toFixed(2)} Kč.`);
 
     const vatAmount=Number.isFinite(invoiceTotal)&&Number.isFinite(totalExVat)?Math.round((invoiceTotal-totalExVat)*100)/100:null;
-    const vatRate=Number.isFinite(vatAmount)&&totalExVat>0?vatAmount/totalExVat:null;
+    const vatRateRaw=Number.isFinite(vatAmount)&&totalExVat>0?vatAmount/totalExVat:null;
+    const knownVatRates=[0,0.12,0.21],nearestVat=Number.isFinite(vatRateRaw)?knownVatRates.reduce((a,b)=>Math.abs(b-vatRateRaw)<Math.abs(a-vatRateRaw)?b:a,knownVatRates[0]):null;
+    const vatRate=Number.isFinite(vatRateRaw)&&Number.isFinite(nearestVat)&&Math.abs(vatRateRaw-nearestVat)<=0.005?nearestVat:vatRateRaw;
     if(Number.isFinite(vatRate)&&(vatRate<0||vatRate>.5))warnings.push('Neobvyklá sazba DPH.');
 
     const variableNet=ag.supply.total+ag.electricityTax.total+ag.distributionEnergy.total+ag.systemServices.total
@@ -116,8 +129,11 @@
     if(!tariffValidated)warnings.push('Tarifní model nebyl plně ověřen; pro predikci zůstane k dispozici statistický model.');
 
     const grossFactor=Number.isFinite(vatRate)?1+vatRate:null;
-    const variableExVatPerKwh=Number.isFinite(consumptionKwh)&&consumptionKwh>0?variableNet/consumptionKwh:null;
-    const fixedExVatPerMonth=fixedNet;
+    const variableItems=[...supply,...electricityTax,...distributionEnergy,...systemServices,...poze.filter(x=>x.unit==='MWh'||x.unit==='kWh')];
+    const variableExVatPerKwh=variableRatePerKwh(variableItems);
+    const fixedItems=[...supplierFixed,...breaker,...distributionFixed,...poze.filter(x=>x.unit==='Měsíc')];
+    const fixedMonths=Math.max(1,monthlyUnits(fixedItems)/Math.max(1,fixedItems.filter(x=>x.unit==='Měsíc').length));
+    const fixedExVatPerMonth=fixedMonths>0?exactCharge(fixedItems)/fixedMonths:fixedNet;
     const confidence=fatal.length?0:Math.max(.5,Math.min(1,1-(warnings.length*.12)));
 
     const finance=Invoice.normalizeFinance({
