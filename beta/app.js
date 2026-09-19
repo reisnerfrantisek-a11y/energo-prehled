@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.6.7';
+const APP_VERSION = '1.7.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
