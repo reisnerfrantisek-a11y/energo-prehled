@@ -1698,6 +1698,9 @@ function bind(){
   const choose=()=>$('#fileInput').click();
   $('#importBtn').onclick=choose;$('#emptyImportBtn').onclick=choose;$('#dataImportBtn').onclick=choose;
   $('#fileInput').onchange=e=>e.target.files.length&&handleFiles(e.target.files);
+  $('#invoicePdfInput').onchange=e=>{const file=e.target.files?.[0];if(file)handleInvoicePdfFile(file)};
+  $('#cancelInvoicePdf').onclick=cancelInvoicePdf;
+  $('#confirmInvoicePdf').onclick=()=>saveParsedInvoice().catch(e=>{console.error(e);alert('Fakturu se nepodařilo uložit: '+e.message)});
   $$('.nav-btn').forEach(b=>b.onclick=()=>nav(b.dataset.target));
   $$('.period-chip').forEach(b=>b.onclick=()=>setPeriod(b.dataset.period));
   $('#periodPrev').onclick=()=>navigatePeriod(-1);$('#periodNext').onclick=()=>navigatePeriod(1);
