@@ -45,3 +45,12 @@ Hlavní měsíční graf spotřeby podporuje:
 ## Zásada kompatibility
 
 Stávající IndexedDB se nemaže. Staré záznamy `finance.invoiceTotal` a původní čtyři finanční komponenty se při načtení normalizují do rozšířeného schématu bez ztráty dat.
+
+## Analysis 2.0 (1.7.2)
+
+Průměrové analytické grafy mají dvě explicitní metody:
+
+- `robust` — výchozí typický profil; skupinové průměry jsou winsorizované pomocí robustních hranic z mediánu a MAD,
+- `raw` — aritmetický průměr všech hodnot bez korekce extrémů.
+
+Robustní výpočet pouze omezuje vliv odlehlých hodnot ve výsledném průměru. Zdrojové intervaly se nemění a moduly anomálií i výkonových špiček je nadále používají beze změny. Pro malé vzorky se robustní metoda automaticky vrací k aritmetickému průměru, aby z několika hodnot nevytvářela falešný filtr.
