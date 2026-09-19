@@ -897,13 +897,29 @@ function predictMonthEnergy(monthKey,points=historicalEnergyPoints(monthKey)){
   }
   const baselineProjection=actualEnergy+gapEnergy+remainderToday+futureEnergy,observedSlots=current.length;
   const rawPace=observedSlots>0&&expectedSlots>0?actualEnergy*(expectedSlots/observedSlots):baselineProjection,paceEnergy=clamp(rawPace,baselineProjection*.55,baselineProjection*1.8);
-  const paceWeight=.25*clamp(completeObserved.length/14,0,1),predictedEnergy=baselineProjection*(1-paceWeight)+paceEnergy*paceWeight,remainingEnergy=Math.max(0,predictedEnergy-actualEnergy);
+  const completeEnergies=completeObserved.map(k=>currentDaily.get(k)||0),avgRecent=n=>{const a=completeEnergies.slice(-n);return a.length?a.reduce((x,y)=>x+y,0)/a.length:null};
+  const slotsPerDay=allDates.length?expectedSlots/allDates.length:96,remainingDayEquiv=slotsPerDay>0?Math.max(0,(expectedSlots-observedSlots)/slotsPerDay):0;
+  const avg7=avgRecent(7),avg14=avgRecent(14),recent7Projection=Number.isFinite(avg7)?actualEnergy+avg7*remainingDayEquiv:null,recent14Projection=Number.isFinite(avg14)?actualEnergy+avg14*remainingDayEquiv:null;
+  const ensemble=FORECAST.ensembleMonthForecast({
+    weekdayProjection:baselineProjection,
+    recent7Projection,recent14Projection,
+    paceProjection:paceEnergy,
+    observedDays:completeObserved.length,
+    historyMonths:points.length,
+    fallback:baselineProjection
+  });
+  const predictedEnergy=Math.max(actualEnergy,ensemble.value),remainingEnergy=Math.max(0,predictedEnergy-actualEnergy);
   const ratios=[];for(const d of daily.values()){const base=baseline[d.weekday]||overall;if(base>0)ratios.push(d.energy/base)}
   const mad=median(ratios.map(r=>Math.abs(r-1)))||0,variability=clamp(1.4826*mad,0,.7),coverage=expectedSlots>0?clamp(observedSlots/expectedSlots,0,1):0;
-  let uncertainty=clamp(.10+variability*.35+(1-coverage)*.18,.10,.42);
-  const empirical=historicalEnergyForecastMape(monthKey);if(Number.isFinite(empirical)&&empirical>=0)uncertainty=clamp(Math.max(uncertainty,(empirical/100)*1.25),.10,.50);
-  const lowEnergy=Math.max(actualEnergy,predictedEnergy*(1-uncertainty)),highEnergy=Math.max(lowEnergy,predictedEnergy*(1+uncertainty));
-  return {actualEnergy,predictedEnergy,remainingEnergy,paceEnergy,baselineProjection,lowEnergy,highEnergy,gapEnergy,remainderToday,futureEnergy,scale,uncertainty,observedDays:observedDates.length,completeObservedDays:completeObserved.length,totalDays:allDates.length,expectedSlots,observedSlots,incompleteClosedDays:countIncompleteClosedDays(state.records.filter(r=>r.monthKey===monthKey),monthKey),missingClosedIntervals:countMissingClosedIntervals(state.records.filter(r=>r.monthKey===monthKey),monthKey)};
+  const fallbackUncertainty=clamp(.10+variability*.35+(1-coverage)*.18,.10,.42),errors=historicalEnergyForecastErrors(monthKey),calibration=FORECAST.calibrateUncertainty({fallback:fallbackUncertainty,absolutePctErrors:errors,coverage});
+  const uncertainty=calibration.uncertainty,lowEnergy=Math.max(actualEnergy,predictedEnergy*(1-uncertainty)),highEnergy=Math.max(lowEnergy,predictedEnergy*(1+uncertainty));
+  return {
+    actualEnergy,predictedEnergy,remainingEnergy,paceEnergy,baselineProjection,recent7Projection,recent14Projection,
+    forecastModel:ensemble.model,forecastWeights:ensemble.weights,forecastComponents:ensemble.components,
+    lowEnergy,highEnergy,gapEnergy,remainderToday,futureEnergy,scale,uncertainty,uncertaintySource:calibration.source,uncertaintySamples:calibration.sampleCount,
+    observedDays:observedDates.length,completeObservedDays:completeObserved.length,totalDays:allDates.length,expectedSlots,observedSlots,
+    incompleteClosedDays:countIncompleteClosedDays(state.records.filter(r=>r.monthKey===monthKey),monthKey),missingClosedIntervals:countMissingClosedIntervals(state.records.filter(r=>r.monthKey===monthKey),monthKey)
+  };
 }
 function estimateRateForMonth(monthKey){
   const costPoints=historicalCostPoints(monthKey),energyPoints=historicalEnergyPoints(monthKey),forecast=predictMonthEnergy(monthKey,energyPoints),tariff=latestValidatedTariff(monthKey);
@@ -940,14 +956,17 @@ function evaluationForecast(monthKey,history){
   const seven=rows.filter(x=>x.daysRemaining>=7).sort((a,b)=>a.daysRemaining-b.daysRemaining)[0];
   return seven||rows.at(-1);
 }
-function historicalEnergyForecastMape(monthKey){
-  const idx=monthIndex(monthKey);if(idx===null)return null;const errors=[];
+function historicalEnergyForecastErrors(monthKey){
+  const idx=monthIndex(monthKey);if(idx===null)return [];const errors=[];
   for(const m of state.months){
     const mi=monthIndex(m.monthKey);if(mi===null||mi>=idx||!monthIsComplete(m.monthKey))continue;
     const actual=monthBillingEnergy(m.monthKey),snap=evaluationForecast(m.monthKey,forecastHistoryForMonth(m)),pred=storedNumber(snap?.predictedEnergy);
     if(actual>0&&pred!==null)errors.push(Math.abs(pred-actual)/actual*100);
   }
-  return errors.length>=2?median(errors):null;
+  return errors;
+}
+function historicalEnergyForecastMape(monthKey){
+  const errors=historicalEnergyForecastErrors(monthKey);return errors.length>=2?median(errors):null;
 }
 function forecastAccuracyRows(){
   const rows=[];
