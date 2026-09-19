@@ -10,7 +10,7 @@ new Function(sw);
 
 for(const id of [
   'backupDataBtn','restoreDataBtn','backupFileInput','exportBtn','fileInput','replaceModal','monthsList','heroDelta',
-  'periodNavigator','periodPrev','periodNext','periodAnchorLabel','anchorMonthInput','customPeriodControls','customFrom','customTo','heroCard','daypartSubtitle','dashboardModeToggle','heroUnit','metricToggle','effectivePricePanel','effectivePriceChart','forceUpdateBtn','appVersionText','egdPanel','egdStatus','egdClientId','egdClientSecret','egdProxyUrl','egdAutoSync','egdConfig','egdEanSelect','egdProfileSelect','egdTestBtn','egdSyncBtn','egdDisconnectBtn','egdResult'
+  'periodNavigator','periodPrev','periodNext','periodAnchorLabel','anchorMonthInput','customPeriodControls','customFrom','customTo','heroCard','daypartSubtitle','dashboardModeToggle','heroUnit','metricToggle','effectivePricePanel','effectivePriceChart','forceUpdateBtn','appVersionText','egdPanel','egdStatus','egdClientId','egdClientSecret','egdProxyUrl','egdAutoSync','egdConfig','egdEanSelect','egdProfileSelect','egdTestBtn','egdSyncBtn','egdDisconnectBtn','egdResult','forecastPanel','forecastTitle','forecastMeta','forecastChart','anomalySummary','anomalyList','forecastAccuracySummary','forecastAccuracyList'
 ]){
   assert.ok(index.includes(`id="${id}"`), `Missing UI element #${id}`);
 }
@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.4.8'"),'App version must be 1.4.8');
+assert.ok(app.includes("APP_VERSION = '1.5.0'"),'App version must be 1.5.0');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -78,6 +78,8 @@ const styles=fs.readFileSync('styles.css','utf8');
 assert.ok(styles.includes('.chart-y-label{font-size:13px'),'Chart y-axis labels must be enlarged');
 assert.ok(styles.includes('.chart-x-label{font-size:13px'),'Chart x-axis labels must be enlarged');
 assert.ok(styles.includes('.chart-value-label{font-size:14px'),'Chart value labels must be enlarged');
+assert.ok(styles.includes('.forecast-panel{'),'Forecast panel styles missing');
+assert.ok(styles.includes('.anomaly-row,.accuracy-row{'),'Intelligence panel row styles missing');
 assert.ok(app.includes("$('.dashboard-mode-btn').forEach"),'Dashboard mode must bind all toggle buttons');
 assert.ok(app.includes("$('.metric-btn').forEach"),'Metric mode must bind all toggle buttons');
 assert.ok(!app.includes("\n  $('.dashboard-mode-btn').forEach"),'Dashboard mode incorrectly uses single-element selector');
@@ -86,8 +88,8 @@ assert.ok(app.includes('async function forceUpdateApp'),'Safe force-update funct
 assert.ok(app.includes("k.startsWith('energo-prehled-beta-')"),'Force update must target beta cache only');
 assert.ok(!app.includes('indexedDB.deleteDatabase'),'Force update must not delete IndexedDB');
 assert.ok(!app.includes('localStorage.clear()'),'Force update must not clear localStorage');
-assert.ok(index.includes('app.js?v=1.4.8'),'App script must be cache-busted');
-assert.ok(index.includes('styles.css?v=1.4.8'),'Stylesheet must be cache-busted');
+assert.ok(index.includes('app.js?v=1.5.0'),'App script must be cache-busted');
+assert.ok(index.includes('styles.css?v=1.5.0'),'Stylesheet must be cache-busted');
 const refresh=fs.readFileSync('refresh.html','utf8');
 assert.ok(refresh.includes("energo-prehled-beta-"),'Recovery page must clear beta cache');
 assert.ok(!refresh.includes('indexedDB.deleteDatabase'),'Recovery page must preserve IndexedDB');
@@ -125,6 +127,14 @@ assert.ok(app.includes('fixed+c.variableRate*p.energy'),'Cost model must regress
 assert.ok(app.includes('spreadScore'),'Cost model confidence must account for consumption spread');
 assert.ok(app.includes('function estimatedMonthCost'),'Live month cost estimate missing');
 assert.ok(app.includes('function costProjectionForRecords'),'Estimated cost dashboard projection missing');
+assert.ok(app.includes('function forecastCostSeries'),'Forecast cost series missing');
+assert.ok(app.includes('function forecastBandChart'),'Forecast band chart missing');
+assert.ok(app.includes('function captureLiveForecastSnapshots'),'Daily forecast snapshot persistence missing');
+assert.ok(app.includes('forecastHistory'),'Forecast history must be persisted with month metadata');
+assert.ok(app.includes('function forecastAccuracyRows'),'Forecast accuracy evaluation missing');
+assert.ok(app.includes('function detectDailyAnomalies'),'Daily anomaly detection missing');
+assert.ok(app.includes('function detectIntervalAnomalies'),'15-minute anomaly detection missing');
+assert.ok(app.includes('slice(0,i).filter'),'Daily anomaly baseline must use only earlier days');
 assert.ok(app.includes('async function maybeAutoSyncEgd'),'Daily EG.D auto-sync missing');
 assert.ok(app.includes("state.egd.autoSync!==true"),'Auto-sync must be opt-in');
 assert.ok(app.includes("last&&last===today"),'Auto-sync must run at most once per day');
@@ -162,7 +172,7 @@ const state={metric:'dcc1',period:'month',anchorMonth:'2026-08',customFrom:'2026
 {monthKey:'2026-06',complete:true,finance:{invoiceTotal:100}},{monthKey:'2026-07',complete:true,finance:{invoiceTotal:300}},{monthKey:'2026-08',complete:true,finance:{invoiceTotal:600}}
 ]};
 ${analyticsCode}
-return {state,currentRange,expectedCurrentMonthKeys,selectedPeriodLabel,costForRecords,monthEffectivePrice,estimateRateForMonth,estimatedMonthCost,costProjectionForRecords,weightedCostModel,modeledRateAtEnergy,predictMonthEnergy};
+return {state,currentRange,expectedCurrentMonthKeys,selectedPeriodLabel,costForRecords,monthEffectivePrice,estimateRateForMonth,estimatedMonthCost,costProjectionForRecords,weightedCostModel,modeledRateAtEnergy,predictMonthEnergy,forecastCostSeries,forecastAccuracyRows,detectDailyAnomalies,detectIntervalAnomalies};
 `)();
 periodTest.state.period='month';
 assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-08']);
@@ -206,6 +216,9 @@ assert.ok(sepEstimate.projectedCost>=sepEstimate.cost,'Projected full-month invo
 assert.ok(Number.isFinite(sepEstimate.lowProjectedCost)&&Number.isFinite(sepEstimate.highProjectedCost),'Forecast range must be finite');
 assert.ok(sepEstimate.lowProjectedCost<=sepEstimate.projectedCost&&sepEstimate.projectedCost<=sepEstimate.highProjectedCost,'Central forecast must stay inside the scenario range');
 assert.ok(sepEstimate.highEnergy>=sepEstimate.lowEnergy,'Energy forecast range must be ordered');
+const forecastSeries=periodTest.forecastCostSeries('2026-09');
+assert.ok(forecastSeries&&forecastSeries.data.length===30,'September forecast chart must contain one point per calendar day');
+assert.ok(forecastSeries.data.at(-1).low<=forecastSeries.data.at(-1).central&&forecastSeries.data.at(-1).central<=forecastSeries.data.at(-1).high,'Forecast chart endpoint must stay inside the range');
 const sepProjection=periodTest.costProjectionForRecords(periodTest.state.records.filter(r=>r.monthKey==='2026-09'));
 assert.equal(sepProjection.estimatedMonths.size,1);
 assert.ok(Math.abs(sepProjection.totalWithEstimate-sepEstimate.cost)<1e-9);
@@ -219,4 +232,4 @@ assert.equal(periodTest.currentRange().length,3);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.4.8 smoke tests OK');
+console.log('Energo Přehled Beta 1.5.0 smoke tests OK');
