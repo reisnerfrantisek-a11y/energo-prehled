@@ -721,7 +721,7 @@ function renderOverview(){
     const costMonthly=activeMonths.map(m=>{
       const invoice=monthInvoice(m.monthKey),estimate=monthIsLivePartial(m.monthKey)?estimatedMonthCost(m.monthKey):null;
       if(invoice!==null&&m.complete===true)return {label:monthLabel(m.monthKey),short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:invoice};
-      if(estimate&&Number.isFinite(estimate.cost))return {label:monthLabel(m.monthKey)+' · odhad',short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:estimate.cost};
+      if(estimate&&Number.isFinite(estimate.projectedCost))return {label:monthLabel(m.monthKey)+' · predikce',short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:estimate.projectedCost};
       return null;
     }).filter(Boolean);
     const priceMonthly=activeMonths.map(m=>{
@@ -731,7 +731,7 @@ function renderOverview(){
       return null;
     }).filter(Boolean);
     $('#monthlyChartTitle').textContent='Náklady po měsících';
-    $('#monthlyChartSubtitle').textContent='Faktury; průběžný měsíc je zobrazen jako odhad';
+    $('#monthlyChartSubtitle').textContent='Faktury; průběžný měsíc používá predikci celé měsíční faktury';
     barChart($('#monthlyChart'),costMonthly,{unit:'Kč'});
     lineChart($('#effectivePriceChart'),priceMonthly,{unit:'Kč/kWh'});
   }else{
@@ -773,7 +773,7 @@ function renderOverview(){
     else if(cb.unallocatableUnresolved.length)$('#heroDelta').textContent='Část nákladů nelze rozdělit na neúplné období';
     else if(estimatedCount){
       const [key,estimate]=[...cb.estimatedMonths].at(-1);
-      $('#heroDelta').textContent=`Odhad ${monthLabel(key)} · ${fmt.format(estimate.rate)} Kč/kWh · základ ${estimate.count}/3 předchozích měsíců`;
+      $('#heroDelta').textContent=`Odhad dosud ${fmt.format(estimate.cost)} Kč · predikce faktury ${fmt.format(estimate.projectedCost)} Kč · ${fmt.format(estimate.rate)} Kč/kWh`;
     }
     else if(liveKeys.length)$('#heroDelta').textContent='Odhad nelze určit · chybí použitelná faktura v předchozích 3 měsících';
     else if(!cb.knownMonths)$('#heroDelta').textContent='Pro zvolené období není vyplněná žádná faktura';
@@ -859,7 +859,7 @@ async function renderMonths(){
     let estimateHtml='';
     if(partial){
       estimateHtml=estimate&&Number.isFinite(estimate.cost)
-        ?`<div class="month-estimate"><strong>Odhad nákladů: ≈ ${fmt.format(estimate.cost)} Kč</strong><span class="estimate-rate">Dosavadní spotřeba ${fmt3.format(estimate.energy)} kWh × ${fmt.format(estimate.rate)} Kč/kWh · základ ${estimate.count}/3 předchozích měsíců${estimate.months.length?' ('+estimate.months.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span></div>`
+        ?`<div class="month-estimate"><strong>Odhad dosud: ≈ ${fmt.format(estimate.cost)} Kč</strong><span class="estimate-rate">Predikce faktury: ≈ <strong>${fmt.format(estimate.projectedCost)} Kč</strong> · spotřeba měsíce ≈ ${fmt3.format(estimate.predictedEnergy)} kWh · dynamická cena ≈ ${fmt.format(estimate.rate)} Kč/kWh</span><span class="estimate-rate">Model: fixní část ≈ ${fmt.format(estimate.fixed)} Kč/měs. + ${fmt.format(estimate.variableRate)} Kč/kWh · důvěra ${Math.round(estimate.confidence*100)} % · základ ${estimate.count}/3 měsíců${estimate.months.length?' ('+estimate.months.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span></div>`
         :`<div class="month-estimate"><strong>Odhad nákladů zatím nelze určit</strong><span class="estimate-rate">Je potřeba alespoň jedna kompletní faktura se spotřebou v předchozích třech měsících.</span></div>`;
     }
     return `<div class="month-row ${enabled?'':'month-disabled'}">
@@ -872,7 +872,7 @@ async function renderMonths(){
           <span class="effective-price">${effective===null?(invoice!==null&&kwh===0?'0 kWh · cenu/kWh nelze určit':'Cena/kWh —'):`Efektivně <strong>${fmt.format(effective)} Kč/kWh</strong>`}</span>
         </div>
         ${estimateHtml}
-        <div class="finance-note">${partial?'Fakturu doplníš po uzavření měsíce. Odhad se nikam neukládá a průběžně se přepočítává.':'Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.'}</div>
+        <div class="finance-note">${partial?'Fakturu doplníš po uzavření měsíce. Odhad používá dynamický model fixní + variabilní složky a predikci konečné spotřeby; nikam se neukládá a průběžně se přepočítává.':'Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.'}</div>
       </div>
       <div class="month-actions">
         <label class="month-toggle" title="${enabled?'Vypnout měsíc':'Zapnout měsíc'}">
