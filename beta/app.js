@@ -1,7 +1,7 @@
 'use strict';
 
-const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice,TIME=window.EnergoTime,FORECAST=window.EnergoForecast,INVOICE_PARSER=window.EnergoInvoiceParser;
-if(!CORE||!INVOICE||!TIME||!FORECAST||!INVOICE_PARSER)throw new Error('Chybí core moduly Energo aplikace.');
+const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice,TIME=window.EnergoTime,FORECAST=window.EnergoForecast,REGIME=window.EnergoRegime,INVOICE_PARSER=window.EnergoInvoiceParser;
+if(!CORE||!INVOICE||!TIME||!FORECAST||!REGIME||!INVOICE_PARSER)throw new Error('Chybí core moduly Energo aplikace.');
 
 const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
