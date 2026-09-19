@@ -156,3 +156,41 @@ test('missing detailed charges stay null instead of fake zeroes',()=>{
   assert.equal(r.finance.components.breaker,null);
   assert.equal(r.finance.components.other,null);
 });
+
+
+test('geometry fallback reconstructs E.ON invoice even when text labels are missing from PDF.js',()=>{
+  const page={width:595,height:842,items:[]},add=(y,x,str)=>page.items.push({x,y,str});
+  add(78,439,'4124160632');
+  add(105,439,'859000000000000001');
+  add(113,137,'01.08.2026');add(113,184,'-');add(113,190,'31.08.2026');
+  function row(y,unit,qty,price,total){
+    add(y,264,'01.08.2026');add(y,306,'31.08.2026');add(y,409,unit);add(y,458,qty);
+    let x=493;for(const part of String(price).split(' ')){add(y,x,part);x+=part.length*5}
+    add(y,549,total);
+  }
+  row(311,'MWh','0,012','2 440,00','29,28');
+  row(324,'Měsíc','1,000','139,00','139,00');
+  row(338,'MWh','0,012','28,30','0,34');
+  row(411,'MWh','0,012','2 711,14','32,53');
+  row(424,'Měsíc','1,000','120,00','120,00');
+  row(437,'MWh','0,012','164,24','1,97');
+  row(450,'Měsíc','1,000','12,87','12,87');
+  row(463,'Měsíc','1,000','0,00','0,00');
+
+  const geometry=Parser.pdfGeometryToEonText([{width:595,height:842,items:[]},page]);
+  const r=Parser.parseEonInvoiceCandidates([
+    {name:'geometry',text:geometry},
+    {name:'pdf-native-order',text:'E.ON Energie, a.s. Faktura celkem 335,99 406,55'}
+  ]);
+  assert.equal(r.canSave,true);
+  assert.equal(r.invoiceMonthKey,'2026-08');
+  assert.equal(r.finance.invoiceMeta.documentNumber,'4124160632');
+  assert.equal(r.finance.metering.ean,'859000000000000001');
+  assert.equal(r.finance.metering.consumptionKwh,12);
+  assert.equal(r.finance.components.supplyEnergy,29.28);
+  assert.equal(r.finance.components.supplierFixed,139);
+  assert.equal(r.finance.components.breaker,120);
+  assert.equal(r.finance.components.distributionFixed,12.87);
+  assert.equal(r.finance.tariff.validated,true);
+  assert.ok(Math.abs(r.finance.tariff.variableGrossPerKwh-6.465853)<1e-6);
+});
