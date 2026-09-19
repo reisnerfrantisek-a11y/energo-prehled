@@ -85,6 +85,16 @@
             <article class="kpi-card"><div class="kpi-label" id="baseLoadLabel">Základní odběr</div><div class="kpi-value" id="baseLoad">—</div><div class="kpi-unit" id="baseLoadUnit">průměr 00–06 h</div></article>
           </div>
 
+          <section class="panel forecast-panel hidden" id="forecastPanel">
+            <div class="panel-head between">
+              <div><h2 id="forecastTitle">Predikce měsíce</h2><p>Kumulativní náklady: skutečnost, střední forecast a scénářové pásmo</p></div>
+              <span class="forecast-chip">FORECAST</span>
+            </div>
+            <div id="forecastMeta" class="forecast-meta"></div>
+            <div id="forecastChart" class="chart-box medium"></div>
+            <div class="forecast-legend"><span><i class="legend-solid"></i> skutečnost</span><span><i class="legend-dashed"></i> střední predikce</span><span><i class="legend-band"></i> rozpětí</span></div>
+          </section>
+
           <section class="panel">
             <div class="panel-head"><div><h2 id="monthlyChartTitle">Spotřeba po měsících</h2><p id="monthlyChartSubtitle">Dlouhodobý vývoj importovaných dat</p></div></div>
             <div id="monthlyChart" class="chart-box medium"></div>
@@ -124,6 +134,18 @@
             </div>
           </div>
           <div id="daypartList" class="daypart-list"></div>
+        </section>
+
+        <section class="panel intelligence-panel">
+          <div class="panel-head"><div><h2>Anomálie spotřeby</h2><p>Automatické hledání neobvyklých dnů a 15minutových špiček vůči dřívější historii</p></div></div>
+          <div id="anomalySummary" class="insight-summary"></div>
+          <div id="anomalyList" class="insight-list"></div>
+        </section>
+
+        <section class="panel intelligence-panel">
+          <div class="panel-head"><div><h2>Přesnost predikcí</h2><p>Skutečná faktura proti forecastu, který byl uložen ještě před uzavřením měsíce</p></div></div>
+          <div id="forecastAccuracySummary" class="insight-summary"></div>
+          <div id="forecastAccuracyList" class="insight-list"></div>
         </section>
 
         <section class="panel">
