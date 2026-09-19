@@ -19,6 +19,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
       - name: Run beta regression suite
         run: node --test beta/tests/*.test.cjs

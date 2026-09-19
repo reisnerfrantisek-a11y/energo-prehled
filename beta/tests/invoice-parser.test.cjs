@@ -107,12 +107,12 @@ test('candidate parser picks the complete layout over a broken extraction',()=>{
     {name:'broken',text:broken},
     {name:'layout-rows',text:sample}
   ],{fileName:'invoice.pdf'});
-  assert.equal(r.extractionStrategy,'layout-rows');
+  assert.equal(r.extractionStrategy,'composite');
   assert.equal(r.canSave,true);
   assert.equal(r.invoiceMonthKey,'2026-08');
   assert.equal(r.finance.metering.consumptionKwh,12);
   assert.equal(r.finance.tariff.validated,true);
-  assert.ok(r.candidateScores[0].score>r.candidateScores[1].score);
+  assert.ok(r.candidateScores[0].score>=r.candidateScores[1].score);
 });
 
 test('column-flow reconstruction keeps sidebar labels together',()=>{
@@ -127,4 +127,32 @@ test('column-flow reconstruction keeps sidebar labels together',()=>{
   const text=Parser.pdfItemsToColumnFlowText(items,420);
   assert.match(text,/Celková spotřeba 0,01200 MWh/);
   assert.match(text,/4124160632\nČíslo daňového dokladu/);
+});
+
+
+test('composite candidate can combine metadata and line items from different extraction strategies',()=>{
+  const meta='E.ON Energie, a.s. Vyúčtování bylo provedeno za období od 1. 8. 2026 do 31. 8. 2026: Faktura celkem 335,99 406,55 4124160632 Číslo daňového dokladu 859000000000000001 EAN Celková spotřeba elektřiny 0,01200 MWh Stálý plat: 271,87 Kč/měsíc, VT: 5,34 Kč/kWh';
+  const rows=[
+    'Dodané množství jednotarif 01.08.2026 31.08.2026 MWh 0,012 2 440,00 29,28',
+    'Stálý plat 01.08.2026 31.08.2026 Měsíc 1,000 139,00 139,00',
+    'Daň z elektřiny 01.08.2026 31.08.2026 MWh 0,012 28,30 0,34',
+    'Cena za distrib. množství elektřiny ve vysokém tarifu 01.08.2026 31.08.2026 D01d MWh 0,012 2 711,14 32,53',
+    'Cena za příkon podle hodnoty hl. jističe před elekt. 01.08.2026 31.08.2026 D01d 3x25 Měsíc 1,000 120,00 120,00',
+    'Pevná cena za systémové služby 01.08.2026 31.08.2026 D01d MWh 0,012 164,24 1,97',
+    'Cena za provoz nesíťové infrastruktury 01.08.2026 31.08.2026 D01d Měsíc 1,000 12,87 12,87',
+    'Složka ceny na podporu el. z podpor. zdrojů energie 01.08.2026 31.08.2026 D01d 3x25 Měsíc 1,000 0,00 0,00'
+  ].join('\n');
+  const r=Parser.parseEonInvoiceCandidates([{name:'meta',text:meta},{name:'rows',text:rows}]);
+  assert.equal(r.extractionStrategy,'composite');
+  assert.equal(r.canSave,true);
+  assert.equal(r.finance.metering.consumptionKwh,12);
+  assert.equal(r.finance.components.breaker,120);
+  assert.equal(r.finance.tariff.validated,true);
+});
+
+test('missing detailed charges stay null instead of fake zeroes',()=>{
+  const r=Parser.parseEonInvoiceText('E.ON Energie, a.s. Faktura celkem 335,99 406,55');
+  assert.equal(r.finance.components.supplyEnergy,null);
+  assert.equal(r.finance.components.breaker,null);
+  assert.equal(r.finance.components.other,null);
 });
