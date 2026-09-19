@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.4.2';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -267,10 +267,18 @@ async function egdGet(path,token,params=null){
 }
 function chooseConsumptionProfile(profiles,typMereni,current=''){
   const electric=profiles.filter(p=>String(p.komodita||'').toUpperCase()==='ELEKTRINA');
+  const type=String(typMereni||'').trim().toUpperCase();
+  if(type==='B'){
+    const icc1=electric.find(p=>String(p.kod||'').toUpperCase()==='ICC1');
+    if(icc1)return icc1.kod;
+  }
+  if(type==='C1'){
+    const c1=electric.find(p=>/C1/i.test(String(p.nazev||''))&&/spotřeb|odebran/i.test(String(p.nazev||'')));
+    if(c1)return c1.kod;
+  }
   if(current&&electric.some(p=>p.kod===current))return current;
-  const type=String(typMereni||'').toUpperCase();
-  const preferred=electric.find(p=>/spotřeb|odebran/i.test(String(p.nazev||''))&&(!type||String(p.nazev||'').toUpperCase().includes(type)))
-    ||electric.find(p=>/spotřeb|odebran/i.test(String(p.nazev||'')))
+  const preferred=electric.find(p=>/spotřeb|odebran|činná spotřeba/i.test(String(p.nazev||'')))
+    ||electric.find(p=>String(p.kod||'').toUpperCase()==='ICC1')
     ||electric[0];
   return preferred?.kod||'';
 }
@@ -351,8 +359,11 @@ function pragueMonthQueryBounds(monthKey){
   const start=pragueUtcCandidates(parseCzTimestamp(`01.${String(month).padStart(2,'0')}.${year} 00:00:00`))[0];
   const next=pragueUtcCandidates(parseCzTimestamp(`01.${String(nextMonth).padStart(2,'0')}.${nextYear} 00:00:00`))[0];
   if(!Number.isFinite(start)||!Number.isFinite(next))throw new Error('Nepodařilo se určit UTC hranice měsíce.');
-  const fullEnd=next-15*60000,nowRounded=Math.floor(Date.now()/(15*60000))*(15*60000);
-  return {from:new Date(start).toISOString(),to:new Date(Math.min(fullEnd,nowRounded)).toISOString(),start,end:fullEnd,isPast:Date.now()>=next};
+  const fullEnd=next-15*60000;
+  const nowP=pragueParts(Date.now()),todayStart=pragueUtcCandidates(parseCzTimestamp(`${String(nowP.day).padStart(2,'0')}.${String(nowP.month).padStart(2,'0')}.${nowP.year} 00:00:00`))[0];
+  const lastClosedDayEnd=todayStart-15*60000;
+  const queryEnd=Math.min(fullEnd,lastClosedDayEnd);
+  return {from:new Date(start).toISOString(),to:new Date(queryEnd).toISOString(),start,end:fullEnd,isPast:Date.now()>=next};
 }
 function apiLocalRecord(ean,profile,units,item,seen){
   const ms=Date.parse(item.timestamp);if(!Number.isFinite(ms))return null;
