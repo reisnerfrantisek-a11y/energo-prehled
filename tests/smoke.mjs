@@ -178,7 +178,7 @@ assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-06','2026-0
 periodTest.state.period='custom';
 assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-08']);
 periodTest.state.period='all';
-assert.equal(periodTest.currentRange().length,2);
+assert.equal(periodTest.currentRange().length,3);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
