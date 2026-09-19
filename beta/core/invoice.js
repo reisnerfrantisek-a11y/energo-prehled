@@ -23,7 +23,14 @@
       invoiceTotal:null,
       currency:'CZK',
       source:'manual',
+      totals:{exVat:null,vat:null,incVat:null},
       components,
+      metering:{ean:'',consumptionKwh:null,tariffCode:'',breaker:'',product:'',productSeries:''},
+      tariff:{
+        fixedExVatPerMonth:null,variableExVatPerKwh:null,
+        fixedGrossPerMonth:null,variableGrossPerKwh:null,
+        vatRate:null,validated:false,sourceMonthKey:'',sourceDocumentNumber:'',sourceSupplier:''
+      },
       invoiceMeta:{
         supplier:'',
         documentNumber:'',
@@ -46,8 +53,23 @@
     base.invoiceTotal=nullableMoney(f.invoiceTotal);
     base.currency=String(f.currency||'CZK').toUpperCase()==='CZK'?'CZK':String(f.currency||'CZK').toUpperCase();
     base.source=['manual','pdf','import'].includes(f.source)?f.source:'manual';
+    const totals=f.totals&&typeof f.totals==='object'?f.totals:{};
+    base.totals.exVat=nullableMoney(totals.exVat);
+    base.totals.vat=nullableMoney(totals.vat);
+    base.totals.incVat=nullableMoney(totals.incVat??base.invoiceTotal);
     const c=f.components&&typeof f.components==='object'?f.components:{};
     for(const k of COMPONENT_KEYS)base.components[k]=nullableMoney(c[k]);
+    const metering=f.metering&&typeof f.metering==='object'?f.metering:{};
+    base.metering.ean=String(metering.ean||'');
+    base.metering.consumptionKwh=nullableMoney(metering.consumptionKwh);
+    base.metering.tariffCode=String(metering.tariffCode||'');
+    base.metering.breaker=String(metering.breaker||'');
+    base.metering.product=String(metering.product||'');
+    base.metering.productSeries=String(metering.productSeries||'');
+    const tariff=f.tariff&&typeof f.tariff==='object'?f.tariff:{};
+    for(const k of ['fixedExVatPerMonth','variableExVatPerKwh','fixedGrossPerMonth','variableGrossPerKwh','vatRate'])base.tariff[k]=nullableMoney(tariff[k]);
+    base.tariff.validated=tariff.validated===true;
+    for(const k of ['sourceMonthKey','sourceDocumentNumber','sourceSupplier'])base.tariff[k]=String(tariff[k]||'');
     const m=f.invoiceMeta&&typeof f.invoiceMeta==='object'?f.invoiceMeta:{};
     for(const k of Object.keys(base.invoiceMeta)){
       if(k==='extractionConfidence'){
@@ -71,6 +93,15 @@
     return ['supplyEnergy','distributionEnergy','systemServices','poze','electricityTax','supplierFixed','breaker','distributionFixed','vat']
       .some(k=>f.components[k]!==null);
   }
+  function hasValidatedTariff(finance){
+    const f=normalizeFinance(finance),t=f.tariff;
+    return t.validated===true&&Number.isFinite(t.fixedGrossPerMonth)&&Number.isFinite(t.variableGrossPerKwh);
+  }
+  function tariffCost(finance,energyKwh,monthFraction=1){
+    const f=normalizeFinance(finance),e=Number(energyKwh),fraction=Number(monthFraction);
+    if(!hasValidatedTariff(f)||!Number.isFinite(e)||e<0||!Number.isFinite(fraction)||fraction<0)return null;
+    return f.tariff.fixedGrossPerMonth*fraction+f.tariff.variableGrossPerKwh*e;
+  }
 
-  return {COMPONENT_KEYS,nullableMoney,emptyFinance,normalizeFinance,componentTotal,hasDetailedBreakdown};
+  return {COMPONENT_KEYS,nullableMoney,emptyFinance,normalizeFinance,componentTotal,hasDetailedBreakdown,hasValidatedTariff,tariffCost};
 });
