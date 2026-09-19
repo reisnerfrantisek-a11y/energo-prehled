@@ -82,11 +82,17 @@
   }
 
   function componentTotal(finance){
-    const f=normalizeFinance(finance);
-    const detailed=['supplyEnergy','distributionEnergy','systemServices','poze','electricityTax','supplierFixed','breaker','distributionFixed','vat','other'];
-    const vals=detailed.map(k=>f.components[k]).filter(v=>v!==null);
-    if(vals.length)return vals.reduce((a,b)=>a+b,0);
-    const legacy=['energy','distribution','fixed','other'].map(k=>f.components[k]).filter(v=>v!==null);
+    const f=normalizeFinance(finance),c=f.components;
+    const variable=['supplyEnergy','distributionEnergy','systemServices','electricityTax'];
+    const fixedDetail=['supplierFixed','breaker','distributionFixed'];
+    const anyDetailed=[...variable,...fixedDetail,'poze','vat','other'].some(k=>c[k]!==null);
+    if(anyDetailed){
+      let total=[...variable,...fixedDetail,'poze','vat','other'].reduce((a,k)=>a+(Number(c[k])||0),0);
+      const hasFixedDetail=fixedDetail.some(k=>c[k]!==null)||(c.poze!==null&&c.poze>0);
+      if(!hasFixedDetail&&c.fixed!==null)total+=Number(c.fixed)||0;
+      return total;
+    }
+    const legacy=['energy','distribution','fixed','other'].map(k=>c[k]).filter(v=>v!==null);
     return legacy.length?legacy.reduce((a,b)=>a+b,0):null;
   }
 

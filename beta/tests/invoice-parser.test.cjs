@@ -194,3 +194,31 @@ test('geometry fallback reconstructs E.ON invoice even when text labels are miss
   assert.equal(r.finance.tariff.validated,true);
   assert.ok(Math.abs(r.finance.tariff.variableGrossPerKwh-6.465853)<1e-6);
 });
+
+
+test('full-month invoice can validate tariff when fixed rows are only available as a remainder',()=>{
+  const text=[
+    'E.ON Energie, a.s.',
+    'Odečtové období: 01.08.2026 - 31.08.2026',
+    '859000000000000001 EAN',
+    'Celková spotřeba elektřiny 0,012 MWh',
+    'Faktura celkem 335,99 406,55',
+    'Dodané množství jednotarif 01.08.2026 31.08.2026 MWh 0,012 2 440,00 29,28',
+    'Daň z elektřiny 01.08.2026 31.08.2026 MWh 0,012 28,30 0,34',
+    'Cena za distrib. množství elektřiny ve vysokém tarifu 01.08.2026 31.08.2026 MWh 0,012 2 711,14 32,53',
+    'Pevná cena za systémové služby 01.08.2026 31.08.2026 MWh 0,012 164,24 1,97'
+  ].join('\n');
+  const r=Parser.parseEonInvoiceText(text);
+  assert.equal(r.canSave,true);
+  assert.equal(r.validation.residualTariffValidated,true);
+  assert.equal(r.finance.tariff.validated,true);
+  assert.equal(r.finance.components.other,null);
+  assert.ok(Math.abs(r.finance.components.fixed-271.87)<1e-9);
+  assert.ok(Math.abs(r.finance.tariff.fixedExVatPerMonth-271.87)<1e-9);
+  assert.ok(Math.abs(r.finance.tariff.variableExVatPerKwh-5.34368)<1e-6);
+  assert.ok(Math.abs(r.finance.tariff.fixedGrossPerMonth-328.9627)<1e-6);
+  assert.ok(Math.abs(r.finance.tariff.variableGrossPerKwh-6.465853)<1e-6);
+  assert.equal(Invoice.componentTotal(r.finance),406.55);
+  assert.equal(r.validation.componentDifference,0);
+  assert.ok(r.warnings.some(x=>/Fixní složky 271\.87 Kč/i.test(x)));
+});

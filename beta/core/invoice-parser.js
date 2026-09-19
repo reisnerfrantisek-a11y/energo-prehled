@@ -9,7 +9,7 @@
   'use strict';
   if(!Invoice)throw new Error('EnergoInvoice is required.');
 
-  const PARSER_VERSION='eon-cz-1.4.0';
+  const PARSER_VERSION='eon-cz-1.5.0';
   const NUM='[0-9]+(?:\\s[0-9]{3})*(?:[.,][0-9]+)?';
 
   function pdfItemsToRows(items,yTolerance=1.6){
@@ -269,8 +269,6 @@
 
     const knownNet=['supply','supplierFixed','electricityTax','distributionEnergy','breaker','systemServices','distributionFixed','poze'].reduce((a,k)=>a+(Number(ag[k].total)||0),0);
     const recognizedNetCount=['supply','supplierFixed','electricityTax','distributionEnergy','breaker','systemServices','distributionFixed','poze'].filter(k=>Number.isFinite(ag[k].total)).length;
-    const unmatched=Number.isFinite(totalExVat)&&recognizedNetCount?Math.round((totalExVat-knownNet)*100)/100:null;
-    if(Number.isFinite(unmatched)&&Math.abs(unmatched)>0.05)warnings.push(`Součet rozpoznaných položek se liší od ceny bez DPH o ${unmatched.toFixed(2)} Kč.`);
 
     const vatAmount=Number.isFinite(invoiceTotal)&&Number.isFinite(totalExVat)?Math.round((invoiceTotal-totalExVat)*100)/100:null;
     const vatRateRaw=Number.isFinite(vatAmount)&&totalExVat>0?vatAmount/totalExVat:null;
@@ -278,27 +276,48 @@
     const vatRate=Number.isFinite(vatRateRaw)&&Number.isFinite(nearestVat)&&Math.abs(vatRateRaw-nearestVat)<=0.005?nearestVat:vatRateRaw;
     if(Number.isFinite(vatRate)&&(vatRate<0||vatRate>.5))warnings.push('Neobvyklá sazba DPH.');
 
-    const variableNet=ag.supply.total+ag.electricityTax.total+ag.distributionEnergy.total+ag.systemServices.total
-      +(poze.some(x=>x.unit==='MWh'||x.unit==='kWh')?ag.poze.total:0);
-    const fixedNet=ag.supplierFixed.total+ag.breaker.total+ag.distributionFixed.total
-      +(poze.some(x=>x.unit==='Měsíc')?ag.poze.total:0);
-    const knownForTariff=Math.round((variableNet+fixedNet)*100)/100;
-    const tariffDifference=Number.isFinite(totalExVat)?Math.round((totalExVat-knownForTariff)*100)/100:null;
-    const grossFactor=Number.isFinite(vatRate)?1+vatRate:null;
-    const variableItems=[...supply,...electricityTax,...distributionEnergy,...systemServices,...poze.filter(x=>x.unit==='MWh'||x.unit==='kWh')];
-    const detailedVariableRate=Number.isFinite(consumptionKwh)&&consumptionKwh>0?exactCharge(variableItems)/consumptionKwh:null;
+    const variableNet=[ag.supply.total,ag.electricityTax.total,ag.distributionEnergy.total,ag.systemServices.total,
+      poze.some(x=>x.unit==='MWh'||x.unit==='kWh')?ag.poze.total:null].reduce((a,v)=>a+(Number(v)||0),0);
     const fixedItems=[...supplierFixed,...breaker,...distributionFixed,...poze.filter(x=>x.unit==='Měsíc')];
-    const fixedMonths=Math.max(1,monthlyUnits(fixedItems)/Math.max(1,fixedItems.filter(x=>x.unit==='Měsíc').length));
-    const detailedFixedRate=fixedMonths>0?exactCharge(fixedItems)/fixedMonths:fixedNet;
-    const detailTariffValidated=Number.isFinite(consumptionKwh)&&consumptionKwh>0&&Number.isFinite(vatRate)&&Math.abs(tariffDifference||0)<=0.05&&Number.isFinite(detailedVariableRate)&&Number.isFinite(detailedFixedRate);
+    const fixedNet=fixedItems.length?exactCharge(fixedItems):null;
+    const variableItems=[...supply,...electricityTax,...distributionEnergy,...systemServices,...poze.filter(x=>x.unit==='MWh'||x.unit==='kWh')];
+    const detailedVariableRate=Number.isFinite(consumptionKwh)&&consumptionKwh>0&&variableItems.length?exactCharge(variableItems)/consumptionKwh:null;
+    const fixedMonths=fixedItems.length?Math.max(1,monthlyUnits(fixedItems)/Math.max(1,fixedItems.filter(x=>x.unit==='Měsíc').length)):null;
+    const detailedFixedRate=Number.isFinite(fixedMonths)&&fixedMonths>0?exactCharge(fixedItems)/fixedMonths:null;
+
+    let fullCalendarMonth=false;
+    if(invoiceMonthKey&&periodFrom&&periodTo){
+      const [yy,mm]=invoiceMonthKey.split('-').map(Number),lastDay=new Date(Date.UTC(yy,mm,0)).getUTCDate();
+      fullCalendarMonth=periodFrom===`${invoiceMonthKey}-01`&&periodTo===`${invoiceMonthKey}-${String(lastDay).padStart(2,'0')}`;
+    }
+    const coreVariableRecognized=[ag.supply.total,ag.electricityTax.total,ag.distributionEnergy.total,ag.systemServices.total].every(Number.isFinite);
+    const residualFixedExVat=fullCalendarMonth&&coreVariableRecognized&&Number.isFinite(totalExVat)&&Number.isFinite(detailedVariableRate)
+      ?Math.round((totalExVat-variableNet)*100)/100:null;
+    const residualFixedValidated=Number.isFinite(residualFixedExVat)&&residualFixedExVat>=0;
+
+    const detailedKnownForTariff=Number.isFinite(fixedNet)?Math.round((variableNet+fixedNet)*100)/100:null;
+    const detailedTariffDifference=Number.isFinite(totalExVat)&&Number.isFinite(detailedKnownForTariff)?Math.round((totalExVat-detailedKnownForTariff)*100)/100:null;
+    const detailTariffValidated=Number.isFinite(consumptionKwh)&&consumptionKwh>0&&Number.isFinite(vatRate)
+      &&Number.isFinite(detailedVariableRate)&&Number.isFinite(detailedFixedRate)&&Math.abs(detailedTariffDifference||0)<=0.05;
     const summaryTariffValidated=Number.isFinite(summaryFixedExVat)&&Number.isFinite(summaryVariableExVat)&&Number.isFinite(vatRate);
-    const tariffValidated=detailTariffValidated||summaryTariffValidated;
-    const variableExVatPerKwh=detailTariffValidated?detailedVariableRate:summaryVariableExVat;
-    const fixedExVatPerMonth=detailTariffValidated?detailedFixedRate:summaryFixedExVat;
+    const residualTariffValidated=!detailTariffValidated&&!summaryTariffValidated&&residualFixedValidated&&Number.isFinite(vatRate);
+
+    const tariffValidated=detailTariffValidated||summaryTariffValidated||residualTariffValidated;
+    const variableExVatPerKwh=detailTariffValidated?detailedVariableRate:summaryTariffValidated?summaryVariableExVat:detailedVariableRate;
+    const fixedExVatPerMonth=detailTariffValidated?detailedFixedRate:summaryTariffValidated?summaryFixedExVat:residualFixedExVat;
+    const knownForTariff=tariffValidated&&Number.isFinite(fixedExVatPerMonth)?Math.round((variableNet+fixedExVatPerMonth)*100)/100:null;
+    const tariffDifference=Number.isFinite(totalExVat)&&Number.isFinite(knownForTariff)?Math.round((totalExVat-knownForTariff)*100)/100:null;
+
+    const unmatched=Number.isFinite(totalExVat)&&recognizedNetCount?Math.round((totalExVat-knownNet)*100)/100:null;
+    if(Number.isFinite(unmatched)&&Math.abs(unmatched)>0.05&&!residualTariffValidated)warnings.push(`Součet rozpoznaných položek se liší od ceny bez DPH o ${unmatched.toFixed(2)} Kč.`);
+
     if(detailTariffValidated&&summaryTariffValidated){
       if(Math.abs(detailedFixedRate-summaryFixedExVat)>.02||Math.abs(detailedVariableRate-summaryVariableExVat)>.02)warnings.push('Detailní sazby se neshodují se souhrnnými cenami na faktuře.');
     }else if(summaryTariffValidated&&!detailTariffValidated)warnings.push('Tarif byl převzat ze souhrnných cen faktury; detailní rozpad nebyl kompletně ověřen.');
+    else if(residualTariffValidated)warnings.push(`Fixní složky ${residualFixedExVat.toFixed(2)} Kč byly převzaty souhrnně jako rozdíl ceny bez DPH a rozpoznaných variabilních položek.`);
     else if(!tariffValidated)warnings.push('Tarifní model nebyl plně ověřen; pro predikci zůstane k dispozici statistický model.');
+
+    const grossFactor=Number.isFinite(vatRate)?1+vatRate:null;
     const confidence=fatal.length?0:Math.max(.5,Math.min(1,1-(warnings.length*.12)));
 
     const finance=Invoice.normalizeFinance({
@@ -310,7 +329,7 @@
         energy:ag.supply.total,
         distribution:[ag.distributionEnergy.total,ag.systemServices.total,ag.distributionFixed.total,ag.breaker.total,ag.poze.total].some(Number.isFinite)?[ag.distributionEnergy.total,ag.systemServices.total,ag.distributionFixed.total,ag.breaker.total,ag.poze.total].reduce((a,v)=>a+(Number(v)||0),0):null,
         fixed:Number.isFinite(fixedExVatPerMonth)?fixedExVatPerMonth:null,
-        other:Number.isFinite(unmatched)&&Math.abs(unmatched)>0.005?Math.max(0,unmatched):null,
+        other:Number.isFinite(unmatched)&&Math.abs(unmatched)>0.005&&!residualTariffValidated?Math.max(0,unmatched):null,
         supplyEnergy:ag.supply.total,
         distributionEnergy:ag.distributionEnergy.total,
         systemServices:ag.systemServices.total,
@@ -361,7 +380,8 @@
       validation:{
         totalExVat,invoiceTotal,vatAmount,componentSum,componentDifference,
         knownNet:Math.round(knownNet*100)/100,netDifference:unmatched,
-        tariffDifference,tariffValidated,detailTariffValidated,summaryTariffValidated,
+        tariffDifference,tariffValidated,detailTariffValidated,summaryTariffValidated,residualTariffValidated,
+        residualFixedExVat:round(residualFixedExVat,6),fullCalendarMonth,coreVariableRecognized,
         summaryFixedExVat:round(summaryFixedExVat,6),summaryVariableExVat:round(summaryVariableExVat,6),
         consumptionKwh:round(consumptionKwh,3),ean
       }
