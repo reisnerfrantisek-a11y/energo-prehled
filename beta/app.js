@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.5.3';
+const APP_VERSION = '1.5.4';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -235,16 +235,32 @@ function normalizeProxyUrl(raw){
   if(u.protocol!=='https:')throw new Error('Proxy URL musí používat HTTPS.');
   u.hash='';return u.href.replace(/\/$/,'');
 }
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function proxyHealth(proxyUrl){
+  try{
+    const resp=await fetch(proxyUrl,{method:'GET',headers:{Accept:'application/json'},cache:'no-store'});
+    let body=null;try{body=await resp.json()}catch{}
+    return {reachable:resp.ok, status:resp.status, body};
+  }catch(e){return {reachable:false,status:null,body:null,error:e}}
+}
 async function egdProxyPost(action,payload={}){
   const proxyUrl=normalizeProxyUrl(state.egd.proxyUrl);
   if(!proxyUrl)throw new Error('Vyplň Proxy URL z Vercelu.');
-  let resp;
-  try{
-    resp=await fetch(proxyUrl,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},cache:'no-store',body:JSON.stringify({clientId:state.egd.clientId,clientSecret:state.egd.clientSecret,action,...payload})});
-  }catch(e){throw new Error('Vercel proxy není dostupná nebo ji prohlížeč zablokoval.')}
-  let body=null;try{body=await resp.json()}catch{}
-  if(!resp.ok)throw new Error(body?.details||body?.message||`Proxy vrátila HTTP ${resp.status}.`);
-  return body;
+  let lastNetworkError=null;
+  for(let attempt=1;attempt<=2;attempt++){
+    try{
+      const resp=await fetch(proxyUrl,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},cache:'no-store',body:JSON.stringify({clientId:state.egd.clientId,clientSecret:state.egd.clientSecret,action,...payload})});
+      let body=null;try{body=await resp.json()}catch{}
+      if(!resp.ok)throw new Error(body?.details||body?.message||`Proxy vrátila HTTP ${resp.status}.`);
+      return body;
+    }catch(e){
+      if(e instanceof TypeError){lastNetworkError=e;if(attempt<2){await sleep(700);continue}}
+      else throw e;
+    }
+  }
+  const health=await proxyHealth(proxyUrl);
+  if(health.reachable)throw new Error('Vercel proxy odpovídá, ale prohlížeč zablokoval POST požadavek. Zkus znovu tlačítko „Ověřit připojení“; pokud chyba zůstane, jde pravděpodobně o CORS nebo dočasnou síťovou chybu.');
+  throw new Error('Vercel proxy není momentálně dosažitelná. Požadavek byl automaticky zopakován, ale endpoint neodpověděl.');
 }
 async function egdToken(clientId=state.egd.clientId,clientSecret=state.egd.clientSecret){
   if(!clientId||!clientSecret)throw new Error('Vyplň Client ID a Client secret.');
