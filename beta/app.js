@@ -1289,7 +1289,10 @@ function renderForecastPanel(rs){
   const key=keys.at(-1),series=forecastCostSeries(key);if(!series){panel.classList.add('hidden');return}
   panel.classList.remove('hidden');$('#forecastTitle').textContent=`Predikce · ${monthLabel(key)}`;
   const e=series.estimate,rangeWidth=e.highProjectedCost-e.lowProjectedCost;
-  meta.innerHTML=`<span><strong>${fmt.format(e.cost)} Kč</strong> odhad nákladů dosud</span><span class="scenario-mid"><strong>${fmt.format(e.projectedCost)} Kč</strong> střední scénář</span><span class="scenario-low"><strong>${fmt.format(e.lowProjectedCost)} Kč</strong> nižší scénář</span><span class="scenario-high"><strong>${fmt.format(e.highProjectedCost)} Kč</strong> vyšší scénář</span><span class="forecast-model">Model ceny: <strong>${fmt.format(e.fixed)} Kč/měs. + ${fmt.format(e.variableRate)} Kč/kWh</strong> · stabilita <strong>${Math.round(e.confidence*100)} %</strong>${Number.isFinite(rangeWidth)?` · scénářové pásmo ${fmt.format(rangeWidth)} Kč`:''}</span>`;
+  const modelText=e.modelType==='tariff'
+    ?`Tarif z faktury ${monthLabel(e.tariffSourceMonth)}: ${fmt.format(e.fixed)} Kč/měs. + ${fmt3.format(e.variableRate)} Kč/kWh vč. DPH`
+    :`Statistický model: ${fmt.format(e.fixed)} Kč/měs. + ${fmt.format(e.variableRate)} Kč/kWh · stabilita ${Math.round(e.confidence*100)} %`;
+  meta.innerHTML=`<span><strong>${fmt.format(e.cost)} Kč</strong> odhad nákladů dosud</span><span class="scenario-mid"><strong>${fmt.format(e.projectedCost)} Kč</strong> střední scénář</span><span class="scenario-low"><strong>${fmt.format(e.lowProjectedCost)} Kč</strong> nižší scénář</span><span class="scenario-high"><strong>${fmt.format(e.highProjectedCost)} Kč</strong> vyšší scénář</span><span class="forecast-model"><strong>${escapeHtml(modelText)}</strong>${Number.isFinite(rangeWidth)?` · scénářové pásmo ${fmt.format(rangeWidth)} Kč`:''}</span>`;
   forecastBandChart(chart,series.data);
 }
 function renderForecastAccuracy(){
@@ -1488,7 +1491,7 @@ function renderPeaks(rs){const peaks=[...rs].sort((a,b)=>val(b)-val(a)).slice(0,
 async function renderMonths(){
   const months=[...state.months].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));
   $('#monthsList').innerHTML=months.length?months.map(m=>{
-    const enabled=m.enabled!==false,finance=normalizeFinance(m.finance),invoice=finance.invoiceTotal,kwh=monthBillingEnergy(m.monthKey),effective=invoice!==null&&kwh>0?invoice/kwh:null;
+    const enabled=m.enabled!==false,finance=normalizeFinance(m.finance),invoice=finance.invoiceTotal,kwh=monthBillingEnergy(m.monthKey),effective=invoice!==null&&kwh>0?invoice/kwh:null,detailed=INVOICE.hasDetailedBreakdown(finance),tariffOk=INVOICE.hasValidatedTariff(finance);
     const isApi=m.source==='egd-api',partial=isApi&&m.complete!==true,estimate=partial?estimatedMonthCost(m.monthKey):null,quality=m.apiStatusCounts||{},sourceTag=isApi?'<span class="month-source">EG.D</span>':'<span class="month-source">XLSX</span>';
     const liveTag=partial?'<span class="month-live-badge">PRŮBĚŽNÝ</span>':'';
     const qualityText=isApi?Object.entries(quality).sort(([a],[b])=>a.localeCompare(b)).map(([code,count])=>`${code} ${count}`).join(' · '):'';
@@ -1496,10 +1499,13 @@ async function renderMonths(){
     const qualityUsage=isApi?` · použito ${usableCount.toLocaleString('cs-CZ')}/${Number(m.count||0).toLocaleString('cs-CZ')}${provisionalCount?` · předběžných ${provisionalCount.toLocaleString('cs-CZ')}`:''}${gaps.length?` · chybí ${gaps.length} intervalů ve ${gapDays} dnech`:' · uzavřené dny bez mezer'}`:'';
     const availability=partial&&m.lastAvailableAt?` · do ${new Date(m.lastAvailableAt).toLocaleString('cs-CZ')}`:'';
     const stateText=monthIsComplete(m.monthKey)?'✓ kompletní':partial&&enabled?'● průběžně':enabled?'⚠ zkontrolovat':'—';
+    const pdfSummary=finance.source==='pdf'
+      ?`<div class="invoice-source-summary"><strong>PDF · ${escapeHtml(finance.invoiceMeta.supplier||'faktura')}</strong><span>${detailed?'rozpad ceny načten':''}${tariffOk?` · tarif ${fmt.format(finance.tariff.fixedGrossPerMonth)} Kč/měs. + ${fmt3.format(finance.tariff.variableGrossPerKwh)} Kč/kWh vč. DPH`:''}</span></div>`
+      :'';
     let estimateHtml='';
     if(partial){
       estimateHtml=estimate&&Number.isFinite(estimate.cost)
-        ?`<div class="month-estimate"><strong>Odhad dosud: ≈ ${fmt.format(estimate.cost)} Kč</strong><span class="estimate-rate">Predikce faktury: ≈ <strong>${fmt.format(estimate.projectedCost)} Kč</strong> · scénářové rozpětí <strong>${fmt.format(estimate.lowProjectedCost)}–${fmt.format(estimate.highProjectedCost)} Kč</strong></span><span class="estimate-rate"><strong>Spotřeba dosud: ${fmt3.format(estimate.actualEnergy)} kWh</strong> · predikce celého měsíce ≈ <strong>${fmt3.format(estimate.predictedEnergy)} kWh</strong></span><span class="estimate-rate">Scénář aktuálního tempa ${fmt3.format(estimate.paceEnergy)} kWh · chybí ${estimate.missingClosedIntervals||0} intervalů · dotčeno dnů ${estimate.incompleteClosedDays||0}</span><span class="estimate-rate">Cena: fixní část ≈ ${fmt.format(estimate.fixed)} Kč/měs. + ${fmt.format(estimate.variableRate)} Kč/kWh · stabilita ${Math.round(estimate.confidence*100)} % · cenový základ ${estimate.count}/3 měsíců${estimate.months.length?' ('+estimate.months.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span><span class="estimate-rate">Spotřební základ: ${estimate.energyMonths?.length||0} měsíců${estimate.energyMonths?.length?' ('+estimate.energyMonths.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span></div>`
+        ?`<div class="month-estimate"><strong>Odhad dosud: ≈ ${fmt.format(estimate.cost)} Kč</strong><span class="estimate-rate">Predikce faktury: ≈ <strong>${fmt.format(estimate.projectedCost)} Kč</strong> · scénářové rozpětí <strong>${fmt.format(estimate.lowProjectedCost)}–${fmt.format(estimate.highProjectedCost)} Kč</strong></span><span class="estimate-rate"><strong>Spotřeba dosud: ${fmt3.format(estimate.actualEnergy)} kWh</strong> · predikce celého měsíce ≈ <strong>${fmt3.format(estimate.predictedEnergy)} kWh</strong></span><span class="estimate-rate">Scénář aktuálního tempa ${fmt3.format(estimate.paceEnergy)} kWh · chybí ${estimate.missingClosedIntervals||0} intervalů · dotčeno dnů ${estimate.incompleteClosedDays||0}</span><span class="estimate-rate">${estimate.modelType==='tariff'?`Tarif z faktury ${monthLabel(estimate.tariffSourceMonth)}: ${fmt.format(estimate.fixed)} Kč/měs. + ${fmt3.format(estimate.variableRate)} Kč/kWh vč. DPH`:`Cena: fixní část ≈ ${fmt.format(estimate.fixed)} Kč/měs. + ${fmt.format(estimate.variableRate)} Kč/kWh · stabilita ${Math.round(estimate.confidence*100)} % · cenový základ ${estimate.count}/3 měsíců${estimate.months.length?' ('+estimate.months.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}`}</span><span class="estimate-rate">Spotřební základ: ${estimate.energyMonths?.length||0} měsíců${estimate.energyMonths?.length?' ('+estimate.energyMonths.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span></div>`
         :estimate&&Number.isFinite(estimate.predictedEnergy)&&estimate.energyMonths?.length
           ?`<div class="month-estimate"><strong>Spotřeba dosud: ${fmt3.format(estimate.actualEnergy)} kWh</strong><span class="estimate-rate">Predikce celého měsíce: ≈ <strong>${fmt3.format(estimate.predictedEnergy)} kWh</strong> · scénářové rozpětí ${fmt3.format(estimate.lowEnergy)}–${fmt3.format(estimate.highEnergy)} kWh</span><span class="estimate-rate">Scénář aktuálního tempa ${fmt3.format(estimate.paceEnergy)} kWh · chybí ${estimate.missingClosedIntervals||0} intervalů · dotčeno dnů ${estimate.incompleteClosedDays||0}</span><span class="estimate-rate">Spotřební základ: ${estimate.energyMonths.length} měsíců${estimate.energyMonths.length?' ('+estimate.energyMonths.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}. Náklady zatím nelze odhadnout, protože chybí použitelná historie faktur.</span></div>`
           :`<div class="month-estimate"><strong>Predikci zatím nelze určit</strong><span class="estimate-rate">Je potřeba alespoň jeden kompletní předchozí měsíc spotřeby; pro odhad nákladů navíc historie faktur.</span></div>`;
@@ -1511,8 +1517,10 @@ async function renderMonths(){
         ${isApi?`<div class="month-quality">Kvalita EG.D: ${escapeHtml(qualityText||'bez stavových kódů')}${escapeHtml(qualityUsage)} · B/W se zobrazují jako předběžné; explicitně nepoužitelné IU statusy se vyřazují · profil ${escapeHtml(m.apiProfile||'—')} · ${escapeHtml(m.apiUnits||'—')}</div>`:''}
         <div class="month-finance">
           <label class="invoice-field"><span>Faktura</span><input inputmode="decimal" data-month-invoice="${m.monthKey}" value="${invoice===null?'':String(invoice).replace('.',',')}" placeholder="${partial?'po uzavření':'např. 1842'}" ${partial?'disabled':''}><b>Kč</b></label>
+          <button class="invoice-pdf-btn" data-invoice-pdf="${m.monthKey}" ${partial?'disabled':''}>Načíst PDF</button>
           <span class="effective-price">${effective===null?(invoice!==null&&kwh===0?'0 kWh · cenu/kWh nelze určit':'Cena/kWh —'):`Efektivně <strong>${fmt.format(effective)} Kč/kWh</strong>`}</span>
         </div>
+        ${pdfSummary}
         ${estimateHtml}
         <div class="finance-note">${partial?'Fakturu doplníš po uzavření měsíce. Predikce spotřeby je nezávislá na fakturách; denní snapshot forecastu se ukládá pouze lokálně pro následné vyhodnocení přesnosti.':'Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.'}</div>
       </div>
@@ -1529,6 +1537,7 @@ async function renderMonths(){
   }).join(''):'<div class="chart-empty">Žádná uložená data</div>';
   $$('[data-month-toggle]').forEach(x=>x.onchange=()=>setMonthEnabled(x.dataset.monthToggle,x.checked).catch(e=>{console.error(e);alert('Změnu se nepodařilo uložit: '+e.message)}));
   $$('[data-month-invoice]').forEach(x=>x.onchange=()=>setMonthInvoice(x.dataset.monthInvoice,x.value).catch(e=>{console.error(e);alert('Cenu se nepodařilo uložit: '+e.message);renderMonths()}));
+  $$('[data-invoice-pdf]').forEach(b=>b.onclick=()=>{state.pendingInvoicePdf={monthKey:b.dataset.invoicePdf};$('#invoicePdfInput').click()});
   $$('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm(`Opravdu odstranit ${monthLabel(b.dataset.delete)}?`))deleteMonth(b.dataset.delete)});
 }
 function renderExportDefaults(){const all=sortedRecords();if(!all.length)return;const min=all[0].dateKey,max=all.at(-1).dateKey,from=$('#exportFrom'),to=$('#exportTo');if(state.resetExportRange||!from.value)from.value=min;if(state.resetExportRange||!to.value)to.value=max;state.resetExportRange=false}
