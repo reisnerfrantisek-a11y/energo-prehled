@@ -18,6 +18,7 @@
   function parseCzNumber(raw){
     if(raw===null||raw===undefined)return null;
     const s=String(raw).replace(/[\u00a0\u202f\s]/g,'').replace(',','.').trim();
+    if(!s)return null;
     const n=Number(s);return Number.isFinite(n)?n:null;
   }
   function money(v){const n=parseCzNumber(v);return Number.isFinite(n)?Math.round(n*100)/100:null}
