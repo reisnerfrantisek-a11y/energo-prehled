@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.5.7';
+const APP_VERSION = '1.5.8';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -607,7 +607,14 @@ async function syncEgdData({silent=false}={}){
     if(!hardErrors.length){
       state.egd.lastSync=new Date().toISOString();state.egd.verified=true;state.egd.lastError=recoverable[0]?.error?.message||null;await saveEgdConfig();
     }
-    state.resetExportRange=true;await reload();await captureLiveForecastSnapshots();
+    state.resetExportRange=true;await reload();
+    let overviewMoved=false;
+    const currentHasData=state.records.some(r=>r.monthKey===currentKey&&monthEnabled(currentKey)&&recordUsable(r));
+    if(!silent&&currentHasData&&state.anchorMonth!==currentKey){
+      state.anchorMonth=currentKey;persistPeriodState();overviewMoved=true;
+      renderPeriodControls();renderOverview();renderAnalysis();
+    }
+    await captureLiveForecastSnapshots();
     const saved=results.filter(x=>x.saved?.saved).length,noData=results.filter(x=>!x.payload&&!x.skipped&&!x.error).length,skipped=results.filter(x=>x.skipped).length,last=latestEgdAvailability(),incremental=results.some(x=>x.payload?.month?.incremental),fallback=results.some(x=>x.payload?.month?.chunkFallback),profileFallback=results.find(x=>x.profileFallback);
     if(recoverable.length){
       const msg=`${recoverable[0].error.message} Synchronizaci můžeš zkusit později; aplikace dál používá poslední uložená data.`;
@@ -615,7 +622,7 @@ async function syncEgdData({silent=false}={}){
       if(!silent)showToast('EG.D nevrátilo nová data; starší data zůstala zachována');
       return {ok:false,recoverable:true,results};
     }
-    const message=`Synchronizováno ${saved} měsíců${skipped?' · kompletní přeskočeno: '+skipped:''}${noData?' · bez nových dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''}${incremental?' · přírůstková aktualizace':''}${fallback?' · načteno po menších blocích':''}${profileFallback?' · automaticky použit profil '+profileFallback.profile:''}`;
+    const message=`Synchronizováno ${saved} měsíců${skipped?' · kompletní přeskočeno: '+skipped:''}${noData?' · bez nových dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''}${incremental?' · přírůstková aktualizace':''}${fallback?' · načteno po menších blocích':''}${profileFallback?' · automaticky použit profil '+profileFallback.profile:''}${overviewMoved?' · Přehled přepnut na '+monthLabel(currentKey):''}`;
     setEgdUiState('ok','Připojeno',message);
     if(!silent)showToast('EG.D data byla synchronizována');
     return {ok:true,results};
