@@ -1115,7 +1115,7 @@ async function renderMonths(){
     const isApi=m.source==='egd-api',partial=isApi&&m.complete!==true,estimate=partial?estimatedMonthCost(m.monthKey):null,quality=m.apiStatusCounts||{},sourceTag=isApi?'<span class="month-source">EG.D</span>':'<span class="month-source">XLSX</span>';
     const liveTag=partial?'<span class="month-live-badge">PRŮBĚŽNÝ</span>':'';
     const qualityText=isApi?Object.entries(quality).sort(([a],[b])=>a.localeCompare(b)).map(([code,count])=>`${code} ${count}`).join(' · '):'';
-    const usableCount=Number(m.usableCount??state.records.filter(r=>r.monthKey===m.monthKey&&recordUsable(r)).length),provisionalCount=Number(m.provisionalCount??state.records.filter(r=>r.monthKey===m.monthKey&&recordProvisional(r)).length);
+    const monthRecords=state.records.filter(r=>r.monthKey===m.monthKey),usableCount=monthRecords.filter(recordUsable).length,provisionalCount=monthRecords.filter(recordProvisional).length;
     const qualityUsage=isApi?` · použito ${usableCount.toLocaleString('cs-CZ')}/${Number(m.count||0).toLocaleString('cs-CZ')}${provisionalCount?` · předběžných ${provisionalCount.toLocaleString('cs-CZ')}`:''}`:'';
     const availability=partial&&m.lastAvailableAt?` · do ${new Date(m.lastAvailableAt).toLocaleString('cs-CZ')}`:'';
     const stateText=monthIsComplete(m.monthKey)?'✓ kompletní':partial&&enabled?'● průběžně':enabled?'⚠ zkontrolovat':'—';
