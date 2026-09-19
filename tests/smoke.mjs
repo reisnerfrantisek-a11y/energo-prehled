@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.5.0'"),'App version must be 1.5.0');
+assert.ok(app.includes("APP_VERSION = '1.5.1'"),'App version must be 1.5.1');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -88,8 +88,8 @@ assert.ok(app.includes('async function forceUpdateApp'),'Safe force-update funct
 assert.ok(app.includes("k.startsWith('energo-prehled-beta-')"),'Force update must target beta cache only');
 assert.ok(!app.includes('indexedDB.deleteDatabase'),'Force update must not delete IndexedDB');
 assert.ok(!app.includes('localStorage.clear()'),'Force update must not clear localStorage');
-assert.ok(index.includes('app.js?v=1.5.0'),'App script must be cache-busted');
-assert.ok(index.includes('styles.css?v=1.5.0'),'Stylesheet must be cache-busted');
+assert.ok(index.includes('app.js?v=1.5.1'),'App script must be cache-busted');
+assert.ok(index.includes('styles.css?v=1.5.1'),'Stylesheet must be cache-busted');
 const refresh=fs.readFileSync('refresh.html','utf8');
 assert.ok(refresh.includes("energo-prehled-beta-"),'Recovery page must clear beta cache');
 assert.ok(!refresh.includes('indexedDB.deleteDatabase'),'Recovery page must preserve IndexedDB');
@@ -129,6 +129,10 @@ assert.ok(app.includes('function estimatedMonthCost'),'Live month cost estimate 
 assert.ok(app.includes('function costProjectionForRecords'),'Estimated cost dashboard projection missing');
 assert.ok(app.includes('function forecastCostSeries'),'Forecast cost series missing');
 assert.ok(app.includes('function forecastBandChart'),'Forecast band chart missing');
+assert.ok(app.includes('function attachChartTooltip'),'Interactive chart tooltip helper missing');
+assert.ok(app.includes("addEventListener('pointerdown'"),'Touch chart interaction missing');
+assert.ok(app.includes('scenario-low')&&app.includes('scenario-mid')&&app.includes('scenario-high'),'Forecast scenarios must be explicitly labeled');
+assert.ok(app.includes('Model ceny:'),'Forecast must expose fixed and variable price model');
 assert.ok(app.includes('function captureLiveForecastSnapshots'),'Daily forecast snapshot persistence missing');
 assert.ok(app.includes('forecastHistory'),'Forecast history must be persisted with month metadata');
 assert.ok(app.includes('function forecastAccuracyRows'),'Forecast accuracy evaluation missing');
@@ -232,4 +236,4 @@ assert.equal(periodTest.currentRange().length,3);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.5.0 smoke tests OK');
+console.log('Energo Přehled Beta 1.5.1 smoke tests OK');
