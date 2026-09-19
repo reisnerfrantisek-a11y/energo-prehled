@@ -1,7 +1,7 @@
 'use strict';
 
-const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice,TIME=window.EnergoTime,FORECAST=window.EnergoForecast;
-if(!CORE||!INVOICE||!TIME||!FORECAST)throw new Error('Chybí core moduly Energo aplikace.');
+const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice,TIME=window.EnergoTime,FORECAST=window.EnergoForecast,INVOICE_PARSER=window.EnergoInvoiceParser;
+if(!CORE||!INVOICE||!TIME||!FORECAST||!INVOICE_PARSER)throw new Error('Chybí core moduly Energo aplikace.');
 
 const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.6.1';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -44,6 +44,7 @@ let state = {
   comparePrevious: localStorage.getItem(COMPARE_PREVIOUS_KEY)==='1',
   egd: {clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,autoSync:false},
   pendingImport: null,
+  pendingInvoicePdf: null,
   resetExportRange: false
 };
 
@@ -105,7 +106,11 @@ function parseMoneyInput(raw){
 }
 async function setMonthInvoice(monthKey,rawValue){
   const month=state.months.find(m=>m.monthKey===monthKey);if(!month)return;
-  const invoiceTotal=parseMoneyInput(rawValue),finance=normalizeFinance(month.finance);finance.invoiceTotal=invoiceTotal;finance.source='manual';finance.invoiceMeta.extractionStatus=invoiceTotal===null?'none':'manual';finance.invoiceMeta.extractionConfidence=invoiceTotal===null?null:1;
+  const finance=normalizeFinance(month.finance),previousTotal=finance.invoiceTotal,invoiceTotal=parseMoneyInput(rawValue);finance.invoiceTotal=invoiceTotal;
+  const changed=previousTotal!==invoiceTotal;
+  if(changed&&finance.source==='pdf')finance.tariff.validated=false;
+  finance.source='manual';finance.invoiceMeta.extractionStatus=invoiceTotal===null?'none':changed&&finance.invoiceMeta.parserVersion?'manual-adjusted':'manual';finance.invoiceMeta.extractionConfidence=invoiceTotal===null?null:1;
+  if(invoiceTotal!==null)finance.totals.incVat=invoiceTotal;
   await new Promise((resolve,reject)=>{
     const tx=db.transaction('months','readwrite'),store=tx.objectStore('months');
     store.put({...month,finance});
