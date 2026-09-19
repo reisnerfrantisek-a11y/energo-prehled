@@ -10,7 +10,7 @@ new Function(sw);
 
 for(const id of [
   'backupDataBtn','restoreDataBtn','backupFileInput','exportBtn','fileInput','replaceModal','monthsList','heroDelta',
-  'periodNavigator','periodPrev','periodNext','periodAnchorLabel','anchorMonthInput','customPeriodControls','customFrom','customTo','heroCard','daypartSubtitle','dashboardModeToggle','heroUnit','metricToggle','effectivePricePanel','effectivePriceChart','forceUpdateBtn','appVersionText','egdPanel','egdStatus','egdClientId','egdClientSecret','egdProxyUrl','egdConfig','egdEanSelect','egdProfileSelect','egdTestBtn','egdSyncBtn','egdDisconnectBtn','egdResult'
+  'periodNavigator','periodPrev','periodNext','periodAnchorLabel','anchorMonthInput','customPeriodControls','customFrom','customTo','heroCard','daypartSubtitle','dashboardModeToggle','heroUnit','metricToggle','effectivePricePanel','effectivePriceChart','forceUpdateBtn','appVersionText','egdPanel','egdStatus','egdClientId','egdClientSecret','egdProxyUrl','egdAutoSync','egdConfig','egdEanSelect','egdProfileSelect','egdTestBtn','egdSyncBtn','egdDisconnectBtn','egdResult'
 ]){
   assert.ok(index.includes(`id="${id}"`), `Missing UI element #${id}`);
 }
@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.4.2'"),'App version must be 1.4.2');
+assert.ok(app.includes("APP_VERSION = '1.4.3'"),'App version must be 1.4.3');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -80,8 +80,8 @@ assert.ok(app.includes('async function forceUpdateApp'),'Safe force-update funct
 assert.ok(app.includes("k.startsWith('energo-prehled-beta-')"),'Force update must target beta cache only');
 assert.ok(!app.includes('indexedDB.deleteDatabase'),'Force update must not delete IndexedDB');
 assert.ok(!app.includes('localStorage.clear()'),'Force update must not clear localStorage');
-assert.ok(index.includes('app.js?v=1.4.2'),'App script must be cache-busted');
-assert.ok(index.includes('styles.css?v=1.4.2'),'Stylesheet must be cache-busted');
+assert.ok(index.includes('app.js?v=1.4.3'),'App script must be cache-busted');
+assert.ok(index.includes('styles.css?v=1.4.3'),'Stylesheet must be cache-busted');
 const refresh=fs.readFileSync('refresh.html','utf8');
 assert.ok(refresh.includes("energo-prehled-beta-"),'Recovery page must clear beta cache');
 assert.ok(!refresh.includes('indexedDB.deleteDatabase'),'Recovery page must preserve IndexedDB');
@@ -105,6 +105,13 @@ assert.ok(app.includes("egdProxyPost('spotreby'"),'Proxy consumption flow missin
 assert.ok(app.includes("if(type==='B')"),'Type B profile selection guard missing');
 assert.ok(app.includes("toUpperCase()==='ICC1'"),'Type B must prefer ICC1');
 assert.ok(app.includes('lastClosedDayEnd=todayStart-15*60000'),'Current month must stop at previous closed day');
+assert.ok(app.includes('function estimateRateForMonth'),'Three-month cost estimate missing');
+assert.ok(app.includes('function estimatedMonthCost'),'Live month cost estimate missing');
+assert.ok(app.includes('function costProjectionForRecords'),'Estimated cost dashboard projection missing');
+assert.ok(app.includes('async function maybeAutoSyncEgd'),'Daily EG.D auto-sync missing');
+assert.ok(app.includes("state.egd.autoSync!==true"),'Auto-sync must be opt-in');
+assert.ok(app.includes("last&&last===today"),'Auto-sync must run at most once per day');
+assert.ok(!app.includes("\n    $('.metric-btn').forEach"),'API DCC fallback incorrectly uses single-element selector');
 
 const proxy=fs.readFileSync('vercel-egd-proxy/api/egd.js','utf8');
 new Function(proxy.replace('export default async function handler','async function handler'));
@@ -131,13 +138,13 @@ const normalizeFinance=f=>({invoiceTotal:f?.invoiceTotal===null||f?.invoiceTotal
 const renderPeriodControls=()=>{},renderOverview=()=>{},renderAnalysis=()=>{};
 const state={metric:'dcc1',period:'month',anchorMonth:'2026-08',customFrom:'2026-07-01',customTo:'2026-08-31',records:[
 {id:'jun',sortKey:1,monthKey:'2026-06',dateKey:'2026-06-01',year:2026,month:6,dcc1:4,intervalMinutes:15},
-{id:'jul',sortKey:2,monthKey:'2026-07',dateKey:'2026-07-01',year:2026,month:7,dcc1:4,intervalMinutes:15},
-{id:'aug',sortKey:3,monthKey:'2026-08',dateKey:'2026-08-01',year:2026,month:8,dcc1:4,intervalMinutes:15}
+{id:'jul',sortKey:2,monthKey:'2026-07',dateKey:'2026-07-01',year:2026,month:7,dcc1:8,intervalMinutes:15},
+{id:'aug',sortKey:3,monthKey:'2026-08',dateKey:'2026-08-01',year:2026,month:8,dcc1:12,intervalMinutes:15}
 ],months:[
-{monthKey:'2026-06',complete:true,finance:{invoiceTotal:100}},{monthKey:'2026-07',complete:true,finance:{invoiceTotal:200}},{monthKey:'2026-08',complete:true,finance:{invoiceTotal:300}}
+{monthKey:'2026-06',complete:true,finance:{invoiceTotal:100}},{monthKey:'2026-07',complete:true,finance:{invoiceTotal:300}},{monthKey:'2026-08',complete:true,finance:{invoiceTotal:600}}
 ]};
 ${analyticsCode}
-return {state,currentRange,expectedCurrentMonthKeys,selectedPeriodLabel,costForRecords,monthEffectivePrice};
+return {state,currentRange,expectedCurrentMonthKeys,selectedPeriodLabel,costForRecords,monthEffectivePrice,estimateRateForMonth,estimatedMonthCost,costProjectionForRecords};
 `)();
 periodTest.state.period='month';
 assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-08']);
@@ -152,9 +159,19 @@ assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-07','2026-0
 periodTest.state.period='all';
 assert.equal(periodTest.currentRange().length,3);
 const fullCosts=periodTest.costForRecords(periodTest.currentRange());
-assert.equal(fullCosts.total,600);
-assert.equal(fullCosts.coveredEnergy,3);
-assert.equal(periodTest.monthEffectivePrice('2026-08'),300);
+assert.equal(fullCosts.total,1000);
+assert.equal(fullCosts.coveredEnergy,6);
+assert.equal(periodTest.monthEffectivePrice('2026-08'),200);
+periodTest.state.records.push({id:'sep',sortKey:4,monthKey:'2026-09',dateKey:'2026-09-01',year:2026,month:9,dcc1:4,intervalMinutes:15,source:'egd-api'});
+periodTest.state.months.push({monthKey:'2026-09',complete:false,source:'egd-api',lastAvailableAt:'2026-09-18T21:45:00.000Z',finance:{invoiceTotal:null}});
+const sepRate=periodTest.estimateRateForMonth('2026-09');
+assert.equal(sepRate.count,3);
+assert.ok(Math.abs(sepRate.rate-(1000/6))<1e-9,'Estimate must be weighted by total invoice / total kWh');
+const sepEstimate=periodTest.estimatedMonthCost('2026-09');
+assert.ok(Math.abs(sepEstimate.cost-(1000/6))<1e-9,'Live month estimate must use weighted three-month rate');
+const sepProjection=periodTest.costProjectionForRecords(periodTest.state.records.filter(r=>r.monthKey==='2026-09'));
+assert.equal(sepProjection.estimatedMonths.size,1);
+assert.ok(Math.abs(sepProjection.totalWithEstimate-(1000/6))<1e-9);
 periodTest.state.months.find(m=>m.monthKey==='2026-07').enabled=false;
 periodTest.state.period='3m';
 assert.deepEqual(periodTest.currentRange().map(r=>r.monthKey),['2026-06','2026-08']);
@@ -165,4 +182,4 @@ assert.equal(periodTest.currentRange().length,2);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.4.2 smoke tests OK');
+console.log('Energo Přehled Beta 1.4.3 smoke tests OK');
