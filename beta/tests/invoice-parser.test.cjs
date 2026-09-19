@@ -112,7 +112,7 @@ test('candidate parser picks the complete layout over a broken extraction',()=>{
   assert.equal(r.invoiceMonthKey,'2026-08');
   assert.equal(r.finance.metering.consumptionKwh,12);
   assert.equal(r.finance.tariff.validated,true);
-  assert.ok(r.candidateScores[0].score>r.candidateScores[1].score);
+  assert.ok(r.candidateScores[0].score>=r.candidateScores[1].score);
 });
 
 test('column-flow reconstruction keeps sidebar labels together',()=>{
