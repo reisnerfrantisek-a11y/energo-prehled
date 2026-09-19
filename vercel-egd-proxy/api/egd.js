@@ -34,9 +34,13 @@ async function getJson(path,token,params){
   const url=new URL(DATA_BASE+path);
   if(params)for(const [k,v] of Object.entries(params))if(v!==undefined&&v!==null)url.searchParams.set(k,String(v));
   const resp=await fetch(url,{headers:{Authorization:`Bearer ${token}`,Accept:'application/json'},cache:'no-store'});
-  let body=null;try{body=await resp.json()}catch{}
+  const raw=await resp.text();let body=null;
+  try{body=raw?JSON.parse(raw):null}catch{body=raw||null}
   if(!resp.ok){
-    const err=new Error(`EG.D ${path} failed`);err.status=resp.status||502;throw err;
+    const err=new Error(`EG.D ${path} failed (HTTP ${resp.status})`);
+    err.status=resp.status||502;
+    err.details=typeof body==='string'?body.slice(0,500):(body?.message||body?.error_description||body?.error||JSON.stringify(body||{}).slice(0,500));
+    throw err;
   }
   return body;
 }
