@@ -89,3 +89,27 @@ test('calibrated forecast band uses backtest errors only after enough samples',(
   assert.equal(calibrated.sampleCount,6);
   assert.ok(calibrated.uncertainty>=.10&&calibrated.uncertainty<=.25);
 });
+
+
+test('robust mean limits a single extreme outlier without deleting the sample',()=>{
+  const values=[1,1.1,.9,1.05,.95,1.02,.98,8];
+  const raw=Core.mean(values),r=Core.robustMeanStats(values);
+  assert.ok(raw>1.8);
+  assert.ok(r.value<1.2);
+  assert.equal(r.count,values.length);
+  assert.equal(r.affected,1);
+  assert.equal(r.robust,true);
+});
+
+test('robust mean falls back to arithmetic mean for too-small samples',()=>{
+  const values=[1,2,9],r=Core.robustMeanStats(values,{minCount:5});
+  assert.equal(r.value,4);
+  assert.equal(r.affected,0);
+  assert.equal(r.robust,false);
+});
+
+test('robust mean handles zero-MAD repeated baselines',()=>{
+  const r=Core.robustMeanStats([0,0,0,0,0,0,5]);
+  assert.equal(r.value,0);
+  assert.equal(r.affected,1);
+});
