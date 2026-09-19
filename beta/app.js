@@ -21,6 +21,7 @@ const ANCHOR_KEY = IS_BETA ? 'anchor-beta' : 'anchor';
 const CUSTOM_FROM_KEY = IS_BETA ? 'custom-from-beta' : 'custom-from';
 const CUSTOM_TO_KEY = IS_BETA ? 'custom-to-beta' : 'custom-to';
 const DAYPART_KEY = IS_BETA ? 'daypart-beta' : 'daypart';
+const ANALYSIS_MODE_KEY = IS_BETA ? 'analysis-mode-beta' : 'analysis-mode';
 const DASHBOARD_MODE_KEY = IS_BETA ? 'dashboard-mode-beta' : 'dashboard-mode';
 const CHART_MODE_KEY = IS_BETA ? 'chart-mode-beta' : 'chart-mode';
 const COMPARE_PREVIOUS_KEY = IS_BETA ? 'compare-previous-beta' : 'compare-previous';
@@ -41,6 +42,7 @@ let state = {
   customFrom: localStorage.getItem(CUSTOM_FROM_KEY) || '',
   customTo: localStorage.getItem(CUSTOM_TO_KEY) || '',
   daypartMode: localStorage.getItem(DAYPART_KEY)==='average'?'average':'percent',
+  analysisMode: localStorage.getItem(ANALYSIS_MODE_KEY)==='raw'?'raw':'robust',
   dashboardMode: localStorage.getItem(DASHBOARD_MODE_KEY)==='cost'?'cost':'energy',
   chartMode: localStorage.getItem(CHART_MODE_KEY)==='cumulative'?'cumulative':'daily',
   compareMode: ['none','previous','yearAgo'].includes(savedCompareMode)?savedCompareMode:(localStorage.getItem(COMPARE_PREVIOUS_KEY)==='1'?'previous':'none'),
@@ -1787,7 +1789,7 @@ function exportXLSX(rs,g){
 
 // ---------- Backup / restore ----------
 async function backupLocalData(){
-  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,ui:{period:state.period,anchorMonth:state.anchorMonth,customFrom:state.customFrom,customTo:state.customTo,daypartMode:state.daypartMode,dashboardMode:state.dashboardMode,chartMode:state.chartMode,compareMode:state.compareMode,comparePrevious:state.compareMode==='previous'},records:await getAll('intervals'),months:await getAll('months')};
+  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,ui:{period:state.period,anchorMonth:state.anchorMonth,customFrom:state.customFrom,customTo:state.customTo,daypartMode:state.daypartMode,analysisMode:state.analysisMode,dashboardMode:state.dashboardMode,chartMode:state.chartMode,compareMode:state.compareMode,comparePrevious:state.compareMode==='previous'},records:await getAll('intervals'),months:await getAll('months')};
   downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`energo_prehled_zaloha_${new Date().toISOString().slice(0,10)}.json`);
   showToast('Záloha dat byla vytvořena');
 }
@@ -1810,11 +1812,12 @@ async function restoreLocalData(file){
     if(/^\d{4}-\d{2}-\d{2}$/.test(payload.ui.customFrom||''))state.customFrom=payload.ui.customFrom;
     if(/^\d{4}-\d{2}-\d{2}$/.test(payload.ui.customTo||''))state.customTo=payload.ui.customTo;
     if(['percent','average'].includes(payload.ui.daypartMode))state.daypartMode=payload.ui.daypartMode;
+    if(['robust','raw'].includes(payload.ui.analysisMode))state.analysisMode=payload.ui.analysisMode;
     if(['energy','cost'].includes(payload.ui.dashboardMode))state.dashboardMode=payload.ui.dashboardMode;
     if(['daily','cumulative'].includes(payload.ui.chartMode))state.chartMode=payload.ui.chartMode;
     if(['none','previous','yearAgo'].includes(payload.ui.compareMode))state.compareMode=payload.ui.compareMode;
     else if(typeof payload.ui.comparePrevious==='boolean')state.compareMode=payload.ui.comparePrevious?'previous':'none';
-    localStorage.setItem(DAYPART_KEY,state.daypartMode);localStorage.setItem(DASHBOARD_MODE_KEY,state.dashboardMode);localStorage.setItem(CHART_MODE_KEY,state.chartMode);localStorage.setItem(COMPARE_MODE_KEY,state.compareMode);localStorage.setItem(COMPARE_PREVIOUS_KEY,state.compareMode==='previous'?'1':'0');persistPeriodState();
+    localStorage.setItem(DAYPART_KEY,state.daypartMode);localStorage.setItem(ANALYSIS_MODE_KEY,state.analysisMode);localStorage.setItem(DASHBOARD_MODE_KEY,state.dashboardMode);localStorage.setItem(CHART_MODE_KEY,state.chartMode);localStorage.setItem(COMPARE_MODE_KEY,state.compareMode);localStorage.setItem(COMPARE_PREVIOUS_KEY,state.compareMode==='previous'?'1':'0');persistPeriodState();
   }
   state.resetExportRange=true;await reload();showToast('Záloha byla obnovena');
 }
@@ -1862,6 +1865,7 @@ function bind(){
   $('#compareMode').onchange=e=>{state.compareMode=['previous','yearAgo'].includes(e.target.value)?e.target.value:'none';localStorage.setItem(COMPARE_MODE_KEY,state.compareMode);localStorage.setItem(COMPARE_PREVIOUS_KEY,state.compareMode==='previous'?'1':'0');renderOverview()};
   $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});
   $('#dayTypeSelect').onchange=renderAnalysis;
+  $$('[data-analysis-mode]').forEach(b=>b.onclick=()=>{state.analysisMode=b.dataset.analysisMode==='raw'?'raw':'robust';localStorage.setItem(ANALYSIS_MODE_KEY,state.analysisMode);renderAnalysis()});
   $$('.daypart-btn').forEach(b=>b.onclick=()=>{state.daypartMode=b.dataset.daypartMode;localStorage.setItem(DAYPART_KEY,state.daypartMode);renderDayparts(currentRange())});
   $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};
   $('#confirmReplace').onclick=async()=>{const p=state.pendingImport;$('#replaceModal').classList.add('hidden');if(p)await saveImport(p,true)};
