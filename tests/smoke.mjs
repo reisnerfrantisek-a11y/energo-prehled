@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.4.7'"),'App version must be 1.4.7');
+assert.ok(app.includes("APP_VERSION = '1.4.8'"),'App version must be 1.4.8');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -72,6 +72,12 @@ assert.ok(app.includes('data-month-invoice'),'Invoice input missing');
 assert.ok(app.includes('function costForRecords'),'Cost allocation missing');
 assert.ok(app.includes("data-dashboard-mode=\"cost\"")||index.includes('data-dashboard-mode="cost"'),'Cost dashboard mode missing');
 assert.ok(app.includes("unit:'Kč/kWh'"),'Effective price chart unit missing');
+assert.ok(app.includes('class="chart-x-label"'),'Readable chart x-axis label class missing');
+assert.ok(app.includes("p={l:64,r:14,t:30,b:38}"),'Line chart spacing was not enlarged for labels');
+const styles=fs.readFileSync('styles.css','utf8');
+assert.ok(styles.includes('.chart-y-label{font-size:13px'),'Chart y-axis labels must be enlarged');
+assert.ok(styles.includes('.chart-x-label{font-size:13px'),'Chart x-axis labels must be enlarged');
+assert.ok(styles.includes('.chart-value-label{font-size:14px'),'Chart value labels must be enlarged');
 assert.ok(app.includes("$('.dashboard-mode-btn').forEach"),'Dashboard mode must bind all toggle buttons');
 assert.ok(app.includes("$('.metric-btn').forEach"),'Metric mode must bind all toggle buttons');
 assert.ok(!app.includes("\n  $('.dashboard-mode-btn').forEach"),'Dashboard mode incorrectly uses single-element selector');
@@ -80,8 +86,8 @@ assert.ok(app.includes('async function forceUpdateApp'),'Safe force-update funct
 assert.ok(app.includes("k.startsWith('energo-prehled-beta-')"),'Force update must target beta cache only');
 assert.ok(!app.includes('indexedDB.deleteDatabase'),'Force update must not delete IndexedDB');
 assert.ok(!app.includes('localStorage.clear()'),'Force update must not clear localStorage');
-assert.ok(index.includes('app.js?v=1.4.7'),'App script must be cache-busted');
-assert.ok(index.includes('styles.css?v=1.4.7'),'Stylesheet must be cache-busted');
+assert.ok(index.includes('app.js?v=1.4.8'),'App script must be cache-busted');
+assert.ok(index.includes('styles.css?v=1.4.8'),'Stylesheet must be cache-busted');
 const refresh=fs.readFileSync('refresh.html','utf8');
 assert.ok(refresh.includes("energo-prehled-beta-"),'Recovery page must clear beta cache');
 assert.ok(!refresh.includes('indexedDB.deleteDatabase'),'Recovery page must preserve IndexedDB');
@@ -213,4 +219,4 @@ assert.equal(periodTest.currentRange().length,3);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.4.7 smoke tests OK');
+console.log('Energo Přehled Beta 1.4.8 smoke tests OK');
