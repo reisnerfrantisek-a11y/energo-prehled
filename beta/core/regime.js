@@ -85,7 +85,8 @@
     const noise=residualNoise(baseline),thresholdPct=clamp(Math.max(.15,Number.isFinite(noise)?noise*2.5:.18),.15,.45);
     const short=summarizeWindow(baseline,recent7,thresholdPct,absoluteMin);
 
-    const recent14=sorted.slice(-Math.min(confirmWindow,sorted.length-baseline.length));
+    const confirmDays=Math.min(confirmWindow,Math.max(recentWindow,sorted.length-minBaseline));
+    const recent14=sorted.slice(-confirmDays);
     const baseline14End=Math.max(0,sorted.length-recent14.length);
     const baseline14=sorted.slice(Math.max(0,baseline14End-baselineMax),baseline14End);
     const long=baseline14.length>=minBaseline?summarizeWindow(baseline14,recent14,thresholdPct,absoluteMin):null;
