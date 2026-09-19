@@ -1012,14 +1012,14 @@ function forecastEnergyDailySeries(monthKey){
   });
   return {data,estimate,lastObserved};
 }
-function previousMonthEnergySeries(monthKey,targetLength){
+function comparisonMonthEnergySeries(monthKey,targetLength,mode='previous'){
   const idx=monthIndex(monthKey);if(idx===null)return null;
-  const prevKey=monthKeyFromIndex(idx-1),meta=monthMeta(prevKey);
-  if(!meta||meta.enabled===false||!monthIsComplete(prevKey))return null;
-  const rs=state.records.filter(r=>r.monthKey===prevKey&&recordUsable(r)),daily=new Map();
+  const shift=mode==='yearAgo'?12:1,targetKey=monthKeyFromIndex(idx-shift),meta=monthMeta(targetKey);
+  if(!meta||meta.enabled===false||!monthIsComplete(targetKey))return null;
+  const rs=state.records.filter(r=>r.monthKey===targetKey&&recordUsable(r)),daily=new Map();
   for(const r of rs)daily.set(r.dateKey,(daily.get(r.dateKey)||0)+billingEnergy(r));
-  const dates=monthDateKeys(prevKey),values=dates.map(d=>daily.has(d)?daily.get(d):null);
-  return {monthKey:prevKey,label:monthLabel(prevKey),values:CORE.alignByDay(values,targetLength)};
+  const dates=monthDateKeys(targetKey),values=dates.map(d=>daily.has(d)?daily.get(d):null);
+  return {monthKey:targetKey,label:monthLabel(targetKey),mode,values:CORE.alignByDay(values,targetLength)};
 }
 function prepareEnergyChartSeries(monthKey){
   const live=monthIsLivePartial(monthKey),forecast=live?forecastEnergyDailySeries(monthKey):null,dates=monthDateKeys(monthKey);
