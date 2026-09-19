@@ -76,7 +76,7 @@
       ||text.match(/Vyúčtování bylo provedeno za období od\s*(\d{1,2}\.\s*\d{1,2}\.\s*\d{4})\s*do\s*(\d{1,2}\.\s*\d{1,2}\.\s*\d{4})/i);
     const periodFrom=periodMatch?isoDate(periodMatch[1]):'',periodTo=periodMatch?isoDate(periodMatch[2]):'',invoiceMonthKey=monthKeyFromPeriod(periodFrom,periodTo);
     if(!periodFrom||!periodTo)fatal.push('Nepodařilo se rozpoznat fakturační období.');
-    else if(!invoiceMonthKey)warnings.push('Fakturační období přesahuje jeden kalendářní měsíc.');
+    else if(!invoiceMonthKey)fatal.push('Fakturační období přesahuje jeden kalendářní měsíc; měsíční finanční model ji neumí bezpečně přiřadit.');
 
     const totalsMatch=text.match(new RegExp(`Faktura celkem\\s+(${NUM})\\s+(${NUM})`,'i'));
     const totalExVat=totalsMatch?money(totalsMatch[1]):money(first(text,new RegExp(`Cena celkem\\s+(${NUM})`,'i')));
