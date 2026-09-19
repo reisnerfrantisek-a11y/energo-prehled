@@ -1652,30 +1652,60 @@ function renderOverview(){
   const night=rs.filter(r=>r.hour<6);$('#baseLoadLabel').textContent='Základní odběr';$('#baseLoad').textContent=night.length?`${fmt.format(night.reduce((sum,r)=>sum+val(r),0)/night.length*1000)} W`:'—';$('#baseLoadUnit').textContent='průměr 00–06 h';
 }
 function renderAnalysis(){
-  const rs=currentRange();renderForecastAccuracy();
+  const rs=currentRange();renderAnalysisContext(rs);renderForecastAccuracy();
   if(!rs.length){
     const expected=expectedCurrentMonthKeys(),message=expected.length&&keysContainDisabled(expected)?'Zvolené období obsahuje vypnutá data':'Pro zvolené období nejsou aktivní data';
     ['weekdayChart','hourlyChart','heatmap','daypartList','peaksList'].forEach(id=>$('#'+id).innerHTML=`<div class="chart-empty">${message}</div>`);
-    $('#daypartSubtitle').textContent=message;
+    ['weekdaySubtitle','hourlySubtitle','heatmapSubtitle','daypartSubtitle'].forEach(id=>{const el=$('#'+id);if(el)el.textContent=message});
     const anomalySummary=$('#anomalySummary'),anomalyList=$('#anomalyList');if(anomalySummary)anomalySummary.innerHTML=`<strong>Bez dat pro analýzu.</strong><span>${escapeHtml(message)}</span>`;if(anomalyList)anomalyList.innerHTML='';
     return;
   }
+
   const dateTotals=group(rs,r=>r.dateKey),dateWeek={};rs.forEach(r=>dateWeek[r.dateKey]=r.weekday);
-  const sums=Array(7).fill(0),counts=Array(7).fill(0);for(const [date,v] of dateTotals){const wd=dateWeek[date];sums[wd]+=v;counts[wd]++}
-  barChart($('#weekdayChart'),WEEK_MON.map((d,i)=>({label:d,short:d,value:counts[i]?sums[i]/counts[i]:0})),{unit:'kWh/den'});
-  const type=$('#dayTypeSelect').value,filtered=rs.filter(r=>type==='all'||(type==='workday'&&r.weekday<5)||(type==='weekend'&&r.weekday>=5)),havg=groupAvg(filtered,r=>r.hour,val);
-  lineChart($('#hourlyChart'),Array.from({length:24},(_,h)=>({label:String(h).padStart(2,'0'),value:havg.get(h)||0})),{unit:'kW'});
+  const weekdayValues=Array.from({length:7},()=>[]);
+  for(const [date,v] of dateTotals){const wd=dateWeek[date];if(Number.isInteger(wd)&&wd>=0&&wd<7)weekdayValues[wd].push(v)}
+  const weekdayStats=weekdayValues.map(values=>analysisAverageStats(values));
+  const weekdayAffected=weekdayStats.reduce((n,x)=>n+x.affected,0);
+  barChart($('#weekdayChart'),WEEK_MON.map((d,i)=>({label:d,short:d,value:weekdayStats[i].value||0})),{unit:'kWh/den'});
+  $('#weekdaySubtitle').textContent=state.analysisMode==='robust'
+    ?`Typická spotřeba dne · robustní průměr · omezen vliv ${weekdayAffected} odchylek`
+    :'Průměrná spotřeba dne · všechna data bez korekce extrémů';
+
+  const type=$('#dayTypeSelect').value,filtered=rs.filter(r=>type==='all'||(type==='workday'&&r.weekday<5)||(type==='weekend'&&r.weekday>=5)),hourStats=groupedAnalysisStats(filtered,r=>r.hour,val);
+  const hourlyAffected=[...hourStats.values()].reduce((n,x)=>n+x.affected,0);
+  lineChart($('#hourlyChart'),Array.from({length:24},(_,h)=>({label:String(h).padStart(2,'0'),value:hourStats.get(h)?.value||0})),{unit:'kW'});
+  $('#hourlySubtitle').textContent=state.analysisMode==='robust'
+    ?`Typický 24hodinový profil · omezen vliv ${hourlyAffected} extrémních intervalů`
+    :'24hodinový profil · aritmetický průměr všech intervalů';
+
   renderHeatmap(rs);renderDayparts(rs);renderPeaks(rs);renderAnomalies(rs);
 }
 function renderHeatmap(rs){
-  const avg=groupAvg(rs,r=>`${r.weekday}|${r.hour}`,val),max=Math.max(...avg.values(),.001);let html='<div class="heat-grid"><div></div>'+Array.from({length:24},(_,h)=>`<div class="heat-label">${h}</div>`).join('');
+  const stats=groupedAnalysisStats(rs,r=>`${r.weekday}|${r.hour}`,val),avg=new Map([...stats].map(([k,v])=>[k,v.value||0])),affected=[...stats.values()].reduce((n,x)=>n+x.affected,0),max=Math.max(...avg.values(),.001);
+  let html='<div class="heat-grid"><div></div>'+Array.from({length:24},(_,h)=>`<div class="heat-label">${h}</div>`).join('');
   for(let wd=0;wd<7;wd++){html+=`<div class="heat-label">${WEEK_MON[wd]}</div>`;for(let h=0;h<24;h++){const v=avg.get(`${wd}|${h}`)||0,a=.08+.82*(v/max);html+=`<div class="heat-cell" style="background:color-mix(in srgb,var(--accent) ${Math.round(a*100)}%,var(--surface))" title="${WEEK_MON[wd]} ${h}:00 · ${fmt3.format(v)} kW"></div>`}}html+='</div>';$('#heatmap').innerHTML=html;
+  $('#heatmapSubtitle').textContent=state.analysisMode==='robust'
+    ?`Typický výkon podle dne a hodiny · omezen vliv ${affected} extrémních intervalů`
+    :'Průměrný výkon podle dne a hodiny · všechna data';
 }
 function renderDayparts(rs){
-  const parts=[['Noc','0–6',r=>r.hour<6],['Ráno','6–10',r=>r.hour>=6&&r.hour<10],['Den','10–17',r=>r.hour>=10&&r.hour<17],['Večer','17–22',r=>r.hour>=17&&r.hour<22],['Pozdní','22–24',r=>r.hour>=22]],total=sumEnergy(rs)||1,dayCount=Math.max(1,new Set(rs.map(r=>r.dateKey)).size);
-  const data=parts.map(([name,time,filter])=>{const kwh=sumEnergy(rs.filter(filter));return {name,time,kwh,pct:kwh/total*100,avg:kwh/dayCount}});
-  const maxAvg=Math.max(...data.map(d=>d.avg),.000001),average=state.daypartMode==='average';
-  $('#daypartSubtitle').textContent=average?'Průměrná energie za jeden den':'Podíl energie v částech dne';
+  const parts=[
+    {name:'Noc',time:'0–6',test:r=>r.hour<6},
+    {name:'Ráno',time:'6–10',test:r=>r.hour>=6&&r.hour<10},
+    {name:'Den',time:'10–17',test:r=>r.hour>=10&&r.hour<17},
+    {name:'Večer',time:'17–22',test:r=>r.hour>=17&&r.hour<22},
+    {name:'Pozdní',time:'22–24',test:r=>r.hour>=22}
+  ],dates=[...new Set(rs.map(r=>r.dateKey))],byDate=new Map(dates.map(d=>[d,Array(parts.length).fill(0)]));
+  for(const r of rs){
+    const row=byDate.get(r.dateKey);if(!row)continue;
+    const idx=parts.findIndex(p=>p.test(r));if(idx>=0)row[idx]+=energy(r);
+  }
+  const stats=parts.map((p,i)=>analysisAverageStats(dates.map(d=>byDate.get(d)?.[i]||0))),typicalTotal=stats.reduce((sum,x)=>sum+(Number(x.value)||0),0)||1;
+  const data=parts.map((p,i)=>({name:p.name,time:p.time,avg:Number(stats[i].value)||0,pct:(Number(stats[i].value)||0)/typicalTotal*100,affected:stats[i].affected}));
+  const affected=stats.reduce((n,x)=>n+x.affected,0),maxAvg=Math.max(...data.map(d=>d.avg),.000001),average=state.daypartMode==='average';
+  $('#daypartSubtitle').textContent=state.analysisMode==='robust'
+    ?`${average?'Typická energie za jeden den':'Typický podíl energie v částech dne'} · omezen vliv ${affected} odchylek`
+    :`${average?'Průměrná energie za jeden den':'Podíl energie v částech dne'} · všechna data`;
   $$('.daypart-btn').forEach(b=>b.classList.toggle('active',b.dataset.daypartMode===state.daypartMode));
   $('#daypartList').innerHTML=data.map(d=>{const width=average?d.avg/maxAvg*100:d.pct,value=average?`${fmt3.format(d.avg)} kWh/den`:`${fmt.format(d.pct)} %`;return `<div class="daypart-row"><div><strong>${d.name}</strong><div class="kpi-unit">${d.time}</div></div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(0,Math.min(100,width))}%"></div></div><div class="daypart-value">${value}</div></div>`}).join('');
 }
