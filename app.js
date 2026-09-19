@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.4.5';
+const APP_VERSION = '1.4.6';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -374,9 +374,8 @@ function pragueMonthQueryBounds(monthKey){
   const next=pragueUtcCandidates(parseCzTimestamp(`01.${String(nextMonth).padStart(2,'0')}.${nextYear} 00:00:00`))[0];
   if(!Number.isFinite(start)||!Number.isFinite(next))throw new Error('Nepodařilo se určit UTC hranice měsíce.');
   const fullEnd=next-15*60000;
-  const nowP=pragueParts(Date.now()),todayStart=pragueUtcCandidates(parseCzTimestamp(`${String(nowP.day).padStart(2,'0')}.${String(nowP.month).padStart(2,'0')}.${nowP.year} 00:00:00`))[0];
-  const lastClosedDayEnd=todayStart-15*60000;
-  const queryEnd=Math.min(fullEnd,lastClosedDayEnd);
+  const quarterMs=15*60000,lastClosedQuarterStart=Math.floor(Date.now()/quarterMs)*quarterMs-quarterMs;
+  const queryEnd=Math.min(fullEnd,lastClosedQuarterStart);
   return {from:new Date(start).toISOString(),to:new Date(queryEnd).toISOString(),start,end:fullEnd,isPast:Date.now()>=next};
 }
 function apiLocalRecord(ean,profile,units,item,seen){
@@ -491,26 +490,44 @@ function monthDateKeys(monthKey){const [y,m]=String(monthKey).split('-').map(Num
 function predictMonthEnergy(monthKey,points){
   const current=state.records.filter(r=>r.monthKey===monthKey).sort((a,b)=>a.sortKey-b.sortKey),actualEnergy=current.reduce((a,r)=>a+billingEnergy(r),0);
   const allDates=monthDateKeys(monthKey),observedDates=[...new Set(current.map(r=>r.dateKey))].sort();
-  if(!points.length||!observedDates.length)return {actualEnergy,predictedEnergy:actualEnergy,remainingEnergy:0,scale:1,observedDays:observedDates.length,totalDays:allDates.length};
-  const pointWeights=new Map(points.map(p=>[p.key,p.weight])),daily=new Map();
-  for(const r of state.records){const w=pointWeights.get(r.monthKey);if(!w)continue;const k=r.dateKey;if(!daily.has(k))daily.set(k,{energy:0,weekday:r.weekday,weight:w});daily.get(k).energy+=billingEnergy(r)}
+  if(!points.length||!observedDates.length)return {actualEnergy,predictedEnergy:actualEnergy,remainingEnergy:0,paceEnergy:actualEnergy,lowEnergy:actualEnergy,highEnergy:actualEnergy,scale:1,observedDays:observedDates.length,totalDays:allDates.length};
+  const pointWeights=new Map(points.map(p=>[p.key,p.weight])),daily=new Map(),slotSum=new Map(),slotWeight=new Map();
+  for(const r of state.records){
+    const w=pointWeights.get(r.monthKey);if(!w)continue;
+    const k=r.dateKey;if(!daily.has(k))daily.set(k,{energy:0,weekday:r.weekday,weight:w});daily.get(k).energy+=billingEnergy(r);
+    const sk=`${r.weekday}|${r.hour}|${r.minute}`;slotSum.set(sk,(slotSum.get(sk)||0)+billingEnergy(r)*w);slotWeight.set(sk,(slotWeight.get(sk)||0)+w);
+  }
   const weekdaySum=Array(7).fill(0),weekdayWeight=Array(7).fill(0);let overallSum=0,overallWeight=0;
   for(const d of daily.values()){const wd=Number.isFinite(d.weekday)?d.weekday:0;weekdaySum[wd]+=d.energy*d.weight;weekdayWeight[wd]+=d.weight;overallSum+=d.energy*d.weight;overallWeight+=d.weight}
   const overall=overallWeight>0?overallSum/overallWeight:(actualEnergy/Math.max(1,observedDates.length)),baseline=weekdaySum.map((v,i)=>weekdayWeight[i]>0?v/weekdayWeight[i]:overall);
-  const expectedObserved=observedDates.reduce((sum,k)=>sum+(baseline[weekdayFromDateKey(k)]||overall),0),rawScale=expectedObserved>0?actualEnergy/expectedObserved:1,reliability=clamp(observedDates.length/10,0,1);
-  const scale=1+(clamp(rawScale,.5,1.6)-1)*reliability,lastObserved=observedDates.at(-1),remainingDates=allDates.filter(k=>k>lastObserved);
-  const remainingEnergy=remainingDates.reduce((sum,k)=>sum+(baseline[weekdayFromDateKey(k)]||overall)*scale,0);
-  return {actualEnergy,predictedEnergy:actualEnergy+remainingEnergy,remainingEnergy,scale,observedDays:observedDates.length,totalDays:allDates.length,expectedObserved};
+  const latest=current.at(-1),todayKey=pragueDayKeyFromMs(Date.now()),partialToday=!!latest&&latest.dateKey===todayKey&&(latest.hour<23||latest.minute<45);
+  const scaleDates=partialToday?observedDates.filter(k=>k!==todayKey):observedDates,scaleSet=new Set(scaleDates);
+  const actualScaleEnergy=current.filter(r=>scaleSet.has(r.dateKey)).reduce((sum,r)=>sum+billingEnergy(r),0);
+  const expectedObserved=scaleDates.reduce((sum,k)=>sum+(baseline[weekdayFromDateKey(k)]||overall),0),rawScale=expectedObserved>0?actualScaleEnergy/expectedObserved:1,reliability=clamp(scaleDates.length/10,0,1);
+  const scale=1+(clamp(rawScale,.5,1.6)-1)*reliability,lastObserved=observedDates.at(-1);
+  let remainderToday=0;
+  if(partialToday){
+    const wd=weekdayFromDateKey(todayKey),lastMinute=latest.hour*60+latest.minute;
+    for(let h=0;h<24;h++)for(const minute of [0,15,30,45]){if(h*60+minute<=lastMinute)continue;const sk=`${wd}|${h}|${minute}`,w=slotWeight.get(sk)||0;if(w>0)remainderToday+=(slotSum.get(sk)||0)/w}
+    remainderToday*=scale;
+  }
+  const futureDates=allDates.filter(k=>k>lastObserved),futureEnergy=futureDates.reduce((sum,k)=>sum+(baseline[weekdayFromDateKey(k)]||overall)*scale,0);
+  const remainingEnergy=remainderToday+futureEnergy,predictedEnergy=actualEnergy+remainingEnergy;
+  const totalSlots=allDates.length*96,observedSlots=current.length,paceEnergy=observedSlots>0?actualEnergy*(totalSlots/observedSlots):actualEnergy;
+  const lowEnergy=Math.max(actualEnergy,Math.min(predictedEnergy,paceEnergy)),highEnergy=Math.max(lowEnergy,Math.max(predictedEnergy,paceEnergy));
+  return {actualEnergy,predictedEnergy,remainingEnergy,paceEnergy,lowEnergy,highEnergy,remainderToday,futureEnergy,scale,observedDays:observedDates.length,totalDays:allDates.length,expectedObserved,partialToday};
 }
 function estimateRateForMonth(monthKey){
   const points=historicalCostPoints(monthKey),model=weightedCostModel(points),forecast=predictMonthEnergy(monthKey,points);
   const rate=forecast.predictedEnergy>0?modeledRateAtEnergy(model,forecast.predictedEnergy):model.fallbackRate,projectedCost=Number.isFinite(rate)?forecast.predictedEnergy*rate:null;
-  return {...model,...forecast,rate,projectedCost,months:points.map(p=>p.key),requested:3};
+  const lowRate=modeledRateAtEnergy(model,forecast.lowEnergy),highRate=modeledRateAtEnergy(model,forecast.highEnergy);
+  const lowProjectedCost=Number.isFinite(lowRate)?forecast.lowEnergy*lowRate:null,highProjectedCost=Number.isFinite(highRate)?forecast.highEnergy*highRate:null;
+  return {...model,...forecast,rate,projectedCost,lowProjectedCost,highProjectedCost,months:points.map(p=>p.key),requested:3};
 }
 function estimatedMonthCost(monthKey,rs=null){
   const meta=monthMeta(monthKey);if(!meta||!monthIsLivePartial(monthKey))return null;
   const basis=estimateRateForMonth(monthKey);if(!Number.isFinite(basis.rate))return {...basis,cost:null,energy:0};
-  const selected=Array.isArray(rs)?rs:state.records.filter(r=>r.monthKey===monthKey),selectedEnergy=selected.reduce((sum,r)=>sum+billingEnergy(r),0),selectedDays=new Set(selected.map(r=>r.dateKey)).size,dayFraction=basis.totalDays>0?selectedDays/basis.totalDays:0;
+  const selected=Array.isArray(rs)?rs:state.records.filter(r=>r.monthKey===monthKey),selectedEnergy=selected.reduce((sum,r)=>sum+billingEnergy(r),0),selectedDays=new Set(selected.map(r=>r.dateKey)).size,elapsedMinutes=selected.reduce((sum,r)=>sum+(Number(r.intervalMinutes)||15),0),dayFraction=basis.totalDays>0?clamp(elapsedMinutes/(basis.totalDays*24*60),0,1):0;
   const dynamicSelected=(Number(basis.fixed)||0)*dayFraction+(Number(basis.variableRate)||0)*selectedEnergy,fallbackSelected=Number(basis.fallbackRate)*selectedEnergy;
   const cost=Number.isFinite(fallbackSelected)?basis.blend*dynamicSelected+(1-basis.blend)*fallbackSelected:dynamicSelected;
   return {...basis,cost,energy:selectedEnergy,selectedDays};
@@ -546,8 +563,8 @@ function dailyCostData(rs){
   for(const [k,selected] of groups){
     if(monthIsLivePartial(k)){
       const basis=estimateRateForMonth(k);if(!Number.isFinite(basis.rate))continue;
-      const byDay=new Map();for(const r of selected)byDay.set(r.dateKey,(byDay.get(r.dateKey)||0)+billingEnergy(r));
-      for(const [date,e] of byDay){const dynamic=(Number(basis.variableRate)||0)*e+(basis.totalDays>0?(Number(basis.fixed)||0)/basis.totalDays:0),fallback=Number(basis.fallbackRate)*e,cost=Number.isFinite(fallback)?basis.blend*dynamic+(1-basis.blend)*fallback:dynamic;out.set(date,(out.get(date)||0)+cost)}
+      const byDay=new Map();for(const r of selected){const d=byDay.get(r.dateKey)||{energy:0,minutes:0};d.energy+=billingEnergy(r);d.minutes+=Number(r.intervalMinutes)||15;byDay.set(r.dateKey,d)}
+      for(const [date,d] of byDay){const dynamic=(Number(basis.variableRate)||0)*d.energy+(basis.totalDays>0?(Number(basis.fixed)||0)*(d.minutes/1440)/basis.totalDays:0),fallback=Number(basis.fallbackRate)*d.energy,cost=Number.isFinite(fallback)?basis.blend*dynamic+(1-basis.blend)*fallback:dynamic;out.set(date,(out.get(date)||0)+cost)}
       continue;
     }
     const invoice=monthInvoice(k),fullEnergy=monthBillingEnergy(k);if(invoice===null||fullEnergy<=0)continue;const rate=invoice/fullEnergy;
@@ -773,7 +790,7 @@ function renderOverview(){
     else if(cb.unallocatableUnresolved.length)$('#heroDelta').textContent='Část nákladů nelze rozdělit na neúplné období';
     else if(estimatedCount){
       const [key,estimate]=[...cb.estimatedMonths].at(-1);
-      $('#heroDelta').textContent=`Odhad dosud ${fmt.format(estimate.cost)} Kč · predikce faktury ${fmt.format(estimate.projectedCost)} Kč · ${fmt.format(estimate.rate)} Kč/kWh`;
+      $('#heroDelta').textContent=`Odhad dosud ${fmt.format(estimate.cost)} Kč · predikce ${fmt.format(estimate.projectedCost)} Kč · rozpětí ${fmt.format(estimate.lowProjectedCost)}–${fmt.format(estimate.highProjectedCost)} Kč`;
     }
     else if(liveKeys.length)$('#heroDelta').textContent='Odhad nelze určit · chybí použitelná faktura v předchozích 3 měsících';
     else if(!cb.knownMonths)$('#heroDelta').textContent='Pro zvolené období není vyplněná žádná faktura';
@@ -859,7 +876,7 @@ async function renderMonths(){
     let estimateHtml='';
     if(partial){
       estimateHtml=estimate&&Number.isFinite(estimate.cost)
-        ?`<div class="month-estimate"><strong>Odhad dosud: ≈ ${fmt.format(estimate.cost)} Kč</strong><span class="estimate-rate">Predikce faktury: ≈ <strong>${fmt.format(estimate.projectedCost)} Kč</strong> · spotřeba měsíce ≈ ${fmt3.format(estimate.predictedEnergy)} kWh · dynamická cena ≈ ${fmt.format(estimate.rate)} Kč/kWh</span><span class="estimate-rate">Model: fixní část ≈ ${fmt.format(estimate.fixed)} Kč/měs. + ${fmt.format(estimate.variableRate)} Kč/kWh · důvěra ${Math.round(estimate.confidence*100)} % · základ ${estimate.count}/3 měsíců${estimate.months.length?' ('+estimate.months.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span></div>`
+        ?`<div class="month-estimate"><strong>Odhad dosud: ≈ ${fmt.format(estimate.cost)} Kč</strong><span class="estimate-rate">Predikce faktury: ≈ <strong>${fmt.format(estimate.projectedCost)} Kč</strong> · odhadované rozpětí <strong>${fmt.format(estimate.lowProjectedCost)}–${fmt.format(estimate.highProjectedCost)} Kč</strong></span><span class="estimate-rate">Spotřeba měsíce ≈ ${fmt3.format(estimate.predictedEnergy)} kWh · scénář aktuálního tempa ${fmt3.format(estimate.paceEnergy)} kWh · dynamická cena ≈ ${fmt.format(estimate.rate)} Kč/kWh</span><span class="estimate-rate">Model: fixní část ≈ ${fmt.format(estimate.fixed)} Kč/měs. + ${fmt.format(estimate.variableRate)} Kč/kWh · důvěra ${Math.round(estimate.confidence*100)} % · základ ${estimate.count}/3 měsíců${estimate.months.length?' ('+estimate.months.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span></div>`
         :`<div class="month-estimate"><strong>Odhad nákladů zatím nelze určit</strong><span class="estimate-rate">Je potřeba alespoň jedna kompletní faktura se spotřebou v předchozích třech měsících.</span></div>`;
     }
     return `<div class="month-row ${enabled?'':'month-disabled'}">
