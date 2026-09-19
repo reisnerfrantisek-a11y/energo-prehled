@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.6.4';
+const APP_VERSION = '1.6.5';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -144,23 +144,28 @@ async function extractPdfTextCandidates(file){
   if(file.size>20*1024*1024)throw new Error('PDF je větší než 20 MB.');
   const pdfjs=await loadPdfJs(),data=new Uint8Array(await file.arrayBuffer());
   const doc=await pdfjs.getDocument({data}).promise;if(doc.numPages>30)throw new Error('PDF má více než 30 stran.');
-  const layoutTight=[],layoutLoose=[],hybrid=[],eol=[],native=[];
+  const layoutTight=[],layoutLoose=[],hybrid=[],eol=[],native=[],geometryPages=[];
   for(let p=1;p<=doc.numPages;p++){
-    const page=await doc.getPage(p),content=await page.getTextContent(),items=content.items||[];
+    const page=await doc.getPage(p),viewport=page.getViewport({scale:1}),content=await page.getTextContent(),items=content.items||[];
     layoutTight.push(INVOICE_PARSER.pdfItemsToLayoutText(items,1.6));
     layoutLoose.push(INVOICE_PARSER.pdfItemsToLayoutText(items,4.5));
     hybrid.push(p===1?INVOICE_PARSER.pdfItemsToColumnFlowText(items,420,2.5):INVOICE_PARSER.pdfItemsToLayoutText(items,3));
     eol.push(INVOICE_PARSER.pdfItemsToEolText(items));
     native.push(items.map(x=>String(x.str||'')).join(' '));
+    geometryPages.push({
+      width:viewport.width,height:viewport.height,
+      items:items.map(x=>({str:String(x.str||''),x:Number(x.transform?.[4]),y:viewport.height-Number(x.transform?.[5])})).filter(x=>x.str&&Number.isFinite(x.x)&&Number.isFinite(x.y))
+    });
   }
-  const pages=doc.numPages;try{await doc.destroy()}catch{}
+  const pages=doc.numPages,geometryText=INVOICE_PARSER.pdfGeometryToEonText(geometryPages);try{await doc.destroy()}catch{}
   const candidates=[
+    {name:'geometry',text:geometryText},
     {name:'layout-tight',text:layoutTight.join('\n')},
     {name:'layout-loose',text:layoutLoose.join('\n')},
     {name:'page1-columns',text:hybrid.join('\n')},
     {name:'pdf-eol',text:eol.join('\n')},
     {name:'pdf-native-order',text:native.join('\n')}
-  ].filter(c=>c.text.trim().length>=80);
+  ].filter(c=>c.text.trim().length>=20);
   if(!candidates.length)throw new Error('PDF neobsahuje čitelnou textovou vrstvu. Naskenované faktury zatím nejsou podporované.');
   return {candidates,pages};
 }
