@@ -9,7 +9,7 @@
   'use strict';
   if(!Invoice)throw new Error('EnergoInvoice is required.');
 
-  const PARSER_VERSION='eon-cz-1.2.0';
+  const PARSER_VERSION='eon-cz-1.3.0';
   const NUM='[0-9]+(?:\\s[0-9]{3})*(?:[.,][0-9]+)?';
 
   function pdfItemsToRows(items,yTolerance=1.6){
@@ -36,6 +36,28 @@
     const left=rowsToText(rows,p=>p.x<splitX),right=rowsToText(rows,p=>p.x>=splitX);
     return [left,right].filter(Boolean).join('\n');
   }
+  function pdfItemsToEolText(items){
+    const out=[];let line=[];
+    for(const item of Array.isArray(items)?items:[]){
+      const str=String(item?.str||'').trim();
+      if(str)line.push(str);
+      if(item?.hasEOL&&line.length){out.push(line.join(' '));line=[]}
+    }
+    if(line.length)out.push(line.join(' '));
+    return out.join('\n');
+  }
+  function uniqueCompositeText(candidates){
+    const seen=new Set(),lines=[];
+    for(const c of Array.isArray(candidates)?candidates:[]){
+      for(const rawLine of String(c?.text||'').split(/\n+/)){
+        const line=normalizeText(rawLine);if(!line)continue;
+        const key=line.toLocaleLowerCase('cs-CZ');
+        if(seen.has(key))continue;
+        seen.add(key);lines.push(line);
+      }
+    }
+    return lines.join('\n');
+  }
   function normalizeText(text){
     return String(text||'').replace(/\u00ad/g,'').replace(/[\u00a0\u202f]/g,' ').replace(/[\t\r\n]+/g,' ').replace(/\s+/g,' ').trim();
   }
@@ -55,21 +77,24 @@
     return from.slice(0,7)===to.slice(0,7)?from.slice(0,7):'';
   }
   function beforeLabel(text,labelSource,tokenSource='[0-9]{6,20}'){
-    const re=new RegExp(`(${tokenSource})\\s+${labelSource}`,'i'),m=text.match(re);return m?String(m[1]).trim():'';
+    const direct=new RegExp(`(${tokenSource})\\s+${labelSource}`,'i'),m=text.match(direct);if(m)return String(m[1]).trim();
+    const loose=new RegExp(`(${tokenSource})[\\s\\S]{0,140}?${labelSource}`,'i'),n=text.match(loose);return n?String(n[1]).trim():'';
   }
   function first(text,re,group=1){const m=text.match(re);return m?String(m[group]??'').trim():''}
   function collectCharge(text,labelSource){
     const unit='(MWh|kWh|Měsíc|Mesíc|Mesic)';
-    const re=new RegExp(`${labelSource}[\\s\\S]{0,190}?${unit}\\s+(${NUM})\\s+(${NUM})\\s+(${NUM})`,'gi'),out=[];
+    const re=new RegExp(`${labelSource}[\\s\\S]{0,650}?${unit}\\s+(${NUM})\\s+(${NUM})\\s+(${NUM})`,'gi'),out=[],seen=new Set();
     for(const m of text.matchAll(re)){
-      out.push({
+      const item={
         unit:/^mwh$/i.test(m[1])?'MWh':/^kwh$/i.test(m[1])?'kWh':'Měsíc',
         quantity:parseCzNumber(m[2]),
         unitPrice:parseCzNumber(m[3]),
         total:money(m[4])
-      });
+      };
+      if(!Number.isFinite(item.quantity)||!Number.isFinite(item.unitPrice)||!Number.isFinite(item.total))continue;
+      const key=`${item.unit}|${item.quantity}|${item.unitPrice}|${item.total}`;if(seen.has(key))continue;seen.add(key);out.push(item);
     }
-    return out.filter(x=>Number.isFinite(x.quantity)&&Number.isFinite(x.unitPrice)&&Number.isFinite(x.total));
+    return out;
   }
   function sum(items,key='total'){return items.reduce((a,x)=>a+(Number(x[key])||0),0)}
   function kwhFrom(items){
@@ -88,6 +113,7 @@
     return exactCharge(items)/kwh;
   }
   function aggregate(items){
+    if(!Array.isArray(items)||!items.length)return {total:null,kwh:0,months:0,perKwh:null,perMonth:null};
     const total=sum(items),kwh=kwhFrom(items),months=monthlyUnits(items);
     return {total:Math.round(total*100)/100,kwh,months,perKwh:kwh>0?total/kwh:null,perMonth:months>0?total/months:null};
   }
@@ -97,8 +123,8 @@
     const text=normalizeText(rawText),warnings=[],fatal=[];
     if(!/E\.\s*ON\s+Energie\s*,?\s*a\.s\./i.test(text)&&!/EON\s+Energie/i.test(text))fatal.push('Dokument nebyl rozpoznán jako faktura E.ON Energie.');
 
-    const periodMatch=text.match(/Odečtové období:\s*(\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{4})\s*[-–]\s*(\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{4})/i)
-      ||text.match(/Vyúčtování bylo provedeno za období od\s*(\d{1,2}\.\s*\d{1,2}\.\s*\d{4})\s*do\s*(\d{1,2}\.\s*\d{1,2}\.\s*\d{4})/i);
+    const periodMatch=text.match(/Odečtové období:[\s\S]{0,160}?(\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{4})[\s\S]{0,80}?[-–][\s\S]{0,80}?(\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{4})/i)
+      ||text.match(/Vyúčtování bylo provedeno za období od[\s\S]{0,180}?(\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{4})[\s\S]{0,120}?do[\s\S]{0,120}?(\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{4})/i);
     const periodFrom=periodMatch?isoDate(periodMatch[1]):'',periodTo=periodMatch?isoDate(periodMatch[2]):'',invoiceMonthKey=monthKeyFromPeriod(periodFrom,periodTo);
     if(!periodFrom||!periodTo)fatal.push('Nepodařilo se rozpoznat fakturační období.');
     else if(!invoiceMonthKey)fatal.push('Fakturační období přesahuje jeden kalendářní měsíc; měsíční finanční model ji neumí bezpečně přiřadit.');
@@ -109,12 +135,12 @@
     if(!Number.isFinite(invoiceTotal))fatal.push('Nepodařilo se rozpoznat celkovou částku faktury.');
     if(!Number.isFinite(totalExVat))fatal.push('Nepodařilo se rozpoznat částku bez DPH.');
 
-    const consumptionMwh=parseCzNumber(first(text,new RegExp(`Celková spotřeba elektřiny\\s+(${NUM})\\s*MWh`,'i')));
+    const consumptionMwh=parseCzNumber(first(text,new RegExp(`Celková spotřeba elektřiny[\\s\\S]{0,180}?(${NUM})\\s*MWh`,'i')));
     let consumptionKwh=Number.isFinite(consumptionMwh)?consumptionMwh*1000:null;
-    const summaryFixedExVat=parseCzNumber(first(text,new RegExp(`Stálý plat:\\s*(${NUM})\\s*Kč\\s*\\/\\s*měsíc`,'i')));
-    const summaryVariableExVat=parseCzNumber(first(text,new RegExp(`VT:\\s*(${NUM})\\s*Kč\\s*\\/\\s*kWh`,'i')));
+    const summaryFixedExVat=parseCzNumber(first(text,new RegExp(`Stálý plat:[\\s\\S]{0,180}?(${NUM})\\s*Kč\\s*\\/\\s*měsíc`,'i')));
+    const summaryVariableExVat=parseCzNumber(first(text,new RegExp(`VT:[\\s\\S]{0,180}?(${NUM})\\s*Kč\\s*\\/\\s*kWh`,'i')));
     const ean=first(text,/\b(\d{18})\s*EAN\b/i)||first(text,/\bEAN\s*(\d{18})\b/i);
-    const documentNumber=beforeLabel(text,'Číslo daňového dokladu');
+    const documentNumber=beforeLabel(text,'Číslo daňového dokladu')||first(text,/Příloha k faktuře za elektřinu[\s\S]{0,80}?(\d{8,14})/i);
     const variableSymbol=beforeLabel(text,'Variabilní symbol');
     const issuedAt=isoDate(beforeLabel(text,'Datum vystavení faktury','\\d{1,2}\\.\\s*\\d{1,2}\\.\\s*\\d{4}'));
     const dueAt=isoDate(beforeLabel(text,'Datum splatnosti faktury','\\d{1,2}\\.\\s*\\d{1,2}\\.\\s*\\d{4}'));
@@ -136,8 +162,9 @@
       if(lineKwh>0)consumptionKwh=lineKwh;
     }
 
-    const knownNet=['supply','supplierFixed','electricityTax','distributionEnergy','breaker','systemServices','distributionFixed','poze'].reduce((a,k)=>a+ag[k].total,0);
-    const unmatched=Number.isFinite(totalExVat)?Math.round((totalExVat-knownNet)*100)/100:null;
+    const knownNet=['supply','supplierFixed','electricityTax','distributionEnergy','breaker','systemServices','distributionFixed','poze'].reduce((a,k)=>a+(Number(ag[k].total)||0),0);
+    const recognizedNetCount=['supply','supplierFixed','electricityTax','distributionEnergy','breaker','systemServices','distributionFixed','poze'].filter(k=>Number.isFinite(ag[k].total)).length;
+    const unmatched=Number.isFinite(totalExVat)&&recognizedNetCount?Math.round((totalExVat-knownNet)*100)/100:null;
     if(Number.isFinite(unmatched)&&Math.abs(unmatched)>0.05)warnings.push(`Součet rozpoznaných položek se liší od ceny bez DPH o ${unmatched.toFixed(2)} Kč.`);
 
     const vatAmount=Number.isFinite(invoiceTotal)&&Number.isFinite(totalExVat)?Math.round((invoiceTotal-totalExVat)*100)/100:null;
@@ -176,9 +203,9 @@
       totals:{exVat:totalExVat,vat:vatAmount,incVat:invoiceTotal},
       components:{
         energy:ag.supply.total,
-        distribution:ag.distributionEnergy.total+ag.systemServices.total+ag.distributionFixed.total+ag.breaker.total+ag.poze.total,
-        fixed:fixedNet,
-        other:Number.isFinite(unmatched)&&Math.abs(unmatched)>0.005?Math.max(0,unmatched):0,
+        distribution:[ag.distributionEnergy.total,ag.systemServices.total,ag.distributionFixed.total,ag.breaker.total,ag.poze.total].some(Number.isFinite)?[ag.distributionEnergy.total,ag.systemServices.total,ag.distributionFixed.total,ag.breaker.total,ag.poze.total].reduce((a,v)=>a+(Number(v)||0),0):null,
+        fixed:Number.isFinite(fixedExVatPerMonth)?fixedExVatPerMonth:null,
+        other:Number.isFinite(unmatched)&&Math.abs(unmatched)>0.005?Math.max(0,unmatched):null,
         supplyEnergy:ag.supply.total,
         distributionEnergy:ag.distributionEnergy.total,
         systemServices:ag.systemServices.total,
@@ -255,6 +282,8 @@
   function parseEonInvoiceCandidates(candidates,opts={}){
     const list=(Array.isArray(candidates)?candidates:[]).map((c,i)=>typeof c==='string'?{name:`candidate-${i+1}`,text:c}:c).filter(c=>c&&String(c.text||'').trim());
     if(!list.length)return parseEonInvoiceText('',opts);
+    const composite=uniqueCompositeText(list);
+    if(composite)list.unshift({name:'composite',text:composite});
     const attempts=list.map(c=>{const result=parseEonInvoiceText(c.text,{...opts,extractionStrategy:c.name||''});return {name:c.name||'',result,score:parseScore(result)}});
     attempts.sort((a,b)=>b.score-a.score);
     const best=attempts[0].result;
@@ -263,5 +292,5 @@
     return best;
   }
 
-  return {PARSER_VERSION,pdfItemsToRows,rowsToText,pdfItemsToLayoutText,pdfItemsToColumnFlowText,normalizeText,parseCzNumber,parseEonInvoiceText,parseEonInvoiceCandidates};
+  return {PARSER_VERSION,pdfItemsToRows,rowsToText,pdfItemsToLayoutText,pdfItemsToColumnFlowText,pdfItemsToEolText,uniqueCompositeText,normalizeText,parseCzNumber,parseEonInvoiceText,parseEonInvoiceCandidates};
 });
