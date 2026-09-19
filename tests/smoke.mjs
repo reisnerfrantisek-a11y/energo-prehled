@@ -147,6 +147,7 @@ const localStorage={setItem:()=>{}};
 const PERIOD_KEY='period',ANCHOR_KEY='anchor',CUSTOM_FROM_KEY='from',CUSTOM_TO_KEY='to';
 const normalizeFinance=f=>({invoiceTotal:f?.invoiceTotal===null||f?.invoiceTotal===undefined?null:Number(f.invoiceTotal),components:f?.components||{}});
 const renderPeriodControls=()=>{},renderOverview=()=>{},renderAnalysis=()=>{};
+const pragueDayKeyFromMs=()=> '2026-09-19';
 const state={metric:'dcc1',period:'month',anchorMonth:'2026-08',customFrom:'2026-07-01',customTo:'2026-08-31',records:[
 {id:'jun',sortKey:1,monthKey:'2026-06',dateKey:'2026-06-01',year:2026,month:6,dcc1:4,intervalMinutes:15},
 {id:'jul',sortKey:2,monthKey:'2026-07',dateKey:'2026-07-01',year:2026,month:7,dcc1:8,intervalMinutes:15},
