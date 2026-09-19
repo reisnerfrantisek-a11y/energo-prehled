@@ -1117,7 +1117,7 @@ function prepareCostChartSeries(monthKey){
   if(forecast?.data?.length){
     let prevCentral=0,prevLow=0,prevHigh=0;
     data=forecast.data.map(d=>{
-      const central=Number(d.central),low=Number(d.low),high=Number(d.high),actual=Number(d.actual);
+      const central=Number(d.central),low=Number(d.low),high=Number(d.high),actual=d.actual===null||d.actual===undefined?null:Number(d.actual);
       if(Number.isFinite(actual)){
         const value=Math.max(0,actual-prevCentral);
         prevCentral=actual;prevLow=actual;prevHigh=actual;
