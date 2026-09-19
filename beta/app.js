@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.7.2';
+const APP_VERSION = '1.7.3';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -1268,8 +1268,8 @@ function analysisContext(rs){
 }
 function renderAnalysisContext(rs){
   const ctx=analysisContext(rs),card=$('#analysisContext');if(!card)return;
-  $('[data-analysis-mode]').forEach(b=>b.classList.toggle('active',b.dataset.analysisMode===state.analysisMode));
-  $('[data-analysis-badge]').forEach(b=>b.textContent=state.analysisMode==='robust'?'Typický profil':'Všechna data');
+  $$('[data-analysis-mode]').forEach(b=>b.classList.toggle('active',b.dataset.analysisMode===state.analysisMode));
+  $$('[data-analysis-badge]').forEach(b=>b.textContent=state.analysisMode==='robust'?'Typický profil':'Všechna data');
   if(!ctx.intervals){
     $('#analysisPeriod').textContent='Bez aktivních dat';$('#analysisMeta').textContent='—';$('#analysisMethod').textContent='Změň období nebo aktivuj data v záložce Data.';return;
   }
