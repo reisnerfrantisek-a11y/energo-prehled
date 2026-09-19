@@ -33,3 +33,9 @@ Body 5, 8, 9 a 10 budou pokračovat v následujících verzích, aby se do jedno
 - režim **Všechna data** zachovává čistý aritmetický průměr,
 - robustní režim se používá pro dny v týdnu, hodinový profil, heatmapu a rozdělení dne,
 - Anomálie spotřeby a Výkonové špičky vždy pracují s původními neočištěnými daty.
+
+## Verze 1.7.4 — oddělení Data a Nastavení
+
+- záložka Data je zjednodušená na operativní práci s daty, měsíci a fakturami,
+- technické připojení EG.D, záloha/obnova, aktualizace aplikace a soukromí jsou přesunuté do nové záložky Nastavení,
+- v Data zůstává kompaktní stav datového zdroje, jedním tlačítkem lze synchronizovat a druhým otevřít jeho nastavení.
