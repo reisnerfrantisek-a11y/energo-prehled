@@ -1,5 +1,8 @@
 'use strict';
 
+const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice;
+if(!CORE||!INVOICE)throw new Error('Chybí core moduly Energo aplikace.');
+
 const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
 const fmt = new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 2 });
@@ -9,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.5.13';
+const APP_VERSION = '1.6.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -19,6 +22,8 @@ const CUSTOM_FROM_KEY = IS_BETA ? 'custom-from-beta' : 'custom-from';
 const CUSTOM_TO_KEY = IS_BETA ? 'custom-to-beta' : 'custom-to';
 const DAYPART_KEY = IS_BETA ? 'daypart-beta' : 'daypart';
 const DASHBOARD_MODE_KEY = IS_BETA ? 'dashboard-mode-beta' : 'dashboard-mode';
+const CHART_MODE_KEY = IS_BETA ? 'chart-mode-beta' : 'chart-mode';
+const COMPARE_PREVIOUS_KEY = IS_BETA ? 'compare-previous-beta' : 'compare-previous';
 const EGD_TOKEN_URL = 'https://idm.distribuce24.cz/oauth/token';
 const EGD_DATA_BASE = 'https://data.distribuce24.cz/rest';
 const EGD_SCOPE = 'namerena_data_openapi';
@@ -36,6 +41,8 @@ let state = {
   customTo: localStorage.getItem(CUSTOM_TO_KEY) || '',
   daypartMode: localStorage.getItem(DAYPART_KEY)==='average'?'average':'percent',
   dashboardMode: localStorage.getItem(DASHBOARD_MODE_KEY)==='cost'?'cost':'energy',
+  chartMode: localStorage.getItem(CHART_MODE_KEY)==='cumulative'?'cumulative':'daily',
+  comparePrevious: localStorage.getItem(COMPARE_PREVIOUS_KEY)==='1',
   egd: {clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,autoSync:false},
   pendingImport: null,
   resetExportRange: false
@@ -90,12 +97,8 @@ async function setMonthEnabled(monthKey,enabled){
   state.resetExportRange=true;await reload();
   showToast(`${monthLabel(monthKey)}: ${enabled?'aktivní':'vypnuto'}`);
 }
-function emptyFinance(){return {invoiceTotal:null,components:{energy:null,distribution:null,fixed:null,other:null}}}
-function normalizeFinance(finance){
-  const f=finance&&typeof finance==='object'?finance:{},nullable=v=>{if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)&&n>=0?n:null};
-  const c=f.components&&typeof f.components==='object'?f.components:{};
-  return {invoiceTotal:nullable(f.invoiceTotal),components:{energy:nullable(c.energy),distribution:nullable(c.distribution),fixed:nullable(c.fixed),other:nullable(c.other)}};
-}
+function emptyFinance(){return INVOICE.emptyFinance()}
+function normalizeFinance(finance){return INVOICE.normalizeFinance(finance)}
 function parseMoneyInput(raw){
   const text=String(raw??'').replace(/[\s\u00a0]/g,'').replace(',','.').trim();
   if(!text)return null;
@@ -416,21 +419,8 @@ function renderEgdPanel(){
   else if(hasCreds)setEgdUiState('warn','Připraveno',hasProxy?'Proxy je nastavena. Ověř připojení nebo spusť synchronizaci.':'Chybí Proxy URL. Přímé spojení může prohlížeč zablokovat kvůli CORS.');
   else setEgdUiState('','Nepřipojeno','Po ověření připojení aplikace načte dostupná odběrná místa a profily.');
 }
-function apiValueToKw(value,units,intervalMinutes=15){
-  const n=Number(value);if(!Number.isFinite(n))return null;
-  const u=String(units||'').toUpperCase().replace(/\s+/g,'');
-  if(u==='KW')return n;if(u==='W')return n/1000;if(u==='MW')return n*1000;
-  const hours=intervalMinutes/60;
-  if(u==='KWH')return n/hours;if(u==='WH')return n/1000/hours;if(u==='MWH')return n*1000/hours;
-  throw new Error(`Nepodporovaná jednotka z EG.D: ${units||'neuvedena'}.`);
-}
-function apiValueFromKw(kw,units,intervalMinutes=15){
-  const n=Number(kw);if(!Number.isFinite(n))return null;
-  const u=String(units||'').toUpperCase().replace(/\s+/g,''),hours=intervalMinutes/60;
-  if(u==='KW')return n;if(u==='W')return n*1000;if(u==='MW')return n/1000;
-  if(u==='KWH')return n*hours;if(u==='WH')return n*1000*hours;if(u==='MWH')return n*hours/1000;
-  return null;
-}
+function apiValueToKw(value,units,intervalMinutes=15){return CORE.apiValueToKw(value,units,intervalMinutes)}
+function apiValueFromKw(kw,units,intervalMinutes=15){return CORE.apiValueFromKw(kw,units,intervalMinutes)}
 function pragueMonthQueryBounds(monthKey){
   const [year,month]=monthKey.split('-').map(Number),nextMonth=month===12?1:month+1,nextYear=month===12?year+1:year;
   const start=pragueUtcCandidates(parseCzTimestamp(`01.${String(month).padStart(2,'0')}.${year} 00:00:00`))[0];
@@ -675,7 +665,7 @@ function monthMeta(k){return state.months.find(m=>m.monthKey===k)||null}
 function monthInvoice(k){const m=monthMeta(k),f=normalizeFinance(m?.finance);return f.invoiceTotal}
 function monthBillingEnergy(k){return state.records.filter(r=>r.monthKey===k&&recordUsable(r)).reduce((sum,r)=>sum+billingEnergy(r),0)}
 function monthEffectivePrice(k){const invoice=monthInvoice(k),kwh=monthBillingEnergy(k);return invoice!==null&&kwh>0?invoice/kwh:null}
-function clamp(v,min,max){return Math.max(min,Math.min(max,v))}
+function clamp(v,min,max){return CORE.clamp(v,min,max)}
 function historicalCostPoints(monthKey,limit=3){
   const idx=monthIndex(monthKey);if(idx===null)return [];
   const candidates=state.months.filter(m=>{
@@ -692,35 +682,10 @@ function historicalEnergyPoints(monthKey,limit=6){
   }).sort((a,b)=>b.monthKey.localeCompare(a.monthKey)).slice(0,limit).reverse();
   return candidates.map((m,i)=>({key:m.monthKey,energy:monthBillingEnergy(m.monthKey),weight:i+1}));
 }
-function weightedCostModel(points){
-  if(!points.length)return {fixed:0,variableRate:null,fallbackRate:null,r2:0,spreadRatio:1,confidence:0,blend:0,count:0,totalCost:0,totalEnergy:0,weightedCost:0,weightedEnergy:0};
-  const sw=points.reduce((a,p)=>a+p.weight,0),sx=points.reduce((a,p)=>a+p.weight*p.energy,0),sy=points.reduce((a,p)=>a+p.weight*p.cost,0);
-  const sxx=points.reduce((a,p)=>a+p.weight*p.energy*p.energy,0),sxy=points.reduce((a,p)=>a+p.weight*p.energy*p.cost,0);
-  const weightedEnergy=sx,weightedCost=sy,fallbackRate=weightedEnergy>0?weightedCost/weightedEnergy:null;
-  let fixed=0,variableRate=fallbackRate;
-  if(points.length>=2){
-    const den=sw*sxx-sx*sx,candidates=[];
-    if(Math.abs(den)>1e-9){const v=(sw*sxy-sx*sy)/den,F=(sy-v*sx)/sw;if(F>=0&&v>=0)candidates.push({fixed:F,variableRate:v})}
-    const v0=sxx>0?sxy/sxx:0;if(v0>=0)candidates.push({fixed:0,variableRate:v0});
-    const F0=sy/sw;if(F0>=0)candidates.push({fixed:F0,variableRate:0});
-    const score=c=>points.reduce((sum,p)=>{const e=p.cost-(c.fixed+c.variableRate*p.energy);return sum+p.weight*e*e},0);
-    if(candidates.length){candidates.sort((a,b)=>score(a)-score(b));({fixed,variableRate}=candidates[0])}
-  }
-  const mean=sy/sw,sse=points.reduce((sum,p)=>{const e=p.cost-(fixed+variableRate*p.energy);return sum+p.weight*e*e},0);
-  const sst=points.reduce((sum,p)=>sum+p.weight*(p.cost-mean)**2,0),r2=sst>1e-9?clamp(1-sse/sst,0,1):0;
-  const energies=points.map(p=>p.energy),minE=Math.min(...energies),maxE=Math.max(...energies),spreadRatio=minE>0?maxE/minE:1;
-  const spreadScore=clamp((spreadRatio-1)/0.5,0,1),fitScore=clamp((r2-0.2)/0.8,0,1),countScore=points.length>=3?1:points.length===2?.35:0;
-  const confidence=spreadScore*fitScore*countScore,blend=points.length<2?0:confidence>=.9?1:confidence>=.6?.6+((confidence-.6)/.3)*.4:.2+(confidence/.6)*.4;
-  return {fixed,variableRate,fallbackRate,r2,spreadRatio,confidence,blend,count:points.length,totalCost:points.reduce((a,p)=>a+p.cost,0),totalEnergy:points.reduce((a,p)=>a+p.energy,0),weightedCost,weightedEnergy};
-}
-function modeledRateAtEnergy(model,energy){
-  if(!model||!Number.isFinite(energy)||energy<=0)return null;
-  const dynamic=Number.isFinite(model.variableRate)?model.variableRate+(Number(model.fixed)||0)/energy:null;
-  if(!Number.isFinite(dynamic))return model.fallbackRate;if(!Number.isFinite(model.fallbackRate))return dynamic;
-  return model.blend*dynamic+(1-model.blend)*model.fallbackRate;
-}
-function weekdayFromDateKey(key){const [y,m,d]=String(key).split('-').map(Number),wd=new Date(Date.UTC(y,m-1,d)).getUTCDay();return wd===0?6:wd-1}
-function monthDateKeys(monthKey){const [y,m]=String(monthKey).split('-').map(Number),days=new Date(Date.UTC(y,m,0)).getUTCDate();return Array.from({length:days},(_,i)=>`${y}-${String(m).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`)}
+function weightedCostModel(points){return CORE.weightedCostModel(points)}
+function modeledRateAtEnergy(model,energy){return CORE.modeledRateAtEnergy(model,energy)}
+function weekdayFromDateKey(key){return CORE.weekdayFromDateKey(key)}
+function monthDateKeys(monthKey){return CORE.monthDateKeys(monthKey)}
 const EXPECTED_DAY_INTERVAL_CACHE=new Map();
 function expectedIntervalsForDate(dateKey){
   if(EXPECTED_DAY_INTERVAL_CACHE.has(dateKey))return EXPECTED_DAY_INTERVAL_CACHE.get(dateKey);
@@ -816,9 +781,7 @@ function estimatedMonthCost(monthKey,rs=null){
   const cost=Number.isFinite(fallbackSelected)?basis.blend*dynamicSelected+(1-basis.blend)*fallbackSelected:dynamicSelected;
   return {...basis,cost,energy:selectedEnergy,selectedDays,calendarFraction};
 }
-function median(values){
-  const a=values.filter(Number.isFinite).slice().sort((x,y)=>x-y);if(!a.length)return null;const m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2;
-}
+function median(values){return CORE.median(values)}
 function storedNumber(v){return v===null||v===undefined||v===''?null:(Number.isFinite(Number(v))?Number(v):null)}
 function forecastHistoryForMonth(month){return Array.isArray(month?.forecastHistory)?month.forecastHistory.filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x.asOfDate||'')&&(storedNumber(x.projectedCost)!==null||storedNumber(x.predictedEnergy)!==null)):[]}
 function evaluationForecast(monthKey,history){
