@@ -9,9 +9,21 @@
   'use strict';
   if(!Invoice)throw new Error('EnergoInvoice is required.');
 
-  const PARSER_VERSION='eon-cz-1.0.0';
+  const PARSER_VERSION='eon-cz-1.1.0';
   const NUM='[0-9]+(?:\\s[0-9]{3})*(?:[.,][0-9]+)?';
 
+  function pdfItemsToLayoutText(items,yTolerance=2.5){
+    const rows=[];
+    for(const item of Array.isArray(items)?items:[]){
+      const str=String(item?.str||'').trim();if(!str)continue;
+      const tr=Array.isArray(item?.transform)?item.transform:null,x=Number(tr?.[4]),y=Number(tr?.[5]);
+      if(!Number.isFinite(x)||!Number.isFinite(y)){rows.push({y:-rows.length*10,parts:[{x:0,str}]});continue}
+      let row=rows.find(r=>Math.abs(r.y-y)<=yTolerance);
+      if(!row){row={y,parts:[]};rows.push(row)}
+      row.parts.push({x,str});
+    }
+    return rows.sort((a,b)=>b.y-a.y).map(r=>r.parts.sort((a,b)=>a.x-b.x).map(p=>p.str).join(' ')).join('\n');
+  }
   function normalizeText(text){
     return String(text||'').replace(/\u00ad/g,'').replace(/[\u00a0\u202f]/g,' ').replace(/[\t\r\n]+/g,' ').replace(/\s+/g,' ').trim();
   }
@@ -73,7 +85,7 @@
     const text=normalizeText(rawText),warnings=[],fatal=[];
     if(!/E\.\s*ON\s+Energie\s*,?\s*a\.s\./i.test(text)&&!/EON\s+Energie/i.test(text))fatal.push('Dokument nebyl rozpoznán jako faktura E.ON Energie.');
 
-    const periodMatch=text.match(/Odečtové období:\s*(\d{1,2}\.\d{1,2}\.\d{4})\s*[-–]\s*(\d{1,2}\.\d{1,2}\.\d{4})/i)
+    const periodMatch=text.match(/Odečtové období:\s*(\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{4})\s*[-–]\s*(\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{4})/i)
       ||text.match(/Vyúčtování bylo provedeno za období od\s*(\d{1,2}\.\s*\d{1,2}\.\s*\d{4})\s*do\s*(\d{1,2}\.\s*\d{1,2}\.\s*\d{4})/i);
     const periodFrom=periodMatch?isoDate(periodMatch[1]):'',periodTo=periodMatch?isoDate(periodMatch[2]):'',invoiceMonthKey=monthKeyFromPeriod(periodFrom,periodTo);
     if(!periodFrom||!periodTo)fatal.push('Nepodařilo se rozpoznat fakturační období.');
@@ -212,5 +224,5 @@
     };
   }
 
-  return {PARSER_VERSION,normalizeText,parseCzNumber,parseEonInvoiceText};
+  return {PARSER_VERSION,pdfItemsToLayoutText,normalizeText,parseCzNumber,parseEonInvoiceText};
 });
