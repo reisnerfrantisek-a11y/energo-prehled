@@ -81,12 +81,29 @@
                 <button class="chart-mode-btn active" data-chart-mode="daily">Denní</button>
                 <button class="chart-mode-btn" data-chart-mode="cumulative">Kumulativní</button>
               </div>
-              <label class="compare-previous">
-                <input type="checkbox" id="comparePreviousMonth" />
-                <span>Srovnat s minulým měsícem</span>
+              <label class="chart-compare">
+                <span>Srovnání</span>
+                <select id="compareMode" aria-label="Srovnávací období">
+                  <option value="none">bez srovnání</option>
+                  <option value="previous">minulý měsíc</option>
+                  <option value="yearAgo">stejný měsíc loni</option>
+                </select>
               </label>
             </div>
             <div id="mainChart" class="chart-box"></div>
+          </section>
+
+          <section class="data-health-card hidden" id="dataHealthCard" aria-label="Kvalita dat">
+            <div class="data-health-score"><strong id="dataHealthScore">—</strong><span>/100</span></div>
+            <div class="data-health-main">
+              <div><strong>Datový health score</strong><span id="dataHealthGrade">—</span></div>
+              <div class="data-health-metrics">
+                <span>Kompletnost <b id="dataHealthCompleteness">—</b></span>
+                <span>Použitelnost <b id="dataHealthUsability">—</b></span>
+                <span>Aktuálnost <b id="dataHealthFreshness">—</b></span>
+              </div>
+              <small id="dataHealthDetail">—</small>
+            </div>
           </section>
 
           <div class="kpi-grid">
