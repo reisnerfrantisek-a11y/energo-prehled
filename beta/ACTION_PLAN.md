@@ -24,3 +24,12 @@ První etapa Akčního plánu soustředí změny do predikce a důvěryhodnosti 
 - rozšířené snapshoty forecastu pro další vyhodnocování.
 
 Body 5, 8, 9 a 10 budou pokračovat v následujících verzích, aby se do jednoho release nemíchalo příliš mnoho nezávislých změn.
+
+## Verze 1.7.2 — Analýza 2.0
+
+- záložka Analýza explicitně ukazuje skutečný rozsah dat, počet dní, intervalů, měsíců a zdroje,
+- výchozí režim **Typický profil** používá robustní winsorizované průměry založené na mediánu a MAD,
+- extrémní hodnoty se z databáze nemažou; pouze se omezuje jejich vliv na průměrové grafy,
+- režim **Všechna data** zachovává čistý aritmetický průměr,
+- robustní režim se používá pro dny v týdnu, hodinový profil, heatmapu a rozdělení dne,
+- Anomálie spotřeby a Výkonové špičky vždy pracují s původními neočištěnými daty.

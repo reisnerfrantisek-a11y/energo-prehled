@@ -19,7 +19,7 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
@@ -27,20 +27,20 @@ return {
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.7.1 files are version-aligned and syntactically valid',()=>{
+test('beta 1.7.2 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.7\.1'/);
-  assert.match(html,/BETA 1\.7\.1/);
-  assert.match(sw,/v1\.7\.1/);
-  assert.match(html,/core\/model\.js\?v=1\.7\.1/);
-  assert.match(html,/core\/time\.js\?v=1\.7\.1/);
-  assert.match(html,/core\/forecast\.js\?v=1\.7\.1/);
-  assert.match(html,/core\/invoice\.js\?v=1\.7\.1/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.7\.1/);
-  assert.match(sw,/core\/model\.js\?v=1\.7\.1/);
-  assert.match(sw,/core\/time\.js\?v=1\.7\.1/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.7\.1/);
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.7\.1/);
+  assert.match(app,/APP_VERSION = '1\.7\.2'/);
+  assert.match(html,/BETA 1\.7\.2/);
+  assert.match(sw,/v1\.7\.2/);
+  assert.match(html,/core\/model\.js\?v=1\.7\.2/);
+  assert.match(html,/core\/time\.js\?v=1\.7\.2/);
+  assert.match(html,/core\/forecast\.js\?v=1\.7\.2/);
+  assert.match(html,/core\/invoice\.js\?v=1\.7\.2/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.7\.2/);
+  assert.match(sw,/core\/model\.js\?v=1\.7\.2/);
+  assert.match(sw,/core\/time\.js\?v=1\.7\.2/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.7\.2/);
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.7\.2/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -248,4 +248,46 @@ test('cost overview keeps monthly forecast controls visible',()=>{
   assert.match(app,/chartControls\.classList\.toggle\('hidden',state\.period!=='month'\)/);
   assert.match(app,/prepareCostChartSeries/);
   assert.match(app,/unit:'Kč'/);
+});
+
+
+test('Analysis 2.0 exposes selected period and source context',()=>{
+  const api=loadApp();api.state.months=[];api.state.records=[];
+  api.state.records.push(
+    {id:'a',monthKey:'2026-08',dateKey:'2026-08-01',sortKey:1,year:2026,month:8,day:1,hour:0,minute:0,weekday:5,intervalMinutes:15,dcc1:1,source:'xlsx'},
+    {id:'b',monthKey:'2026-09',dateKey:'2026-09-18',sortKey:2,year:2026,month:9,day:18,hour:0,minute:0,weekday:4,intervalMinutes:15,dcc1:1,source:'egd-api',apiStatus:'W'}
+  );
+  api.state.months.push({monthKey:'2026-08',enabled:true,complete:true,source:'xlsx'},{monthKey:'2026-09',enabled:true,complete:false,source:'egd-api'});
+  api.state.analysisMode='raw';
+  const c=api.analysisContext(api.state.records);
+  assert.equal(c.from,'2026-08-01');
+  assert.equal(c.to,'2026-09-18');
+  assert.equal(c.days,2);
+  assert.equal(c.intervals,2);
+  assert.equal(c.months,2);
+  assert.deepEqual(c.sources,['XLSX','EG.D']);
+  assert.equal(c.provisional,1);
+});
+
+test('Analysis 2.0 robust averages limit outliers while raw mode keeps arithmetic mean',()=>{
+  const api=loadApp(),values=[1,1.1,.9,1.05,.95,1.02,.98,8];
+  api.state.analysisMode='raw';
+  const raw=api.analysisAverageStats(values);
+  api.state.analysisMode='robust';
+  const robust=api.analysisAverageStats(values);
+  assert.ok(raw.value>1.8);
+  assert.ok(robust.value<1.2);
+  assert.equal(robust.affected,1);
+});
+
+test('Analysis 2.0 controls and subtitles are present in UI',()=>{
+  assert.match(html,/id="analysisContext"/);
+  assert.match(html,/id="analysisPeriod"/);
+  assert.match(html,/data-analysis-mode="robust"/);
+  assert.match(html,/data-analysis-mode="raw"/);
+  assert.match(html,/id="weekdaySubtitle"/);
+  assert.match(html,/id="hourlySubtitle"/);
+  assert.match(html,/id="heatmapSubtitle"/);
+  assert.match(app,/ANALYSIS_MODE_KEY/);
+  assert.match(app,/CORE\.robustMeanStats/);
 });

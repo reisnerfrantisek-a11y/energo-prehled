@@ -7,16 +7,16 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Energo Beta" />
-  <title>Energo Přehled Beta 1.7.1</title>
+  <title>Energo Přehled Beta 1.7.2</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="../icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=1.7.1" />
+  <link rel="stylesheet" href="styles.css?v=1.7.2" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
       <div>
-        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.7.1</div>
+        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.7.2</div>
         <h1 id="screenTitle">Přehled</h1>
       </div>
       <button class="icon-btn" id="importBtn" aria-label="Importovat report">＋</button>
@@ -136,36 +136,61 @@
       </section>
 
       <section class="screen" data-screen="analysis">
+        <section class="analysis-context-card" id="analysisContext">
+          <div class="analysis-context-main">
+            <span class="analysis-context-kicker">Analyzované období</span>
+            <strong id="analysisPeriod">—</strong>
+            <span id="analysisMeta">—</span>
+            <small id="analysisMethod">—</small>
+          </div>
+          <div class="analysis-mode-toggle" aria-label="Metoda průměrování">
+            <button class="analysis-mode-btn active" data-analysis-mode="robust">Typický profil</button>
+            <button class="analysis-mode-btn" data-analysis-mode="raw">Všechna data</button>
+          </div>
+        </section>
+
         <section class="panel">
-          <div class="panel-head"><div><h2>Dny v týdnu</h2><p>Průměrná spotřeba jednoho dne</p></div></div>
+          <div class="panel-head between">
+            <div><h2>Dny v týdnu</h2><p id="weekdaySubtitle">Typická spotřeba jednoho dne</p></div>
+            <span class="analysis-mode-badge" data-analysis-badge>Typický profil</span>
+          </div>
           <div id="weekdayChart" class="chart-box medium"></div>
         </section>
 
         <section class="panel">
-          <div class="panel-head between"><div><h2>Hodiny během dne</h2><p>Typický 24hodinový profil</p></div>
-            <select id="dayTypeSelect" class="select"><option value="all">Všechny dny</option><option value="workday">Pracovní dny</option><option value="weekend">Víkend</option></select>
+          <div class="panel-head between"><div><h2>Hodiny během dne</h2><p id="hourlySubtitle">Typický 24hodinový profil</p></div>
+            <div class="analysis-panel-controls">
+              <span class="analysis-mode-badge" data-analysis-badge>Typický profil</span>
+              <select id="dayTypeSelect" class="select"><option value="all">Všechny dny</option><option value="workday">Pracovní dny</option><option value="weekend">Víkend</option></select>
+            </div>
           </div>
           <div id="hourlyChart" class="chart-box medium"></div>
         </section>
 
         <section class="panel">
-          <div class="panel-head"><div><h2>Heatmapa 7 × 24</h2><p>Průměrný výkon podle dne a hodiny</p></div></div>
+          <div class="panel-head between">
+            <div><h2>Heatmapa 7 × 24</h2><p id="heatmapSubtitle">Typický výkon podle dne a hodiny</p></div>
+            <span class="analysis-mode-badge" data-analysis-badge>Typický profil</span>
+          </div>
           <div class="heat-wrap" id="heatmap"></div>
         </section>
 
         <section class="panel">
           <div class="panel-head between">
-            <div><h2>Rozdělení dne</h2><p id="daypartSubtitle">Podíl energie v částech dne</p></div>
-            <div class="mini-toggle" aria-label="Zobrazení rozdělení dne">
-              <button class="daypart-btn active" data-daypart-mode="percent">%</button>
-              <button class="daypart-btn" data-daypart-mode="average">kWh/den</button>
+            <div><h2>Rozdělení dne</h2><p id="daypartSubtitle">Typický podíl energie v částech dne</p></div>
+            <div class="analysis-panel-controls">
+              <span class="analysis-mode-badge" data-analysis-badge>Typický profil</span>
+              <div class="mini-toggle" aria-label="Zobrazení rozdělení dne">
+                <button class="daypart-btn active" data-daypart-mode="percent">%</button>
+                <button class="daypart-btn" data-daypart-mode="average">kWh/den</button>
+              </div>
             </div>
           </div>
           <div id="daypartList" class="daypart-list"></div>
         </section>
 
         <section class="panel intelligence-panel">
-          <div class="panel-head"><div><h2>Anomálie spotřeby</h2><p>Automatické hledání neobvyklých dnů a 15minutových špiček vůči dřívější historii</p></div></div>
+          <div class="panel-head"><div><h2>Anomálie spotřeby</h2><p>Původní neočištěná data · automatické hledání neobvyklých dnů a 15minutových špiček vůči dřívější historii</p></div></div>
           <div id="anomalySummary" class="insight-summary"></div>
           <div id="anomalyList" class="insight-list"></div>
         </section>
@@ -177,7 +202,7 @@
         </section>
 
         <section class="panel">
-          <div class="panel-head"><div><h2>Výkonové špičky</h2><p>20 nejvyšších 15minutových intervalů</p></div></div>
+          <div class="panel-head"><div><h2>Výkonové špičky</h2><p>Původní neočištěná data · 20 nejvyšších 15minutových intervalů</p></div></div>
           <div id="peaksList" class="peaks-list"></div>
         </section>
       </section>
@@ -277,11 +302,11 @@
       </div>
     </div>
   </div>
-  <script src="core/model.js?v=1.7.1" defer></script>
-  <script src="core/time.js?v=1.7.1" defer></script>
-  <script src="core/forecast.js?v=1.7.1" defer></script>
-  <script src="core/invoice.js?v=1.7.1" defer></script>
-  <script src="core/invoice-parser.js?v=1.7.1" defer></script>
-  <script src="app.js?v=1.7.1" defer></script>
+  <script src="core/model.js?v=1.7.2" defer></script>
+  <script src="core/time.js?v=1.7.2" defer></script>
+  <script src="core/forecast.js?v=1.7.2" defer></script>
+  <script src="core/invoice.js?v=1.7.2" defer></script>
+  <script src="core/invoice-parser.js?v=1.7.2" defer></script>
+  <script src="app.js?v=1.7.2" defer></script>
 </body>
 </html>

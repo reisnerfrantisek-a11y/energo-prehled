@@ -14,6 +14,37 @@
     return a.length%2?a[m]:(a[m-1]+a[m])/2;
   }
 
+  function mean(values){
+    const a=(Array.isArray(values)?values:[]).map(Number).filter(Number.isFinite);
+    return a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+  }
+
+  function quantile(values,q=.5){
+    const a=(Array.isArray(values)?values:[]).map(Number).filter(Number.isFinite).sort((x,y)=>x-y);
+    if(!a.length)return null;if(a.length===1)return a[0];
+    const pos=(a.length-1)*clamp(Number(q)||0,0,1),lo=Math.floor(pos),hi=Math.ceil(pos);
+    return lo===hi?a[lo]:a[lo]+(a[hi]-a[lo])*(pos-lo);
+  }
+
+  function robustMeanStats(values,{z=3.5,minCount=5}={}){
+    const a=(Array.isArray(values)?values:[]).map(Number).filter(Number.isFinite);
+    if(!a.length)return {value:null,rawMean:null,median:null,mad:null,lower:null,upper:null,affected:0,count:0,robust:false};
+    const rawMean=mean(a),med=median(a);
+    if(a.length<Math.max(3,Number(minCount)||5))return {value:rawMean,rawMean,median:med,mad:null,lower:null,upper:null,affected:0,count:a.length,robust:false};
+    const deviations=a.map(v=>Math.abs(v-med)),mad=median(deviations)||0;
+    let lower,upper;
+    if(mad>1e-12){
+      const sigma=1.4826*mad,span=Math.max(0.1,Number(z)||3.5)*sigma;
+      lower=med-span;upper=med+span;
+    }else{
+      const q1=quantile(a,.25),q3=quantile(a,.75),iqr=(q3??0)-(q1??0);
+      if(iqr>1e-12){lower=q1-1.5*iqr;upper=q3+1.5*iqr}
+      else{lower=med;upper=med}
+    }
+    const bounded=a.map(v=>clamp(v,lower,upper)),affected=a.reduce((n,v)=>n+(v<lower||v>upper?1:0),0);
+    return {value:mean(bounded),rawMean,median:med,mad,lower,upper,affected,count:a.length,robust:true};
+  }
+
   function weekdayFromDateKey(key){
     const [y,m,d]=String(key).split('-').map(Number),wd=new Date(Date.UTC(y,m-1,d)).getUTCDay();
     return wd===0?6:wd-1;
@@ -105,7 +136,7 @@
   function sumFinite(values){return (Array.isArray(values)?values:[]).reduce((a,v)=>a+(Number.isFinite(Number(v))?Number(v):0),0)}
 
   return {
-    clamp,median,weekdayFromDateKey,monthDateKeys,
+    clamp,median,mean,quantile,robustMeanStats,weekdayFromDateKey,monthDateKeys,
     apiValueToKw,apiValueFromKw,weightedCostModel,modeledRateAtEnergy,
     distributeTotal,cumulativeSeries,alignByDay,sumFinite
   };

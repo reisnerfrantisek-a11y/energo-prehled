@@ -159,3 +159,20 @@
 .data-health-card[data-grade="pozor"]{border-color:color-mix(in srgb,#f0a23a 45%,var(--border))}
 .data-health-card[data-grade="slabší"],.data-health-card[data-grade="problém"]{border-color:color-mix(in srgb,#d95c5c 45%,var(--border))}
 @media(max-width:480px){.chart-compare{width:100%;justify-content:space-between}.chart-compare select{flex:1;max-width:180px}.data-health-card{align-items:flex-start}.data-health-metrics{gap:5px 9px}}
+
+.analysis-context-card{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:14px 15px;margin-bottom:12px;background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 6%,var(--surface)),var(--surface));border:1px solid color-mix(in srgb,var(--accent) 22%,var(--border));border-radius:var(--radius);box-shadow:var(--shadow)}
+.analysis-context-main{min-width:0;display:flex;flex-direction:column;gap:3px}
+.analysis-context-kicker{font-size:9px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.analysis-context-main>strong{font-size:15px;line-height:1.25;color:var(--text)}
+.analysis-context-main>span:not(.analysis-context-kicker){font-size:10px;color:var(--muted);font-weight:700;line-height:1.4}
+.analysis-context-main>small{font-size:9px;line-height:1.45;color:var(--muted);max-width:720px}
+.analysis-mode-toggle{display:flex;gap:3px;padding:3px;border-radius:10px;background:var(--bg);border:1px solid var(--border);flex:0 0 auto}
+.analysis-mode-btn{border:0;background:transparent;color:var(--muted);padding:7px 9px;border-radius:7px;font-size:9px;font-weight:850;white-space:nowrap}
+.analysis-mode-btn.active{background:var(--surface);color:var(--accent);box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.analysis-mode-badge{display:inline-flex;align-items:center;min-height:24px;padding:4px 7px;border-radius:999px;background:color-mix(in srgb,var(--accent) 8%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 20%,var(--border));color:var(--accent);font-size:8px;font-weight:850;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap}
+.analysis-panel-controls{display:flex;align-items:center;gap:8px}
+@media(max-width:560px){
+  .analysis-context-card{flex-direction:column}
+  .analysis-mode-toggle{width:100%}.analysis-mode-btn{flex:1}
+  .analysis-panel-controls{align-items:flex-end;flex-direction:column;gap:6px}
+}
