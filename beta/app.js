@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.4.6';
+const APP_VERSION = '1.4.7';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -374,8 +374,10 @@ function pragueMonthQueryBounds(monthKey){
   const next=pragueUtcCandidates(parseCzTimestamp(`01.${String(nextMonth).padStart(2,'0')}.${nextYear} 00:00:00`))[0];
   if(!Number.isFinite(start)||!Number.isFinite(next))throw new Error('Nepodařilo se určit UTC hranice měsíce.');
   const fullEnd=next-15*60000;
-  const quarterMs=15*60000,lastClosedQuarterStart=Math.floor(Date.now()/quarterMs)*quarterMs-quarterMs;
-  const queryEnd=Math.min(fullEnd,lastClosedQuarterStart);
+  const nowP=pragueParts(Date.now());
+  const todayStart=pragueUtcCandidates(parseCzTimestamp(`${String(nowP.day).padStart(2,'0')}.${String(nowP.month).padStart(2,'0')}.${nowP.year} 00:00:00`))[0];
+  const lastClosedDayEnd=todayStart-15*60000;
+  const queryEnd=Math.min(fullEnd,lastClosedDayEnd);
   return {from:new Date(start).toISOString(),to:new Date(queryEnd).toISOString(),start,end:fullEnd,isPast:Date.now()>=next};
 }
 function apiLocalRecord(ean,profile,units,item,seen){
