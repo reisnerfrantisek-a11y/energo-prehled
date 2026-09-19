@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.4.5'"),'App version must be 1.4.5');
+assert.ok(app.includes("APP_VERSION = '1.4.6'"),'App version must be 1.4.6');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -80,8 +80,8 @@ assert.ok(app.includes('async function forceUpdateApp'),'Safe force-update funct
 assert.ok(app.includes("k.startsWith('energo-prehled-beta-')"),'Force update must target beta cache only');
 assert.ok(!app.includes('indexedDB.deleteDatabase'),'Force update must not delete IndexedDB');
 assert.ok(!app.includes('localStorage.clear()'),'Force update must not clear localStorage');
-assert.ok(index.includes('app.js?v=1.4.5'),'App script must be cache-busted');
-assert.ok(index.includes('styles.css?v=1.4.5'),'Stylesheet must be cache-busted');
+assert.ok(index.includes('app.js?v=1.4.6'),'App script must be cache-busted');
+assert.ok(index.includes('styles.css?v=1.4.6'),'Stylesheet must be cache-busted');
 const refresh=fs.readFileSync('refresh.html','utf8');
 assert.ok(refresh.includes("energo-prehled-beta-"),'Recovery page must clear beta cache');
 assert.ok(!refresh.includes('indexedDB.deleteDatabase'),'Recovery page must preserve IndexedDB');
@@ -104,11 +104,17 @@ assert.ok(app.includes("action==='diagnostics'")||app.includes("egdProxyPost('di
 assert.ok(app.includes("egdProxyPost('spotreby'"),'Proxy consumption flow missing');
 assert.ok(app.includes("if(type==='B')"),'Type B profile selection guard missing');
 assert.ok(app.includes("toUpperCase()==='ICC1'"),'Type B must prefer ICC1');
-assert.ok(app.includes('lastClosedDayEnd=todayStart-15*60000'),'Current month must stop at previous closed day');
+assert.ok(app.includes('lastClosedQuarterStart=Math.floor(Date.now()/quarterMs)*quarterMs-quarterMs'),'Current month must query through the last fully closed 15-minute interval');
+assert.ok(!app.includes('lastClosedDayEnd'),'Current-day EG.D data must no longer be blocked');
 assert.ok(app.includes('function estimateRateForMonth'),'Three-month cost estimate missing');
 assert.ok(app.includes('function weightedCostModel'),'Dynamic fixed-variable cost model missing');
 assert.ok(app.includes('function modeledRateAtEnergy'),'Dynamic price curve missing');
 assert.ok(app.includes('function predictMonthEnergy'),'Month-end consumption forecast missing');
+assert.ok(app.includes('paceEnergy'),'Current-pace forecast scenario missing');
+assert.ok(app.includes('lowProjectedCost'),'Forecast lower bound missing');
+assert.ok(app.includes('highProjectedCost'),'Forecast upper bound missing');
+assert.ok(app.includes('partialToday'),'Partial current day handling missing');
+assert.ok(app.includes('remainderToday'),'Partial current day must forecast the remaining intervals');
 assert.ok(app.includes('fixed+c.variableRate*p.energy'),'Cost model must regress total invoice against consumption');
 assert.ok(app.includes('spreadScore'),'Cost model confidence must account for consumption spread');
 assert.ok(app.includes('function estimatedMonthCost'),'Live month cost estimate missing');
@@ -190,6 +196,9 @@ const sepEstimate=periodTest.estimatedMonthCost('2026-09');
 assert.ok(Number.isFinite(sepEstimate.cost),'Live month cost estimate must be finite');
 assert.ok(Number.isFinite(sepEstimate.projectedCost),'Projected full-month invoice must be finite');
 assert.ok(sepEstimate.projectedCost>=sepEstimate.cost,'Projected full-month invoice should not be below accrued estimate');
+assert.ok(Number.isFinite(sepEstimate.lowProjectedCost)&&Number.isFinite(sepEstimate.highProjectedCost),'Forecast range must be finite');
+assert.ok(sepEstimate.lowProjectedCost<=sepEstimate.projectedCost&&sepEstimate.projectedCost<=sepEstimate.highProjectedCost,'Central forecast must stay inside the scenario range');
+assert.ok(sepEstimate.highEnergy>=sepEstimate.lowEnergy,'Energy forecast range must be ordered');
 const sepProjection=periodTest.costProjectionForRecords(periodTest.state.records.filter(r=>r.monthKey==='2026-09'));
 assert.equal(sepProjection.estimatedMonths.size,1);
 assert.ok(Math.abs(sepProjection.totalWithEstimate-sepEstimate.cost)<1e-9);
@@ -203,4 +212,4 @@ assert.equal(periodTest.currentRange().length,3);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.4.5 smoke tests OK');
+console.log('Energo Přehled Beta 1.4.6 smoke tests OK');
