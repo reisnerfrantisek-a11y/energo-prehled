@@ -768,6 +768,26 @@ function lineChart(el,data,{hero=false,unit='kWh'}={}){
     ${xlabels.map(d=>{const i=data.indexOf(d);return `<text class="chart-x-label" x="${x(i)}" y="${h-8}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" fill="${text}">${escapeHtml(d.label)}</text>`}).join('')}
   </svg>`;
 }
+function forecastBandChart(el,data){
+  if(!data?.length){el.innerHTML='<div class="chart-empty">Forecast zatím není k dispozici</div>';return}
+  const w=700,h=250,p={l:64,r:14,t:30,b:42},vals=data.flatMap(d=>[d.actual,d.central,d.low,d.high]).filter(Number.isFinite),axisMax=niceAxisMax(Math.max(...vals,1)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4);
+  const x=i=>p.l+(i/(Math.max(1,data.length-1)))*(w-p.l-p.r),y=v=>p.t+(1-v/axisMax)*(h-p.t-p.b);
+  const forecastIdx=data.findIndex(d=>d.forecast),start=forecastIdx<0?data.length-1:Math.max(0,forecastIdx-1),band=data.slice(start);
+  const upper=band.map((d,j)=>`${x(start+j)},${y(d.high)}`).join(' '),lower=band.slice().reverse().map((d,j)=>{const i=start+band.length-1-j;return `${x(i)},${y(d.low)}`}).join(' ');
+  const actualPts=data.map((d,i)=>Number.isFinite(d.actual)?`${x(i)},${y(d.actual)}`:null).filter(Boolean).join(' ');
+  const forecastPts=data.slice(start).map((d,j)=>`${x(start+j)},${y(d.central)}`).join(' ');
+  const labels=data.filter((_,i)=>i===0||i===data.length-1||i%Math.ceil(data.length/5)===0);
+  el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="Predikce nákladů do konce měsíce">
+    <text class="chart-y-label" x="${p.l}" y="12" text-anchor="start" fill="var(--muted)">Kč</text>
+    ${ticks.map(t=>`<line x1="${p.l}" x2="${w-p.r}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)"/><text class="chart-y-label" x="${p.l-7}" y="${y(t)+3}" text-anchor="end" fill="var(--muted)">${escapeHtml(fmt.format(t))}</text>`).join('')}
+    ${band.length>1?`<polygon points="${upper} ${lower}" fill="var(--accent)" opacity=".12"/>`:''}
+    ${actualPts?`<polyline points="${actualPts}" fill="none" stroke="var(--text)" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>`:''}
+    ${forecastPts?`<polyline points="${forecastPts}" fill="none" stroke="var(--accent)" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="7 5"/>`:''}
+    ${forecastIdx>=0?`<line x1="${x(start)}" x2="${x(start)}" y1="${p.t}" y2="${h-p.b}" stroke="var(--muted)" opacity=".45" stroke-dasharray="3 5"/>`:''}
+    ${labels.map(d=>{const i=data.indexOf(d);return `<text class="chart-x-label" x="${x(i)}" y="${h-10}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" fill="var(--muted)">${escapeHtml(d.label)}</text>`}).join('')}
+    <circle cx="${x(data.length-1)}" cy="${y(data.at(-1).central)}" r="4" fill="var(--accent)"><title>Střední predikce: ${escapeHtml(fmt.format(data.at(-1).central))} Kč</title></circle>
+  </svg>`;
+}
 function barChart(el,data,{unit='kWh',showValues=true}={}){
   if(!data.length){el.innerHTML='<div class="chart-empty">Zatím nejsou data</div>';return}
   const w=700,h=235,p={l:64,r:12,t:34,b:44},vals=data.map(d=>Number(d.value)||0),axisMax=niceAxisMax(Math.max(...vals,0.001)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4),slot=(w-p.l-p.r)/data.length,bw=Math.max(5,slot*.56),y=v=>p.t+(1-v/axisMax)*(h-p.t-p.b);
