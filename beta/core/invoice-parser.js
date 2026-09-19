@@ -86,6 +86,8 @@
 
     const consumptionMwh=parseCzNumber(first(text,new RegExp(`Celková spotřeba elektřiny\\s+(${NUM})\\s*MWh`,'i')));
     let consumptionKwh=Number.isFinite(consumptionMwh)?consumptionMwh*1000:null;
+    const summaryFixedExVat=parseCzNumber(first(text,new RegExp(`Stálý plat:\\s*(${NUM})\\s*Kč\\s*\\/\\s*měsíc`,'i')));
+    const summaryVariableExVat=parseCzNumber(first(text,new RegExp(`VT:\\s*(${NUM})\\s*Kč\\s*\\/\\s*kWh`,'i')));
     const ean=first(text,/\b(\d{18})\s*EAN\b/i)||first(text,/\bEAN\s*(\d{18})\b/i);
     const documentNumber=beforeLabel(text,'Číslo daňového dokladu');
     const variableSymbol=beforeLabel(text,'Variabilní symbol');
@@ -125,15 +127,21 @@
       +(poze.some(x=>x.unit==='Měsíc')?ag.poze.total:0);
     const knownForTariff=Math.round((variableNet+fixedNet)*100)/100;
     const tariffDifference=Number.isFinite(totalExVat)?Math.round((totalExVat-knownForTariff)*100)/100:null;
-    const tariffValidated=Number.isFinite(consumptionKwh)&&consumptionKwh>0&&Number.isFinite(vatRate)&&Math.abs(tariffDifference||0)<=0.05;
-    if(!tariffValidated)warnings.push('Tarifní model nebyl plně ověřen; pro predikci zůstane k dispozici statistický model.');
-
     const grossFactor=Number.isFinite(vatRate)?1+vatRate:null;
     const variableItems=[...supply,...electricityTax,...distributionEnergy,...systemServices,...poze.filter(x=>x.unit==='MWh'||x.unit==='kWh')];
-    const variableExVatPerKwh=Number.isFinite(consumptionKwh)&&consumptionKwh>0?exactCharge(variableItems)/consumptionKwh:null;
+    const detailedVariableRate=Number.isFinite(consumptionKwh)&&consumptionKwh>0?exactCharge(variableItems)/consumptionKwh:null;
     const fixedItems=[...supplierFixed,...breaker,...distributionFixed,...poze.filter(x=>x.unit==='Měsíc')];
     const fixedMonths=Math.max(1,monthlyUnits(fixedItems)/Math.max(1,fixedItems.filter(x=>x.unit==='Měsíc').length));
-    const fixedExVatPerMonth=fixedMonths>0?exactCharge(fixedItems)/fixedMonths:fixedNet;
+    const detailedFixedRate=fixedMonths>0?exactCharge(fixedItems)/fixedMonths:fixedNet;
+    const detailTariffValidated=Number.isFinite(consumptionKwh)&&consumptionKwh>0&&Number.isFinite(vatRate)&&Math.abs(tariffDifference||0)<=0.05&&Number.isFinite(detailedVariableRate)&&Number.isFinite(detailedFixedRate);
+    const summaryTariffValidated=Number.isFinite(summaryFixedExVat)&&Number.isFinite(summaryVariableExVat)&&Number.isFinite(vatRate);
+    const tariffValidated=detailTariffValidated||summaryTariffValidated;
+    const variableExVatPerKwh=detailTariffValidated?detailedVariableRate:summaryVariableExVat;
+    const fixedExVatPerMonth=detailTariffValidated?detailedFixedRate:summaryFixedExVat;
+    if(detailTariffValidated&&summaryTariffValidated){
+      if(Math.abs(detailedFixedRate-summaryFixedExVat)>.02||Math.abs(detailedVariableRate-summaryVariableExVat)>.02)warnings.push('Detailní sazby se neshodují se souhrnnými cenami na faktuře.');
+    }else if(summaryTariffValidated&&!detailTariffValidated)warnings.push('Tarif byl převzat ze souhrnných cen faktury; detailní rozpad nebyl kompletně ověřen.');
+    else if(!tariffValidated)warnings.push('Tarifní model nebyl plně ověřen; pro predikci zůstane k dispozici statistický model.');
     const confidence=fatal.length?0:Math.max(.5,Math.min(1,1-(warnings.length*.12)));
 
     const finance=Invoice.normalizeFinance({
@@ -196,7 +204,8 @@
       validation:{
         totalExVat,invoiceTotal,vatAmount,componentSum,componentDifference,
         knownNet:Math.round(knownNet*100)/100,netDifference:unmatched,
-        tariffDifference,tariffValidated,
+        tariffDifference,tariffValidated,detailTariffValidated,summaryTariffValidated,
+        summaryFixedExVat:round(summaryFixedExVat,6),summaryVariableExVat:round(summaryVariableExVat,6),
         consumptionKwh:round(consumptionKwh,3),ean
       }
     };
