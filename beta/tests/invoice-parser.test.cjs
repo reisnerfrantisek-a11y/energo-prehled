@@ -79,3 +79,23 @@ test('parser rejects a billing period spanning multiple calendar months',()=>{
   assert.equal(r.canSave,false);
   assert.ok(r.fatal.some(x=>/přesahuje jeden kalendářní měsíc/i.test(x)));
 });
+
+
+test('PDF.js items are reconstructed by visual rows instead of extraction order',()=>{
+  const items=[
+    {str:'31.08.2026',transform:[1,0,0,1,160,500]},
+    {str:'0,012',transform:[1,0,0,1,310,500]},
+    {str:'29,28',transform:[1,0,0,1,500,500]},
+    {str:'Dodané množství jednotarif',transform:[1,0,0,1,20,500]},
+    {str:'MWh',transform:[1,0,0,1,250,500]},
+    {str:'2 440,00',transform:[1,0,0,1,390,500]},
+    {str:'01.08.2026',transform:[1,0,0,1,90,500]},
+    {str:'Odečtové období:',transform:[1,0,0,1,20,700]},
+    {str:'01.08.2026',transform:[1,0,0,1,150,700]},
+    {str:'-',transform:[1,0,0,1,225,700]},
+    {str:'31.08.2026',transform:[1,0,0,1,240,700]}
+  ];
+  const text=Parser.pdfItemsToLayoutText(items);
+  assert.match(text,/Odečtové období: 01\.08\.2026 - 31\.08\.2026/);
+  assert.match(text,/Dodané množství jednotarif 01\.08\.2026 31\.08\.2026 MWh 0,012 2 440,00 29,28/);
+});

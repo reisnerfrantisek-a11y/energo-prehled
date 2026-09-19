@@ -137,3 +137,5 @@
 @media(max-width:480px){.invoice-review-summary,.invoice-review-components{grid-template-columns:1fr}.invoice-review-modal{padding:18px}.invoice-pdf-btn{padding:7px 9px}}
 
 .invoice-source-summary{flex-direction:row;align-items:center;justify-content:space-between;gap:8px}.invoice-source-summary>div{display:flex;flex-direction:column;gap:2px;min-width:0}.invoice-detail-btn{flex:0 0 auto;border:0;background:transparent;color:var(--accent);font-size:10px;font-weight:850;padding:6px 4px}
+
+.invoice-review-modal .primary-btn:disabled{opacity:.45;filter:saturate(.45);cursor:not-allowed}
