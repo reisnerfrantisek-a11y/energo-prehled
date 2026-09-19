@@ -800,6 +800,31 @@ function barChart(el,data,{unit='kWh',showValues=true}={}){
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 
 // ---------- Rendering ----------
+function renderForecastPanel(rs){
+  const panel=$('#forecastPanel'),chart=$('#forecastChart'),meta=$('#forecastMeta');if(!panel||!chart||!meta)return;
+  const keys=[...new Set(rs.filter(r=>monthIsLivePartial(r.monthKey)).map(r=>r.monthKey))].sort();if(!keys.length){panel.classList.add('hidden');return}
+  const key=keys.at(-1),series=forecastCostSeries(key);if(!series){panel.classList.add('hidden');return}
+  panel.classList.remove('hidden');$('#forecastTitle').textContent=`Predikce · ${monthLabel(key)}`;
+  const e=series.estimate,rangeWidth=e.highProjectedCost-e.lowProjectedCost;
+  meta.innerHTML=`<span><strong>${fmt.format(e.projectedCost)} Kč</strong> střední odhad</span><span><strong>${fmt.format(e.lowProjectedCost)}–${fmt.format(e.highProjectedCost)} Kč</strong> scénářové rozpětí</span><span>Důvěra cenového modelu <strong>${Math.round(e.confidence*100)} %</strong>${Number.isFinite(rangeWidth)?` · šířka pásma ${fmt.format(rangeWidth)} Kč`:''}</span>`;
+  forecastBandChart(chart,series.data);
+}
+function renderForecastAccuracy(){
+  const summary=$('#forecastAccuracySummary'),list=$('#forecastAccuracyList');if(!summary||!list)return;
+  const data=forecastAccuracySummary();
+  if(!data.count){summary.innerHTML='<strong>Zatím bez vyhodnoceného měsíce.</strong><span>Od verze 1.5.0 ukládáme denní predikce. Jakmile se průběžný měsíc uzavře a doplníš skutečnou fakturu, zobrazí se zde reálná chyba forecastu.</span>';list.innerHTML='';return}
+  summary.innerHTML=`<strong>Průměrná absolutní chyba ${fmt.format(data.mape)} %</strong><span>${data.count} ${data.count===1?'vyhodnocený měsíc':'vyhodnocené měsíce'}${Number.isFinite(data.rangeHit)?` · skutečnost uvnitř pásma v ${fmt.format(data.rangeHit)} % případů`:''}</span>`;
+  list.innerHTML=data.rows.map(r=>`<div class="accuracy-row"><div><strong>${escapeHtml(monthLabel(r.monthKey))}</strong><small>predikce z ${escapeHtml(formatDateKey(r.asOfDate))} · ${r.daysRemaining} d do konce</small></div><div class="accuracy-values"><strong>${fmt.format(r.predicted)} → ${fmt.format(r.invoice)} Kč</strong><small class="${r.errorPct>0?'accuracy-over':'accuracy-under'}">${r.errorPct>=0?'+':''}${fmt.format(r.errorPct)} %${r.inside===null?'':r.inside?' · v pásmu':' · mimo pásmo'}</small></div></div>`).join('');
+}
+function renderAnomalies(rs){
+  const summary=$('#anomalySummary'),list=$('#anomalyList');if(!summary||!list)return;
+  const days=detectDailyAnomalies(rs),intervals=detectIntervalAnomalies(rs);
+  if(!days.length&&!intervals.length){summary.innerHTML='<strong>Bez výrazných anomálií.</strong><span>Vybrané období nevykazuje proti dostupné historii mimořádně vysokou denní spotřebu ani 15minutovou špičku.</span>';list.innerHTML='';return}
+  summary.innerHTML=`<strong>${days.length+intervals.length} neobvyklých událostí</strong><span>${days.length} denních · ${intervals.length} intervalových. Porovnání používá pouze dřívější data, takže budoucí hodnoty neovlivňují základ.</span>`;
+  const dailyHtml=days.map(d=>`<div class="anomaly-row"><span class="anomaly-badge">DEN</span><div><strong>${escapeHtml(formatDateKey(d.dateKey))} · ${fmt3.format(d.energy)} kWh</strong><small>typický stejný den ${fmt3.format(d.baseline)} kWh · ${fmt.format(d.ratio)}× více</small></div></div>`);
+  const intervalHtml=intervals.map(a=>`<div class="anomaly-row"><span class="anomaly-badge peak">15m</span><div><strong>${escapeHtml(a.record.displayTimestamp)} · ${fmt.format(a.current)} kW</strong><small>typicky v tomto čase ${fmt.format(a.baseline)} kW${Number.isFinite(a.ratio)?` · ${fmt.format(a.ratio)}× více`:''}</small></div></div>`);
+  list.innerHTML=[...dailyHtml,...intervalHtml].join('');
+}
 async function reload(){state.records=await getAll('intervals');state.months=await getAll('months');ensurePeriodState();renderAll()}
 function renderAll(){
   const has=state.records.length>0;
