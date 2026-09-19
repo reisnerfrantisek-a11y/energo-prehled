@@ -58,3 +58,16 @@ Robustní výpočet pouze omezuje vliv odlehlých hodnot ve výsledném průměr
 ## Navigace Data / Nastavení (1.7.4)
 
 `Data` je operativní obrazovka pro import, měsíce, faktury a rychlou synchronizaci. `Nastavení` obsahuje dlouhodobou konfiguraci a servisní funkce: EG.D OpenAPI připojení, automatickou synchronizaci, zálohu/obnovu, aktualizaci aplikace a informace o soukromí. Tím se odděluje běžná práce s daty od technické konfigurace.
+
+## Regime change engine (1.8.0)
+
+`core/regime.js` je čistý modul bez závislosti na DOM. Vstupem jsou kompletní denní souhrny se spotřebou a pěti částmi dne. Modul:
+
+- sestaví robustní baseline podle dne v týdnu z předchozí historie,
+- odhadne přirozenou variabilitu historických reziduí,
+- vyhodnotí velikost a konzistenci změny v posledním 7denním okně,
+- používá delší okno jako potvrzení směru změny,
+- určí část dne s největším absolutním posunem,
+- vrátí sílu adaptace 0–1.
+
+Forecast 2.0 nepřebírá detekovaný poměr mechanicky. Síla změny pouze převažuje existující ensemble: starší weekday baseline dostává nižší váhu a recent 7/14 dní vyšší. Tím se předchází tomu, aby jediný extrém okamžitě přepsal měsíční predikci.

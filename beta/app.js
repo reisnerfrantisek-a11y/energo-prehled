@@ -1,7 +1,7 @@
 'use strict';
 
-const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice,TIME=window.EnergoTime,FORECAST=window.EnergoForecast,INVOICE_PARSER=window.EnergoInvoiceParser;
-if(!CORE||!INVOICE||!TIME||!FORECAST||!INVOICE_PARSER)throw new Error('Chybí core moduly Energo aplikace.');
+const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice,TIME=window.EnergoTime,FORECAST=window.EnergoForecast,REGIME=window.EnergoRegime,INVOICE_PARSER=window.EnergoInvoiceParser;
+if(!CORE||!INVOICE||!TIME||!FORECAST||!REGIME||!INVOICE_PARSER)throw new Error('Chybí core moduly Energo aplikace.');
 
 const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.7.4';
+const APP_VERSION = '1.8.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -964,14 +964,18 @@ function predictMonthEnergy(monthKey,points=historicalEnergyPoints(monthKey)){
     historyMonths:points.length,
     fallback:baselineProjection
   });
-  const predictedEnergy=Math.max(actualEnergy,ensemble.value),remainingEnergy=Math.max(0,predictedEnergy-actualEnergy);
+  const regime=REGIME.detectRegimeShift(completeDailyRegimeRows(completeObserved.at(-1)||observedDates.at(-1)||''));
+  const regimeWeights=regime.status==='changed'&&regime.strength>0?REGIME.adaptEnsembleWeights(ensemble.weights,regime.strength):ensemble.weights;
+  const regimeValue=REGIME.reblendForecast(ensemble.components,regimeWeights),forecastValue=Number.isFinite(regimeValue)?regimeValue:ensemble.value;
+  const predictedEnergy=Math.max(actualEnergy,forecastValue),remainingEnergy=Math.max(0,predictedEnergy-actualEnergy);
   const ratios=[];for(const d of daily.values()){const base=baseline[d.weekday]||overall;if(base>0)ratios.push(d.energy/base)}
   const mad=median(ratios.map(r=>Math.abs(r-1)))||0,variability=clamp(1.4826*mad,0,.7),coverage=expectedSlots>0?clamp(observedSlots/expectedSlots,0,1):0;
   const fallbackUncertainty=clamp(.10+variability*.35+(1-coverage)*.18,.10,.42),errors=historicalEnergyForecastErrors(monthKey),calibration=FORECAST.calibrateUncertainty({fallback:fallbackUncertainty,absolutePctErrors:errors,coverage});
   const uncertainty=calibration.uncertainty,lowEnergy=Math.max(actualEnergy,predictedEnergy*(1-uncertainty)),highEnergy=Math.max(lowEnergy,predictedEnergy*(1+uncertainty));
   return {
     actualEnergy,predictedEnergy,remainingEnergy,paceEnergy,baselineProjection,recent7Projection,recent14Projection,
-    forecastModel:ensemble.model,forecastWeights:ensemble.weights,forecastComponents:ensemble.components,
+    forecastModel:ensemble.model,forecastWeights:regimeWeights,forecastComponents:ensemble.components,
+    regimeShift:regime,regimeAdaptation:regime.status==='changed'?regime.strength:0,
     lowEnergy,highEnergy,gapEnergy,remainderToday,futureEnergy,scale,uncertainty,uncertaintySource:calibration.source,uncertaintySamples:calibration.sampleCount,
     observedDays:observedDates.length,completeObservedDays:completeObserved.length,totalDays:allDates.length,expectedSlots,observedSlots,
     incompleteClosedDays:countIncompleteClosedDays(state.records.filter(r=>r.monthKey===monthKey),monthKey),missingClosedIntervals:countMissingClosedIntervals(state.records.filter(r=>r.monthKey===monthKey),monthKey)
@@ -1048,7 +1052,7 @@ async function captureLiveForecastSnapshots(){
     if(!monthIsLivePartial(m.monthKey))continue;
     const estimate=estimateRateForMonth(m.monthKey);if(!estimate||!Number.isFinite(estimate.predictedEnergy))continue;
     const asOfDate=m.lastAvailableAt?pragueDayKeyFromMs(Date.parse(m.lastAvailableAt)):pragueDayKeyFromMs(Date.now());if(!asOfDate)continue;
-    const snap={asOfDate,createdAt:new Date().toISOString(),projectedCost:Number.isFinite(estimate.projectedCost)?estimate.projectedCost:null,lowProjectedCost:Number.isFinite(estimate.lowProjectedCost)?estimate.lowProjectedCost:null,highProjectedCost:Number.isFinite(estimate.highProjectedCost)?estimate.highProjectedCost:null,predictedEnergy:estimate.predictedEnergy,lowEnergy:estimate.lowEnergy,highEnergy:estimate.highEnergy,modelStability:estimate.confidence,forecastModel:estimate.forecastModel||'legacy',forecastWeights:estimate.forecastWeights||null,uncertainty:estimate.uncertainty,uncertaintySource:estimate.uncertaintySource||'heuristic'};
+    const snap={asOfDate,createdAt:new Date().toISOString(),projectedCost:Number.isFinite(estimate.projectedCost)?estimate.projectedCost:null,lowProjectedCost:Number.isFinite(estimate.lowProjectedCost)?estimate.lowProjectedCost:null,highProjectedCost:Number.isFinite(estimate.highProjectedCost)?estimate.highProjectedCost:null,predictedEnergy:estimate.predictedEnergy,lowEnergy:estimate.lowEnergy,highEnergy:estimate.highEnergy,modelStability:estimate.confidence,forecastModel:estimate.forecastModel||'legacy',forecastWeights:estimate.forecastWeights||null,regimeAdaptation:Number(estimate.regimeAdaptation)||0,regimeStatus:estimate.regimeShift?.status||'unknown',regimeDirection:estimate.regimeShift?.direction||'stable',uncertainty:estimate.uncertainty,uncertaintySource:estimate.uncertaintySource||'heuristic'};
     const history=forecastHistoryForMonth(m).filter(x=>x.asOfDate!==asOfDate);history.push(snap);history.sort((a,b)=>a.asOfDate.localeCompare(b.asOfDate));
     const updated={...m,forecastHistory:history.slice(-62)};updates.push(updated);
   }
@@ -1160,6 +1164,52 @@ function prepareCostChartSeries(monthKey){
     if(comparison)comparison.values=FORECAST.cumulativeNullable(comparison.values);
   }
   return {data,comparison,live,estimate:forecast?.estimate||null};
+}
+function completeDailyRegimeRows(endDateKey=''){
+  const today=pragueDayKeyFromMs(Date.now()),map=new Map();
+  for(const r of sortedRecords()){
+    if(!r.dateKey||r.dateKey>=today)continue;
+    if(endDateKey&&r.dateKey>endDateKey)continue;
+    let d=map.get(r.dateKey);
+    if(!d){d={dateKey:r.dateKey,weekday:r.weekday,energy:0,count:0,parts:{night:0,morning:0,day:0,evening:0,late:0}};map.set(r.dateKey,d)}
+    const e=billingEnergy(r);d.energy+=e;d.count++;
+    const key=r.hour<6?'night':r.hour<10?'morning':r.hour<17?'day':r.hour<22?'evening':'late';
+    d.parts[key]+=e;
+  }
+  return [...map.values()].filter(d=>d.count===expectedIntervalsForDate(d.dateKey)).sort((a,b)=>a.dateKey.localeCompare(b.dateKey));
+}
+function regimeAnalysisForRange(rs){
+  const dates=[...new Set((Array.isArray(rs)?rs:[]).map(r=>r.dateKey).filter(Boolean))].sort(),end=dates.at(-1)||latestDateKey();
+  if(!end)return REGIME.detectRegimeShift([]);
+  return REGIME.detectRegimeShift(completeDailyRegimeRows(end));
+}
+function renderRegimeShift(rs){
+  const card=$('#regimeCard'),summary=$('#regimeSummary'),detail=$('#regimeDetail'),parts=$('#regimeParts'),impact=$('#regimeForecastImpact');
+  if(!card||!summary||!detail||!parts||!impact)return;
+  const r=regimeAnalysisForRange(rs),partLabels={night:'Noc 00–06',morning:'Ráno 06–10',day:'Den 10–17',evening:'Večer 17–22',late:'Pozdní 22–24'};
+  card.dataset.status=r.status||'insufficient';
+  if(r.status==='insufficient'){
+    summary.innerHTML='<strong>Zatím nelze spolehlivě určit změnu režimu.</strong><span>Je potřeba delší souvislá historie kompletních uzavřených dní.</span>';
+    detail.textContent=`K dispozici ${Number(r.availableDays||0)} dní · minimum ${Number(r.requiredDays||28)} dní.`;
+    parts.innerHTML='';impact.textContent='Forecast zatím používá standardní váhy.';
+    return;
+  }
+  const pctValue=Number(r.recent?.changePct||0)*100,sign=pctValue>0?'+':'',dir=r.direction==='higher'?'vyšší':r.direction==='lower'?'nižší':'beze změny';
+  const confidenceLabel=r.confidence==='high'?'vysoká':r.confidence==='medium'?'střední':'nízká';
+  if(r.status==='changed'){
+    summary.innerHTML=`<strong>Trvalejší změna režimu: ${sign}${fmt.format(pctValue)} %</strong><span>Posledních ${r.recent.days} kompletních dní má ${dir} spotřebu než robustní historický profil.</span>`;
+  }else{
+    summary.innerHTML=`<strong>Bez potvrzené změny režimu.</strong><span>Posledních ${r.recent.days} dní je ${sign}${fmt.format(pctValue)} % proti typickému profilu, ale změna není dost konzistentní nebo významná.</span>`;
+  }
+  const baseline=`${formatDateKey(r.baseline.from)} – ${formatDateKey(r.baseline.to)}`,recent=`${formatDateKey(r.recent.from)} – ${formatDateKey(r.recent.to)}`;
+  detail.textContent=`Aktuální okno ${recent} · historie ${baseline} · shoda směru ${r.recent.matchingDays}/${r.recent.days} dní · důvěra ${confidenceLabel}.`;
+  const p=r.dominantPart;
+  parts.innerHTML=p&&Number.isFinite(p.delta)
+    ?`<div class="regime-part"><span>Největší změna</span><strong>${escapeHtml(partLabels[p.key]||p.key)} · ${p.delta>=0?'+':''}${fmt3.format(p.delta)} kWh/den${Number.isFinite(p.changePct)?` · ${p.changePct>=0?'+':''}${fmt.format(p.changePct*100)} %`:''}</strong></div>`
+    :'';
+  impact.textContent=r.status==='changed'&&r.strength>0
+    ?`Forecast 2.0 změnu zohledňuje: vyšší váha posledních 7/14 dní, nižší váha starší historie · síla adaptace ${Math.round(r.strength*100)} %.`
+    :'Forecast 2.0 používá standardní váhy; jednorázové anomálie samy o sobě režim nemění.';
 }
 function detectDailyAnomalies(rs){
   const targetDates=new Set(rs.map(r=>r.dateKey)),all=sortedRecords(),daily=new Map();
@@ -1489,7 +1539,8 @@ function forecastV2Summary(e){
   const band=e.uncertaintySource==='backtest'
     ?`pásmo kalibrováno backtestem (${e.uncertaintySamples||0})`
     :`pásmo průběžně heuristické`;
-  return `Forecast 2.0 · ${bits.join(' · ')} · ${band}`;
+  const regime=Number(e.regimeAdaptation)>0?` · adaptace režimu ${Math.round(Number(e.regimeAdaptation)*100)} %`:'';
+  return `Forecast 2.0 · ${bits.join(' · ')} · ${band}${regime}`;
 }
 function renderForecastPanel(rs){
   const panel=$('#forecastPanel'),chart=$('#forecastChart'),meta=$('#forecastMeta');if(!panel||!chart||!meta)return;
@@ -1679,6 +1730,7 @@ function renderAnalysis(){
     ['weekdayChart','hourlyChart','heatmap','daypartList','peaksList'].forEach(id=>$('#'+id).innerHTML=`<div class="chart-empty">${message}</div>`);
     ['weekdaySubtitle','hourlySubtitle','heatmapSubtitle','daypartSubtitle'].forEach(id=>{const el=$('#'+id);if(el)el.textContent=message});
     const anomalySummary=$('#anomalySummary'),anomalyList=$('#anomalyList');if(anomalySummary)anomalySummary.innerHTML=`<strong>Bez dat pro analýzu.</strong><span>${escapeHtml(message)}</span>`;if(anomalyList)anomalyList.innerHTML='';
+    const regimeSummary=$('#regimeSummary'),regimeDetail=$('#regimeDetail');if(regimeSummary)regimeSummary.innerHTML=`<strong>Bez dat pro změnu režimu.</strong><span>${escapeHtml(message)}</span>`;if(regimeDetail)regimeDetail.textContent='';
     return;
   }
 
@@ -1699,7 +1751,7 @@ function renderAnalysis(){
     ?`Typický 24hodinový profil · omezen vliv ${hourlyAffected} extrémních intervalů`
     :'24hodinový profil · aritmetický průměr všech intervalů';
 
-  renderHeatmap(rs);renderDayparts(rs);renderPeaks(rs);renderAnomalies(rs);
+  renderHeatmap(rs);renderDayparts(rs);renderRegimeShift(rs);renderPeaks(rs);renderAnomalies(rs);
 }
 function renderHeatmap(rs){
   const stats=groupedAnalysisStats(rs,r=>`${r.weekday}|${r.hour}`,val),avg=new Map([...stats].map(([k,v])=>[k,v.value||0])),affected=[...stats.values()].reduce((n,x)=>n+x.affected,0),max=Math.max(...avg.values(),.001);
