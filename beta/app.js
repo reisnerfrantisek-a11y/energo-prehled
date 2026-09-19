@@ -159,9 +159,11 @@ function invoiceComponentRows(finance){
   ].filter(([,v])=>v!==null&&Number.isFinite(Number(v)));
 }
 function renderInvoiceReview(){
-  const pending=state.pendingInvoicePdf,box=$('#invoiceReviewSummary'),components=$('#invoiceReviewComponents'),warnings=$('#invoiceReviewWarnings'),save=$('#confirmInvoicePdf');
-  if(!pending||!box||!components||!warnings||!save)return;
-  const r=pending.result,f=r.finance,t=f.tariff,m=f.metering;
+  const pending=state.pendingInvoicePdf,box=$('#invoiceReviewSummary'),components=$('#invoiceReviewComponents'),warnings=$('#invoiceReviewWarnings'),save=$('#confirmInvoicePdf'),cancel=$('#cancelInvoicePdf');
+  if(!pending||!box||!components||!warnings||!save||!cancel)return;
+  const r=pending.result,f=r.finance,t=f.tariff,m=f.metering,stored=!!pending.stored;
+  save.classList.toggle('hidden',stored);cancel.textContent=stored?'Zavřít':'Zrušit';
+  const title=$('#invoiceReviewTitle');if(title)title.textContent=stored?'Detail faktury':'Kontrola PDF faktury';
   box.innerHTML=[
     ['Měsíc',r.invoiceMonthKey?monthLabel(r.invoiceMonthKey):'—'],
     ['Dodavatel',f.invoiceMeta.supplier||'—'],
@@ -178,6 +180,12 @@ function renderInvoiceReview(){
   warnings.innerHTML=`<strong>${escapeHtml(model)}</strong>${items.length?items.map(x=>`<span>${escapeHtml(x)}</span>`).join(''):'<span>Kontroly součtů a cenových složek prošly bez výhrad.</span>'}`;
   warnings.classList.toggle('has-warning',items.length>0);
   save.disabled=!r.canSave;
+}
+function showStoredInvoiceDetail(monthKey){
+  const month=state.months.find(m=>m.monthKey===monthKey);if(!month)return;
+  const finance=normalizeFinance(month.finance);if(finance.source!=='pdf')return;
+  state.pendingInvoicePdf={monthKey,stored:true,result:{invoiceMonthKey:monthKey,finance,warnings:[],fatal:[],canSave:false,validation:{}}};
+  renderInvoiceReview();$('#invoiceReviewModal').classList.remove('hidden');
 }
 async function handleInvoicePdfFile(file){
   const pending=state.pendingInvoicePdf;if(!pending?.monthKey)return;
@@ -1500,7 +1508,7 @@ async function renderMonths(){
     const availability=partial&&m.lastAvailableAt?` · do ${new Date(m.lastAvailableAt).toLocaleString('cs-CZ')}`:'';
     const stateText=monthIsComplete(m.monthKey)?'✓ kompletní':partial&&enabled?'● průběžně':enabled?'⚠ zkontrolovat':'—';
     const pdfSummary=finance.source==='pdf'
-      ?`<div class="invoice-source-summary"><strong>PDF · ${escapeHtml(finance.invoiceMeta.supplier||'faktura')}</strong><span>${detailed?'rozpad ceny načten':''}${tariffOk?` · tarif ${fmt.format(finance.tariff.fixedGrossPerMonth)} Kč/měs. + ${fmt3.format(finance.tariff.variableGrossPerKwh)} Kč/kWh vč. DPH`:''}</span></div>`
+      ?`<div class="invoice-source-summary"><div><strong>PDF · ${escapeHtml(finance.invoiceMeta.supplier||'faktura')}</strong><span>${detailed?'rozpad ceny načten':''}${tariffOk?` · tarif ${fmt.format(finance.tariff.fixedGrossPerMonth)} Kč/měs. + ${fmt3.format(finance.tariff.variableGrossPerKwh)} Kč/kWh vč. DPH`:''}</span></div><button class="invoice-detail-btn" data-invoice-detail="${m.monthKey}">Detail</button></div>`
       :'';
     let estimateHtml='';
     if(partial){
@@ -1538,6 +1546,7 @@ async function renderMonths(){
   $$('[data-month-toggle]').forEach(x=>x.onchange=()=>setMonthEnabled(x.dataset.monthToggle,x.checked).catch(e=>{console.error(e);alert('Změnu se nepodařilo uložit: '+e.message)}));
   $$('[data-month-invoice]').forEach(x=>x.onchange=()=>setMonthInvoice(x.dataset.monthInvoice,x.value).catch(e=>{console.error(e);alert('Cenu se nepodařilo uložit: '+e.message);renderMonths()}));
   $$('[data-invoice-pdf]').forEach(b=>b.onclick=()=>{state.pendingInvoicePdf={monthKey:b.dataset.invoicePdf};$('#invoicePdfInput').click()});
+  $$('[data-invoice-detail]').forEach(b=>b.onclick=()=>showStoredInvoiceDetail(b.dataset.invoiceDetail));
   $$('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm(`Opravdu odstranit ${monthLabel(b.dataset.delete)}?`))deleteMonth(b.dataset.delete)});
 }
 function renderExportDefaults(){const all=sortedRecords();if(!all.length)return;const min=all[0].dateKey,max=all.at(-1).dateKey,from=$('#exportFrom'),to=$('#exportTo');if(state.resetExportRange||!from.value)from.value=min;if(state.resetExportRange||!to.value)to.value=max;state.resetExportRange=false}
