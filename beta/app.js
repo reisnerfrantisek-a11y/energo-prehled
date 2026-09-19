@@ -850,15 +850,54 @@ function forecastEnergyDailySeries(monthKey){
   if(!lastObserved)return null;
   const future=dates.filter(d=>d>lastObserved),baseline=forecastWeekdayBaseline(monthKey);
   const weights=future.map(d=>Math.max(.0001,(baseline[weekdayFromDateKey(d)]||1)*(estimate.scale||1)));
-  const weightSum=weights.reduce((a,b)=>a+b,0)||1,remaining=Math.max(0,estimate.predictedEnergy-estimate.actualEnergy);
-  const futureValues=new Map(future.map((d,i)=>[d,remaining*(weights[i]||0)/weightSum]));
-  const data=dates.map(d=>({
-    date:d,
-    label:`${d.slice(8,10)}.${d.slice(5,7)}.`,
-    value:d<=lastObserved?(dailyActual.get(d)||0):(futureValues.get(d)||0),
-    kind:d<=lastObserved?'actual':'forecast'
-  }));
+  const central=CORE.distributeTotal(Math.max(0,estimate.predictedEnergy-estimate.actualEnergy),weights);
+  const low=CORE.distributeTotal(Math.max(0,estimate.lowEnergy-estimate.actualEnergy),weights);
+  const high=CORE.distributeTotal(Math.max(0,estimate.highEnergy-estimate.actualEnergy),weights);
+  const index=new Map(future.map((d,i)=>[d,i]));
+  const data=dates.map(d=>{
+    if(d<=lastObserved){
+      const value=dailyActual.get(d)||0;
+      return {date:d,label:`${d.slice(8,10)}.${d.slice(5,7)}.`,value,low:value,high:value,kind:'actual'};
+    }
+    const i=index.get(d),value=central[i]||0;
+    return {date:d,label:`${d.slice(8,10)}.${d.slice(5,7)}.`,value,low:low[i]||0,high:high[i]||0,kind:'forecast'};
+  });
   return {data,estimate,lastObserved};
+}
+function previousMonthEnergySeries(monthKey,targetLength){
+  const idx=monthIndex(monthKey);if(idx===null)return null;
+  const prevKey=monthKeyFromIndex(idx-1),meta=monthMeta(prevKey);
+  if(!meta||meta.enabled===false)return null;
+  const rs=state.records.filter(r=>r.monthKey===prevKey&&recordUsable(r)),daily=new Map();
+  for(const r of rs)daily.set(r.dateKey,(daily.get(r.dateKey)||0)+billingEnergy(r));
+  const dates=monthDateKeys(prevKey),values=dates.map(d=>daily.has(d)?daily.get(d):null);
+  return {monthKey:prevKey,label:monthLabel(prevKey),values:CORE.alignByDay(values,targetLength)};
+}
+function prepareEnergyChartSeries(monthKey){
+  const live=monthIsLivePartial(monthKey),forecast=live?forecastEnergyDailySeries(monthKey):null,dates=monthDateKeys(monthKey);
+  let data;
+  if(forecast?.data)data=forecast.data.map(d=>({...d}));
+  else{
+    const daily=new Map(),rs=state.records.filter(r=>r.monthKey===monthKey&&recordUsable(r));
+    for(const r of rs)daily.set(r.dateKey,(daily.get(r.dateKey)||0)+billingEnergy(r));
+    data=dates.map(d=>{const value=daily.get(d);return {date:d,label:`${d.slice(8,10)}.${d.slice(5,7)}.`,value:Number.isFinite(value)?value:null,low:null,high:null,kind:Number.isFinite(value)?'actual':'missing'}});
+  }
+  const prev=state.comparePrevious?previousMonthEnergySeries(monthKey,data.length):null;
+  if(state.chartMode==='cumulative'){
+    let acc=0,lowAcc=0,highAcc=0;
+    data=data.map(d=>{
+      if(d.kind==='missing')return {...d,value:null,low:null,high:null};
+      acc+=Number(d.value)||0;
+      lowAcc+=Number.isFinite(d.low)?Number(d.low):Number(d.value)||0;
+      highAcc+=Number.isFinite(d.high)?Number(d.high):Number(d.value)||0;
+      return {...d,value:acc,low:lowAcc,high:highAcc};
+    });
+    if(prev){
+      let pacc=0;
+      prev.values=prev.values.map(v=>{if(v===null)return null;pacc+=Number(v)||0;return pacc});
+    }
+  }
+  return {data,comparison:prev,live,estimate:forecast?.estimate||null};
 }
 function forecastCostSeries(monthKey){
   const estimate=estimatedMonthCost(monthKey);if(!estimate||!Number.isFinite(estimate.projectedCost))return null;
@@ -1064,35 +1103,50 @@ function lineChart(el,data,{hero=false,unit='kWh'}={}){
   </svg>`;
   attachChartTooltip(el,data,{w,left:p.l,right:p.r,htmlForPoint:d=>`<strong>${escapeHtml(d.label)}</strong><span>${escapeHtml(chartValue(Number(d.value)||0,unit))}</span>`});
 }
-function energyForecastLineChart(el,data){
+function energyForecastLineChart(el,data,{comparison=null,cumulative=false}={}){
   if(!data?.length){el.innerHTML='<div class="chart-empty">Zatím nejsou data</div>';return}
-  const w=700,h=200,p={l:64,r:14,t:34,b:38},vals=data.map(d=>Number(d.value)||0),axisMax=niceAxisMax(Math.max(...vals,.001)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4);
+  const w=700,h=210,p={l:64,r:14,t:42,b:38},orange='#f0a23a',blue='#8fc1ff',gray='#8d99aa',text='#afbdd0',grid='rgba(255,255,255,.13)';
+  const mainVals=data.flatMap(d=>[d.value,d.low,d.high]).filter(Number.isFinite),compareVals=comparison?.values?.filter(Number.isFinite)||[],axisMax=niceAxisMax(Math.max(...mainVals,...compareVals,.001)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4);
   const x=i=>p.l+(i/(Math.max(1,data.length-1)))*(w-p.l-p.r),y=v=>p.t+(1-v/axisMax)*(h-p.t-p.b);
-  const lastActual=Math.max(0,data.map(d=>d.kind).lastIndexOf('actual')),actualData=data.slice(0,lastActual+1),forecastData=data.slice(lastActual);
-  const actualPts=actualData.map((d,i)=>`${x(i)},${y(Number(d.value)||0)}`).join(' ');
-  const forecastPts=forecastData.map((d,j)=>`${x(lastActual+j)},${y(Number(d.value)||0)}`).join(' ');
-  const actualArea=`${p.l},${h-p.b} ${actualPts} ${x(lastActual)},${h-p.b}`;
-  const forecastArea=forecastData.length>1?`${x(lastActual)},${h-p.b} ${forecastPts} ${w-p.r},${h-p.b}`:'';
-  const xlabels=data.filter((_,i)=>i===0||i===data.length-1||i%Math.ceil(data.length/5)===0),grid='rgba(255,255,255,.13)',text='#afbdd0',orange='#f0a23a';
-  el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="Denní spotřeba a predikce do konce měsíce">
-    <defs>
-      <linearGradient id="energyActualArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#67a9ff" stop-opacity=".30"/><stop offset="1" stop-color="#67a9ff" stop-opacity="0"/></linearGradient>
-      <linearGradient id="energyForecastArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${orange}" stop-opacity=".24"/><stop offset="1" stop-color="${orange}" stop-opacity="0"/></linearGradient>
-    </defs>
-    <text class="chart-y-label" x="${p.l}" y="12" text-anchor="start" fill="${text}">kWh</text>
-    <line x1="${w-190}" x2="${w-168}" y1="11" y2="11" stroke="#8fc1ff" stroke-width="3"/><text x="${w-162}" y="14" fill="${text}" font-size="11" font-weight="700">skutečnost</text>
-    <line x1="${w-92}" x2="${w-70}" y1="11" y2="11" stroke="${orange}" stroke-width="3"/><text x="${w-64}" y="14" fill="${text}" font-size="11" font-weight="700">predikce</text>
+  const lastActual=data.map(d=>d.kind).lastIndexOf('actual'),forecastStart=data.findIndex(d=>d.kind==='forecast');
+  const actualPts=data.map((d,i)=>d.kind==='actual'&&Number.isFinite(d.value)?`${x(i)},${y(d.value)}`:null).filter(Boolean).join(' ');
+  const fStart=forecastStart>=0?Math.max(0,forecastStart-1):-1;
+  const forecastData=fStart>=0?data.slice(fStart):[];
+  const forecastPts=forecastData.map((d,j)=>Number.isFinite(d.value)?`${x(fStart+j)},${y(d.value)}`:null).filter(Boolean).join(' ');
+  const band=forecastData.filter((d,j)=>j===0||(Number.isFinite(d.low)&&Number.isFinite(d.high)));
+  let bandPolygon='';
+  if(band.length>1){
+    const indexed=band.map(d=>({d,i:data.indexOf(d)}));
+    const upper=indexed.map(o=>`${x(o.i)},${y(Number.isFinite(o.d.high)?o.d.high:o.d.value)}`).join(' ');
+    const lower=indexed.slice().reverse().map(o=>`${x(o.i)},${y(Number.isFinite(o.d.low)?o.d.low:o.d.value)}`).join(' ');
+    bandPolygon=`<polygon points="${upper} ${lower}" fill="${orange}" opacity=".13"/>`;
+  }
+  const comparisonPts=comparison?.values?.map((v,i)=>Number.isFinite(v)?`${x(i)},${y(v)}`:null).filter(Boolean).join(' ')||'';
+  const xlabels=data.filter((_,i)=>i===0||i===data.length-1||i%Math.ceil(data.length/5)===0);
+  const legend=[
+    `<span><i style="background:${blue}"></i>skutečnost</span>`,
+    forecastStart>=0?`<span><i style="background:${orange}"></i>predikce</span>`:'',
+    forecastStart>=0?`<span><i class="band" style="background:${orange}"></i>pásmo</span>`:'',
+    comparisonPts?`<span><i class="dash" style="background:${gray}"></i>${escapeHtml(comparison.label)}</span>`:''
+  ].filter(Boolean).join('');
+  el.innerHTML=`<div class="energy-chart-legend">${legend}</div><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="${cumulative?'Kumulativní':'Denní'} spotřeba a predikce">
+    <text class="chart-y-label" x="${p.l}" y="18" text-anchor="start" fill="${text}">kWh</text>
     ${ticks.map(t=>`<line x1="${p.l}" x2="${w-p.r}" y1="${y(t)}" y2="${y(t)}" stroke="${grid}" stroke-width="1"/><text class="chart-y-label" x="${p.l-7}" y="${y(t)+3}" text-anchor="end" fill="${text}">${escapeHtml(chartValue(t,'kWh').replace(' kWh',''))}</text>`).join('')}
-    <polygon points="${actualArea}" fill="url(#energyActualArea)"/>
-    ${forecastArea?`<polygon points="${forecastArea}" fill="url(#energyForecastArea)"/>`:''}
-    <polyline points="${actualPts}" fill="none" stroke="#8fc1ff" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>
-    ${forecastData.length>1?`<polyline points="${forecastPts}" fill="none" stroke="${orange}" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>`:''}
-    ${forecastData.length>1?`<line x1="${x(lastActual)}" x2="${x(lastActual)}" y1="${p.t}" y2="${h-p.b}" stroke="${orange}" opacity=".6" stroke-dasharray="4 5"/>`:''}
-    <circle cx="${x(lastActual)}" cy="${y(vals[lastActual])}" r="4" fill="#fff"><title>Poslední skutečnost: ${escapeHtml(data[lastActual].label)} · ${escapeHtml(chartValue(vals[lastActual],'kWh'))}</title></circle>
-    ${forecastData.length>1?`<circle cx="${x(data.length-1)}" cy="${y(vals.at(-1))}" r="4" fill="${orange}"><title>Predikce: ${escapeHtml(data.at(-1).label)} · ${escapeHtml(chartValue(vals.at(-1),'kWh'))}</title></circle>`:''}
+    ${bandPolygon}
+    ${comparisonPts?`<polyline points="${comparisonPts}" fill="none" stroke="${gray}" stroke-width="2" opacity=".8" vector-effect="non-scaling-stroke" stroke-dasharray="6 5" stroke-linecap="round" stroke-linejoin="round"/>`:''}
+    ${actualPts?`<polyline points="${actualPts}" fill="none" stroke="${blue}" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>`:''}
+    ${forecastPts?`<polyline points="${forecastPts}" fill="none" stroke="${orange}" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>`:''}
+    ${forecastStart>=0?`<line x1="${x(Math.max(0,forecastStart-1))}" x2="${x(Math.max(0,forecastStart-1))}" y1="${p.t}" y2="${h-p.b}" stroke="${orange}" opacity=".5" stroke-dasharray="4 5"/>`:''}
+    ${lastActual>=0?`<circle cx="${x(lastActual)}" cy="${y(data[lastActual].value)}" r="4" fill="#fff"/>`:''}
     ${xlabels.map(d=>{const i=data.indexOf(d);return `<text class="chart-x-label" x="${x(i)}" y="${h-8}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" fill="${text}">${escapeHtml(d.label)}</text>`}).join('')}
   </svg>`;
-  attachChartTooltip(el,data,{w,left:p.l,right:p.r,htmlForPoint:d=>`<strong>${escapeHtml(d.label)}</strong><span>${d.kind==='forecast'?'Predikce':'Skutečnost'} ${escapeHtml(chartValue(Number(d.value)||0,'kWh'))}</span>`});
+  attachChartTooltip(el,data,{w,left:p.l,right:p.r,htmlForPoint:(d,i)=>{
+    const lines=[`<strong>${escapeHtml(d.label)}</strong>`];
+    if(Number.isFinite(d.value))lines.push(`<span>${d.kind==='forecast'?'Predikce':'Skutečnost'} ${escapeHtml(chartValue(d.value,'kWh'))}</span>`);
+    if(d.kind==='forecast'&&Number.isFinite(d.low)&&Number.isFinite(d.high))lines.push(`<span>Pásmo ${escapeHtml(chartValue(d.low,'kWh'))}–${escapeHtml(chartValue(d.high,'kWh'))}</span>`);
+    const pv=comparison?.values?.[i];if(Number.isFinite(pv))lines.push(`<span>${escapeHtml(comparison.label)} ${escapeHtml(chartValue(pv,'kWh'))}</span>`);
+    return lines.join('');
+  }});
 }
 function forecastBandChart(el,data){
   if(!data?.length){el.innerHTML='<div class="chart-empty">Forecast zatím není k dispozici</div>';return}
