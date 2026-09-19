@@ -9,7 +9,8 @@ Verze 1.6 odděluje stabilní výpočetní logiku od UI monolitu tak, aby se dal
 - `core/model.js` – čisté matematické funkce, převody kW/kWh, kalendářní pomocné funkce a cenová regrese.
 - `core/time.js` – Europe/Prague, převod lokálního času na UTC kandidáty a DST 92/96/100 intervalů.
 - `core/forecast.js` – rozdělení měsíční predikce do dní, predikční pásmo a kumulativní transformace.
-- `core/invoice.js` – zpětně kompatibilní finanční schéma připravené pro ruční zadání i budoucí PDF faktury.
+- `core/invoice.js` – zpětně kompatibilní finanční schéma, detailní cenové složky a ověřený tarif.
+- `core/invoice-parser.js` – lokální textový parser podporovaných PDF faktur a validační pravidla.
 - `app.js` – orchestrace IndexedDB, EG.D, UI a vykreslování. Čisté výpočty deleguje do core modulů.
 
 ## Regresní ochrana
@@ -22,6 +23,7 @@ CI workflow `.github/workflows/test-beta-core.yml` používá Node 20 a při ka�
 - ICQ2 kWh ↔ kW,
 - statusy EG.D B/W a vyřazení nepoužitelných IU statusů,
 - zpětnou kompatibilitu finančních dat,
+- parser PDF faktur, součty cenových složek a tarifní sazby,
 - rozdělení predikce, predikční pásmo a kumulativní graf,
 - srovnávací řadu s minulým měsícem.
 

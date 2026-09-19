@@ -1,8 +1,8 @@
-name: Beta 1.6 regression tests
+name: Beta regression tests
 
 on:
   push:
-    branches: [main, 'refactor/**', 'fix/**']
+    branches: [main, 'refactor/**', 'fix/**', 'feature/**']
     paths:
       - 'beta/**'
       - '.github/workflows/test-beta-core.yml'
