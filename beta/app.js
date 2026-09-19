@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.6.2';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -147,7 +147,7 @@ async function extractPdfText(file){
   const pages=[];
   for(let p=1;p<=doc.numPages;p++){
     const page=await doc.getPage(p),content=await page.getTextContent();
-    pages.push(content.items.map(x=>String(x.str||'')).join(' '));
+    pages.push(INVOICE_PARSER.pdfItemsToLayoutText(content.items));
   }
   try{await doc.destroy()}catch{}
   const text=pages.join('\n');
@@ -166,7 +166,7 @@ function renderInvoiceReview(){
   const pending=state.pendingInvoicePdf,box=$('#invoiceReviewSummary'),components=$('#invoiceReviewComponents'),warnings=$('#invoiceReviewWarnings'),save=$('#confirmInvoicePdf'),cancel=$('#cancelInvoicePdf');
   if(!pending||!box||!components||!warnings||!save||!cancel)return;
   const r=pending.result,f=r.finance,t=f.tariff,m=f.metering,stored=!!pending.stored;
-  save.classList.toggle('hidden',stored);cancel.textContent=stored?'Zavřít':'Zrušit';
+  save.classList.toggle('hidden',stored);save.disabled=!r.canSave;save.textContent=r.canSave?'Uložit fakturu':'Nelze uložit';cancel.textContent=stored?'Zavřít':'Zrušit';
   const title=$('#invoiceReviewTitle');if(title)title.textContent=stored?'Detail faktury':'Kontrola PDF faktury';
   box.innerHTML=[
     ['Měsíc',r.invoiceMonthKey?monthLabel(r.invoiceMonthKey):'—'],
@@ -183,7 +183,6 @@ function renderInvoiceReview(){
   const items=[...(r.fatal||[]),...(r.warnings||[])];
   warnings.innerHTML=`<strong>${escapeHtml(model)}</strong>${items.length?items.map(x=>`<span>${escapeHtml(x)}</span>`).join(''):'<span>Kontroly součtů a cenových složek prošly bez výhrad.</span>'}`;
   warnings.classList.toggle('has-warning',items.length>0);
-  save.disabled=!r.canSave;
 }
 function showStoredInvoiceDetail(monthKey){
   const month=state.months.find(m=>m.monthKey===monthKey);if(!month)return;
