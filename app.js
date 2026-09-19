@@ -854,6 +854,7 @@ function renderPeriodControls(){
 }
 function renderOverview(){
   const costMode=state.dashboardMode==='cost';
+  const forecastPanel=$('#forecastPanel');if(forecastPanel)forecastPanel.classList.add('hidden');
   $$('.dashboard-mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.dashboardMode===state.dashboardMode));
   $('#metricToggle').classList.toggle('hidden',costMode);
   $('#effectivePricePanel').classList.toggle('hidden',!costMode);
@@ -928,7 +929,7 @@ function renderOverview(){
       if(prevReady&&prev.total>0){const delta=(cb.total-prev.total)/prev.total*100;$('#heroDelta').textContent=`${delta>=0?'▲':'▼'} ${fmt.format(Math.abs(delta))} % proti předchozímu období`}
       else $('#heroDelta').textContent='Předchozí období nemá kompletní finanční data';
     }
-    lineChart($('#mainChart'),dailyData,{hero:true,unit:'Kč'});
+    lineChart($('#mainChart'),dailyData,{hero:true,unit:'Kč'});renderForecastPanel(rs);
     const dayCount=Math.max(1,new Set(rs.map(r=>r.dateKey)).size);
     $('#avgDayLabel').textContent=estimatedCount?'Odhad / den':'Průměr / den';$('#avgDay').textContent=hasCost?fmt.format(total/dayCount):'—';$('#avgDayUnit').textContent='Kč / den';
     $('#maxPowerLabel').textContent=estimatedCount?'Použitá cena':'Efektivní cena';$('#maxPower').textContent=cb.coveredEnergyWithEstimate>0?fmt.format(total/cb.coveredEnergyWithEstimate):'—';$('#maxPowerSub').textContent=estimatedCount?'Kč / kWh · včetně odhadu':'Kč / kWh · podle DCC1';
@@ -963,11 +964,12 @@ function renderOverview(){
   const night=rs.filter(r=>r.hour<6);$('#baseLoadLabel').textContent='Základní odběr';$('#baseLoad').textContent=night.length?`${fmt.format(night.reduce((sum,r)=>sum+val(r),0)/night.length*1000)} W`:'—';$('#baseLoadUnit').textContent='průměr 00–06 h';
 }
 function renderAnalysis(){
-  const rs=currentRange();
+  const rs=currentRange();renderForecastAccuracy();
   if(!rs.length){
     const expected=expectedCurrentMonthKeys(),message=expected.length&&keysContainDisabled(expected)?'Zvolené období obsahuje vypnutá data':'Pro zvolené období nejsou aktivní data';
     ['weekdayChart','hourlyChart','heatmap','daypartList','peaksList'].forEach(id=>$('#'+id).innerHTML=`<div class="chart-empty">${message}</div>`);
     $('#daypartSubtitle').textContent=message;
+    const anomalySummary=$('#anomalySummary'),anomalyList=$('#anomalyList');if(anomalySummary)anomalySummary.innerHTML=`<strong>Bez dat pro analýzu.</strong><span>${escapeHtml(message)}</span>`;if(anomalyList)anomalyList.innerHTML='';
     return;
   }
   const dateTotals=group(rs,r=>r.dateKey),dateWeek={};rs.forEach(r=>dateWeek[r.dateKey]=r.weekday);
@@ -975,7 +977,7 @@ function renderAnalysis(){
   barChart($('#weekdayChart'),WEEK_MON.map((d,i)=>({label:d,short:d,value:counts[i]?sums[i]/counts[i]:0})),{unit:'kWh/den'});
   const type=$('#dayTypeSelect').value,filtered=rs.filter(r=>type==='all'||(type==='workday'&&r.weekday<5)||(type==='weekend'&&r.weekday>=5)),havg=groupAvg(filtered,r=>r.hour,val);
   lineChart($('#hourlyChart'),Array.from({length:24},(_,h)=>({label:String(h).padStart(2,'0'),value:havg.get(h)||0})),{unit:'kW'});
-  renderHeatmap(rs);renderDayparts(rs);renderPeaks(rs);
+  renderHeatmap(rs);renderDayparts(rs);renderPeaks(rs);renderAnomalies(rs);
 }
 function renderHeatmap(rs){
   const avg=groupAvg(rs,r=>`${r.weekday}|${r.hour}`,val),max=Math.max(...avg.values(),.001);let html='<div class="heat-grid"><div></div>'+Array.from({length:24},(_,h)=>`<div class="heat-label">${h}</div>`).join('');
