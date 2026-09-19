@@ -70,3 +70,12 @@ test('parser blocks a document without E.ON identity and invoice totals',()=>{
   assert.equal(r.canSave,false);
   assert.ok(r.fatal.length>=2);
 });
+
+
+test('parser rejects a billing period spanning multiple calendar months',()=>{
+  const cross=sample.replace('01.08.2026 - 31.08.2026','20.08.2026 - 20.09.2026')
+    .replace('od 1. 8. 2026 do 31. 8. 2026','od 20. 8. 2026 do 20. 9. 2026');
+  const r=Parser.parseEonInvoiceText(cross);
+  assert.equal(r.canSave,false);
+  assert.ok(r.fatal.some(x=>/přesahuje jeden kalendářní měsíc/i.test(x)));
+});
