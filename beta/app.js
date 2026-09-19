@@ -964,14 +964,18 @@ function predictMonthEnergy(monthKey,points=historicalEnergyPoints(monthKey)){
     historyMonths:points.length,
     fallback:baselineProjection
   });
-  const predictedEnergy=Math.max(actualEnergy,ensemble.value),remainingEnergy=Math.max(0,predictedEnergy-actualEnergy);
+  const regime=REGIME.detectRegimeShift(completeDailyRegimeRows(completeObserved.at(-1)||observedDates.at(-1)||''));
+  const regimeWeights=regime.status==='changed'&&regime.strength>0?REGIME.adaptEnsembleWeights(ensemble.weights,regime.strength):ensemble.weights;
+  const regimeValue=REGIME.reblendForecast(ensemble.components,regimeWeights),forecastValue=Number.isFinite(regimeValue)?regimeValue:ensemble.value;
+  const predictedEnergy=Math.max(actualEnergy,forecastValue),remainingEnergy=Math.max(0,predictedEnergy-actualEnergy);
   const ratios=[];for(const d of daily.values()){const base=baseline[d.weekday]||overall;if(base>0)ratios.push(d.energy/base)}
   const mad=median(ratios.map(r=>Math.abs(r-1)))||0,variability=clamp(1.4826*mad,0,.7),coverage=expectedSlots>0?clamp(observedSlots/expectedSlots,0,1):0;
   const fallbackUncertainty=clamp(.10+variability*.35+(1-coverage)*.18,.10,.42),errors=historicalEnergyForecastErrors(monthKey),calibration=FORECAST.calibrateUncertainty({fallback:fallbackUncertainty,absolutePctErrors:errors,coverage});
   const uncertainty=calibration.uncertainty,lowEnergy=Math.max(actualEnergy,predictedEnergy*(1-uncertainty)),highEnergy=Math.max(lowEnergy,predictedEnergy*(1+uncertainty));
   return {
     actualEnergy,predictedEnergy,remainingEnergy,paceEnergy,baselineProjection,recent7Projection,recent14Projection,
-    forecastModel:ensemble.model,forecastWeights:ensemble.weights,forecastComponents:ensemble.components,
+    forecastModel:ensemble.model,forecastWeights:regimeWeights,forecastComponents:ensemble.components,
+    regimeShift:regime,regimeAdaptation:regime.status==='changed'?regime.strength:0,
     lowEnergy,highEnergy,gapEnergy,remainderToday,futureEnergy,scale,uncertainty,uncertaintySource:calibration.source,uncertaintySamples:calibration.sampleCount,
     observedDays:observedDates.length,completeObservedDays:completeObserved.length,totalDays:allDates.length,expectedSlots,observedSlots,
     incompleteClosedDays:countIncompleteClosedDays(state.records.filter(r=>r.monthKey===monthKey),monthKey),missingClosedIntervals:countMissingClosedIntervals(state.records.filter(r=>r.monthKey===monthKey),monthKey)
@@ -1162,10 +1166,9 @@ function prepareCostChartSeries(monthKey){
   return {data,comparison,live,estimate:forecast?.estimate||null};
 }
 function completeDailyRegimeRows(endDateKey=''){
-  const today=pragueDayKeyFromMs(Date.now()),cutoff=endDateKey&&endDateKey<today?endDateKey:today;
-  const map=new Map();
+  const today=pragueDayKeyFromMs(Date.now()),map=new Map();
   for(const r of sortedRecords()){
-    if(!r.dateKey||r.dateKey>=cutoff)continue;
+    if(!r.dateKey||r.dateKey>=today)continue;
     if(endDateKey&&r.dateKey>endDateKey)continue;
     let d=map.get(r.dateKey);
     if(!d){d={dateKey:r.dateKey,weekday:r.weekday,energy:0,count:0,parts:{night:0,morning:0,day:0,evening:0,late:0}};map.set(r.dateKey,d)}
@@ -1536,7 +1539,8 @@ function forecastV2Summary(e){
   const band=e.uncertaintySource==='backtest'
     ?`pásmo kalibrováno backtestem (${e.uncertaintySamples||0})`
     :`pásmo průběžně heuristické`;
-  return `Forecast 2.0 · ${bits.join(' · ')} · ${band}`;
+  const regime=Number(e.regimeAdaptation)>0?` · adaptace režimu ${Math.round(Number(e.regimeAdaptation)*100)} %`:'';
+  return `Forecast 2.0 · ${bits.join(' · ')} · ${band}${regime}`;
 }
 function renderForecastPanel(rs){
   const panel=$('#forecastPanel'),chart=$('#forecastChart'),meta=$('#forecastMeta');if(!panel||!chart||!meta)return;
