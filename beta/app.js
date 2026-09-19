@@ -1702,7 +1702,8 @@ async function forceUpdateApp(){
     const base=new URL('./',location.href).href;
     if('serviceWorker' in navigator){
       const regs=await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.filter(r=>r.scope===base).map(r=>r.unregister()));
+      const betaPath=new URL('./',location.href).pathname;
+      await Promise.all(regs.filter(r=>{try{return new URL(r.scope).pathname.startsWith(betaPath)}catch{return false}}).map(r=>r.unregister()));
     }
     if('caches' in window){
       const keys=await caches.keys();
