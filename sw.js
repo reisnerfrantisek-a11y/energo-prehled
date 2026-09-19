@@ -1,8 +1,8 @@
 const SCOPE_TAG=new URL(self.registration.scope).pathname.includes('/beta/')?'beta':'prod';
 const CACHE_PREFIX=`energo-prehled-${SCOPE_TAG}-`;
-const CACHE=`${CACHE_PREFIX}v1.4.5`;
+const CACHE=`${CACHE_PREFIX}v1.4.6`;
 const LEGACY_CACHES=SCOPE_TAG==='beta'?['energo-prehled-v1.1.0']:['energo-prehled-v1.0.0'];
-const ASSETS=['./','./index.html','./styles.css?v=1.4.5','./app.js?v=1.4.5','./manifest.webmanifest','./icons/icon-180.png','./icons/icon-192.png','./icons/icon-512.png'];
+const ASSETS=['./','./index.html','./styles.css?v=1.4.6','./app.js?v=1.4.6','./manifest.webmanifest','./icons/icon-180.png','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>(k.startsWith(CACHE_PREFIX)&&k!==CACHE)||LEGACY_CACHES.includes(k)).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{
