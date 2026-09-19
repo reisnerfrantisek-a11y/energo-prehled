@@ -139,3 +139,10 @@
 .invoice-source-summary{flex-direction:row;align-items:center;justify-content:space-between;gap:8px}.invoice-source-summary>div{display:flex;flex-direction:column;gap:2px;min-width:0}.invoice-detail-btn{flex:0 0 auto;border:0;background:transparent;color:var(--accent);font-size:10px;font-weight:850;padding:6px 4px}
 
 .invoice-review-modal .primary-btn:disabled{opacity:.45;filter:saturate(.45);cursor:not-allowed}
+
+.invoice-review-warnings.is-valid{background:color-mix(in srgb,#2fb36d 7%,var(--surface));border-color:color-mix(in srgb,#2fb36d 25%,var(--border))}
+.invoice-review-status{color:var(--text)!important;font-weight:760}
+.invoice-review-info{color:var(--muted)!important}
+.invoice-tech-details{margin-top:5px;border-top:1px solid color-mix(in srgb,var(--border) 70%,transparent);padding-top:7px;color:var(--muted)}
+.invoice-tech-details summary{font-size:10px;font-weight:800;color:var(--muted);cursor:pointer;list-style-position:inside}
+.invoice-tech-details div{margin-top:6px;font-size:9px;line-height:1.45;overflow-wrap:anywhere;opacity:.85}
