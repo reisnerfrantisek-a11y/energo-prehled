@@ -60,3 +60,32 @@ test('forecast allocation and cumulative band preserve totals',()=>{
   assert.deepEqual(cum.map(x=>x.low),[5,6,9]);
   assert.deepEqual(cum.map(x=>x.high),[5,8,14]);
 });
+
+
+test('Forecast 2.0 ensemble blends weekday, recent windows and pace with normalized weights',()=>{
+  const r=Forecast.ensembleMonthForecast({
+    weekdayProjection:48,
+    recent7Projection:54,
+    recent14Projection:51,
+    paceProjection:60,
+    observedDays:18,
+    historyMonths:6,
+    fallback:50
+  });
+  assert.equal(r.model,'ensemble-v2');
+  const sum=Object.values(r.weights).reduce((a,b)=>a+b,0);
+  assert.ok(Math.abs(sum-1)<1e-12);
+  assert.ok(r.value>48&&r.value<60);
+  assert.ok(r.weights.weekday>r.weights.pace);
+});
+
+test('calibrated forecast band uses backtest errors only after enough samples',()=>{
+  const fallback=Forecast.calibrateUncertainty({fallback:.18,absolutePctErrors:[12]});
+  assert.equal(fallback.source,'heuristic');
+  assert.equal(fallback.uncertainty,.18);
+
+  const calibrated=Forecast.calibrateUncertainty({fallback:.18,absolutePctErrors:[8,10,12,20,15,9]});
+  assert.equal(calibrated.source,'backtest');
+  assert.equal(calibrated.sampleCount,6);
+  assert.ok(calibrated.uncertainty>=.10&&calibrated.uncertainty<=.25);
+});
