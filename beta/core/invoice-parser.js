@@ -9,7 +9,7 @@
   'use strict';
   if(!Invoice)throw new Error('EnergoInvoice is required.');
 
-  const PARSER_VERSION='eon-cz-1.3.0';
+  const PARSER_VERSION='eon-cz-1.4.0';
   const NUM='[0-9]+(?:\\s[0-9]{3})*(?:[.,][0-9]+)?';
 
   function pdfItemsToRows(items,yTolerance=1.6){
@@ -46,6 +46,108 @@
     if(line.length)out.push(line.join(' '));
     return out.join('\n');
   }
+  function geometryRows(page,yTolerance=4){
+    const width=Number(page?.width)||595,height=Number(page?.height)||842,rows=[];
+    for(const item of Array.isArray(page?.items)?page.items:[]){
+      const str=String(item?.str||'').trim(),x=Number(item?.x),y=Number(item?.y);
+      if(!str||!Number.isFinite(x)||!Number.isFinite(y))continue;
+      let row=rows.find(r=>Math.abs(r.y-y)<=yTolerance);
+      if(!row){row={y,parts:[]};rows.push(row)}
+      row.parts.push({x,str});
+    }
+    return rows.sort((a,b)=>a.y-b.y).map(r=>({
+      y:r.y,width,height,
+      parts:r.parts.sort((a,b)=>a.x-b.x),
+      text:r.parts.sort((a,b)=>a.x-b.x).map(p=>p.str).join(' ')
+    }));
+  }
+  function geometryNumber(row,minRatio,maxRatio){
+    const text=(row?.parts||[]).filter(p=>p.x>=row.width*minRatio&&p.x<row.width*maxRatio).map(p=>p.str).join(' ');
+    return parseCzNumber(text);
+  }
+  function geometryDateMatches(text){
+    return [...String(text||'').matchAll(/\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{4}/g)].map(m=>m[0].replace(/\s+/g,''));
+  }
+  function geometryChargeRow(row){
+    const dates=geometryDateMatches(row?.text);
+    if(dates.length<2)return null;
+    const unit=/\bMWh\b/i.test(row.text)?'MWh':/\bkWh\b/i.test(row.text)?'kWh':/M[ěe]s[ií]c/i.test(row.text)?'Měsíc':null;
+    const quantity=geometryNumber(row,.70,.805),unitPrice=geometryNumber(row,.805,.91),total=geometryNumber(row,.91,1.01);
+    if(!unit||!Number.isFinite(quantity)||!Number.isFinite(unitPrice)||!Number.isFinite(total))return null;
+    return {row,dates,unit,quantity,unitPrice,total};
+  }
+  function formatCzNumber(v,digits=3){
+    if(!Number.isFinite(Number(v)))return '';
+    return Number(v).toLocaleString('cs-CZ',{minimumFractionDigits:0,maximumFractionDigits:digits,useGrouping:true});
+  }
+  function canonicalCharge(label,c){
+    if(!c)return '';
+    return `${label} ${c.dates[0]} ${c.dates[1]} ${c.unit} ${formatCzNumber(c.quantity,3)} ${formatCzNumber(c.unitPrice,5)} ${formatCzNumber(c.total,2)}`;
+  }
+  function pdfGeometryToEonText(pages){
+    const all=(Array.isArray(pages)?pages:[]).map((page,index)=>({page,index,rows:geometryRows(page,5)}));
+    if(!all.length)return '';
+    let ean='',eanPage=null,eanRow=null;
+    for(const p of all){
+      for(const row of p.rows){
+        const m=row.text.match(/\b(\d{18})\b/);
+        if(m){ean=m[1];eanPage=p;eanRow=row;break}
+      }
+      if(ean)break;
+    }
+    const periodCandidates=[];
+    for(const p of all)for(const row of p.rows){
+      const dates=geometryDateMatches(row.text);
+      if(dates.length>=2&&!/\b(?:MWh|kWh|M[ěe]s[ií]c)\b/i.test(row.text)){
+        periodCandidates.push({p,row,dates,score:(p===eanPage?30:0)+(row.y<row.height*.30?20:0)-p.index*2-row.y/1000});
+      }
+    }
+    periodCandidates.sort((a,b)=>b.score-a.score);
+    const period=periodCandidates[0]||null;
+
+    let documentNumber='';
+    const docPages=eanPage?[eanPage,...all.filter(p=>p!==eanPage)]:all;
+    for(const p of docPages){
+      const rows=p.rows.filter(r=>r.y<r.height*.45);
+      for(const row of rows){
+        const candidates=[...row.text.matchAll(/\b(\d{8,14})\b/g)].map(m=>m[1]).filter(v=>v!==ean);
+        if(candidates.length){documentNumber=candidates[0];break}
+      }
+      if(documentNumber)break;
+    }
+
+    const tablePage=eanPage||all.find(p=>p.rows.some(r=>geometryChargeRow(r)));
+    const charges=tablePage?tablePage.rows.map(geometryChargeRow).filter(Boolean).filter(c=>c.row.y>c.row.height*.28&&c.row.y<c.row.height*.67):[];
+    charges.sort((a,b)=>a.row.y-b.row.y);
+    const mwh=charges.filter(c=>c.unit==='MWh'||c.unit==='kWh'),monthly=charges.filter(c=>c.unit==='Měsíc');
+    const highVariable=mwh.filter(c=>c.unitPrice>=500);
+    const supply=highVariable[0]||mwh[0]||null;
+    const distribution=highVariable[1]||null;
+    const tax=mwh.find(c=>c!==supply&&c!==distribution&&c.unitPrice<80)||null;
+    const system=mwh.find(c=>c!==supply&&c!==distribution&&c!==tax&&c.unitPrice>=80&&c.unitPrice<500)||null;
+    const supplierFixed=monthly[0]||null,breaker=monthly[1]||null,distributionFixed=monthly[2]||null,poze=monthly[3]||null;
+
+    const lines=['E.ON Energie, a.s.'];
+    if(period)lines.push(`Odečtové období: ${period.dates[0]} - ${period.dates[1]}`);
+    if(documentNumber)lines.push(`${documentNumber} Číslo daňového dokladu`);
+    if(ean)lines.push(`${ean} EAN`);
+    if(supply){
+      const kwh=supply.unit==='MWh'?supply.quantity*1000:supply.quantity;
+      lines.push(`Celková spotřeba elektřiny ${formatCzNumber(kwh/1000,5)} MWh`);
+    }
+    for(const line of [
+      canonicalCharge('Dodané množství jednotarif',supply),
+      canonicalCharge('Stálý plat',supplierFixed),
+      canonicalCharge('Daň z elektřiny',tax),
+      canonicalCharge('Cena za distrib. množství elektřiny ve vysokém tarifu',distribution),
+      canonicalCharge('Cena za příkon podle hodnoty hl. jističe před elekt.',breaker),
+      canonicalCharge('Pevná cena za systémové služby',system),
+      canonicalCharge('Cena za provoz nesíťové infrastruktury',distributionFixed),
+      canonicalCharge('Složka ceny na podporu el. z podpor. zdrojů energie',poze)
+    ])if(line)lines.push(line);
+    return lines.join('\n');
+  }
+
   function uniqueCompositeText(candidates){
     const seen=new Set(),lines=[];
     for(const c of Array.isArray(candidates)?candidates:[]){
@@ -295,5 +397,5 @@
     return best;
   }
 
-  return {PARSER_VERSION,pdfItemsToRows,rowsToText,pdfItemsToLayoutText,pdfItemsToColumnFlowText,pdfItemsToEolText,uniqueCompositeText,normalizeText,normalizeLines,parseCzNumber,parseEonInvoiceText,parseEonInvoiceCandidates};
+  return {PARSER_VERSION,pdfItemsToRows,rowsToText,pdfItemsToLayoutText,pdfItemsToColumnFlowText,pdfItemsToEolText,geometryRows,pdfGeometryToEonText,uniqueCompositeText,normalizeText,normalizeLines,parseCzNumber,parseEonInvoiceText,parseEonInvoiceCandidates};
 });
