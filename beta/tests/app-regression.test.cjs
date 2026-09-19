@@ -6,6 +6,7 @@ const Core=require('../core/model.js');
 const Invoice=require('../core/invoice.js');
 const Time=require('../core/time.js');
 const Forecast=require('../core/forecast.js');
+const Regime=require('../core/regime.js');
 const InvoiceParser=require('../core/invoice-parser.js');
 
 const root=path.resolve(__dirname,'..');
@@ -19,11 +20,11 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
-  const window={EnergoCore:Core,EnergoInvoice:Invoice,EnergoTime:Time,EnergoForecast:Forecast,EnergoInvoiceParser:InvoiceParser,scrollTo:()=>{}};
+  const window={EnergoCore:Core,EnergoInvoice:Invoice,EnergoTime:Time,EnergoForecast:Forecast,EnergoRegime:Regime,EnergoInvoiceParser:InvoiceParser,scrollTo:()=>{}};
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
@@ -325,4 +326,36 @@ test('Data tab keeps one-tap EG.D sync and settings shortcut',()=>{
   assert.match(app,/renderDataSourceCard/);
   assert.match(app,/\$\('#dataSyncNowBtn'\)\.onclick/);
   assert.match(app,/\$\('#dataSettingsBtn'\)\.onclick=.*nav\('settings'\)/);
+});
+
+
+test('Regime analysis card and core module are wired into Analysis',()=>{
+  assert.match(html,/id="regimeCard"/);
+  assert.match(html,/id="regimeSummary"/);
+  assert.match(html,/id="regimeForecastImpact"/);
+  assert.match(app,/REGIME\.detectRegimeShift/);
+  assert.match(app,/REGIME\.adaptEnsembleWeights/);
+  assert.match(app,/renderRegimeShift\(rs\)/);
+});
+
+test('persistent recent shift changes Forecast 2.0 weighting',()=>{
+  const api=loadApp();api.state.months=[];api.state.records=[];
+  function addDay(key,energy,source='xlsx'){
+    const [y,m,d]=key.split('-').map(Number),wd0=new Date(Date.UTC(y,m-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;
+    api.state.months.push({monthKey:key.slice(0,7),enabled:true,complete:key.slice(0,7)!=='2026-09',source});
+    for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){
+      api.state.records.push({id:key+'-'+h+'-'+mi,monthKey:key.slice(0,7),dateKey:key,sortKey:Date.UTC(y,m-1,d,h,mi),year:y,month:m,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:energy/6,source,apiStatus:source==='egd-api'?'W':undefined});
+    }
+  }
+  const start=new Date(Date.UTC(2026,5,1));
+  for(let i=0;i<70;i++){
+    const d=new Date(start.getTime()+i*86400000),key=d.toISOString().slice(0,10);
+    addDay(key,i>=63?1.55:1.0,key>='2026-09-01'?'egd-api':'xlsx');
+  }
+  api.state.months=[...new Map(api.state.months.map(m=>[m.monthKey,m])).values()];
+  const rs=api.state.records.filter(r=>r.dateKey>='2026-07-01');
+  const regime=api.regimeAnalysisForRange(rs);
+  assert.equal(regime.status,'changed');
+  assert.equal(regime.direction,'higher');
+  assert.ok(regime.strength>0);
 });
