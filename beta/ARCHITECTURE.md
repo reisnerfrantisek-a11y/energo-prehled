@@ -37,7 +37,8 @@ Hlavní měsíční graf spotřeby podporuje:
 - modrou skutečnost,
 - oranžovou predikci,
 - světle oranžové predikční pásmo,
-- volitelné srovnání s minulým měsícem nebo stejným měsícem loni,
+- volitelné srovnání s minulým měsícem nebo stejným měsícem loni ve spotřebě i nákladech,
+- nákladový hlavní graf používá stejně jako spotřeba modrou skutečnost, oranžovou predikci a predikční pásmo,
 - datový health score pro vybraný měsíc,
 - stručný popis složení Forecastu 2.0 a zdroje predikčního pásma.
 
