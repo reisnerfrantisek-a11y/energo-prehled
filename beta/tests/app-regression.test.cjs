@@ -4,6 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const Core=require('../core/model.js');
 const Invoice=require('../core/invoice.js');
+const Time=require('../core/time.js');
 
 const root=path.resolve(__dirname,'..');
 const app=fs.readFileSync(path.join(root,'app.js'),'utf8');
@@ -20,7 +21,7 @@ return {
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
-  const window={EnergoCore:Core,EnergoInvoice:Invoice,scrollTo:()=>{}};
+  const window={EnergoCore:Core,EnergoInvoice:Invoice,EnergoTime:Time,scrollTo:()=>{}};
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
@@ -30,8 +31,10 @@ test('beta 1.6 files are version-aligned and syntactically valid',()=>{
   assert.match(html,/BETA 1\.6\.0/);
   assert.match(sw,/v1\.6\.0/);
   assert.match(html,/core\/model\.js\?v=1\.6\.0/);
+  assert.match(html,/core\/time\.js\?v=1\.6\.0/);
   assert.match(html,/core\/invoice\.js\?v=1\.6\.0/);
   assert.match(sw,/core\/model\.js\?v=1\.6\.0/);
+  assert.match(sw,/core\/time\.js\?v=1\.6\.0/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
