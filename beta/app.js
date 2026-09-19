@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.5.9';
+const APP_VERSION = '1.5.10';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -424,6 +424,13 @@ function apiValueToKw(value,units,intervalMinutes=15){
   if(u==='KWH')return n/hours;if(u==='WH')return n/1000/hours;if(u==='MWH')return n*1000/hours;
   throw new Error(`Nepodporovaná jednotka z EG.D: ${units||'neuvedena'}.`);
 }
+function apiValueFromKw(kw,units,intervalMinutes=15){
+  const n=Number(kw);if(!Number.isFinite(n))return null;
+  const u=String(units||'').toUpperCase().replace(/\s+/g,''),hours=intervalMinutes/60;
+  if(u==='KW')return n;if(u==='W')return n*1000;if(u==='MW')return n/1000;
+  if(u==='KWH')return n*hours;if(u==='WH')return n*1000*hours;if(u==='MWH')return n*hours/1000;
+  return null;
+}
 function pragueMonthQueryBounds(monthKey){
   const [year,month]=monthKey.split('-').map(Number),nextMonth=month===12?1:month+1,nextYear=month===12?year+1:year;
   const start=pragueUtcCandidates(parseCzTimestamp(`01.${String(month).padStart(2,'0')}.${year} 00:00:00`))[0];
@@ -431,9 +438,9 @@ function pragueMonthQueryBounds(monthKey){
   if(!Number.isFinite(start)||!Number.isFinite(next))throw new Error('Nepodařilo se určit UTC hranice měsíce.');
   const fullEnd=next-15*60000,now=Date.now(),nowP=pragueParts(now);
   const todayStart=pragueUtcCandidates(parseCzTimestamp(`${String(nowP.day).padStart(2,'0')}.${String(nowP.month).padStart(2,'0')}.${nowP.year} 00:00:00`))[0];
-  const egdMaxEnd=todayStart-15*60000;
-  const queryEnd=Math.min(fullEnd,egdMaxEnd);
-  return {from:new Date(start).toISOString(),to:new Date(queryEnd).toISOString(),start,end:fullEnd,isPast:now>=next,egdMaxEnd};
+  const queryStart=start-1000;
+  const queryEnd=Math.min(next-1000,todayStart-1000);
+  return {from:new Date(queryStart).toISOString(),to:new Date(queryEnd).toISOString(),start,end:fullEnd,isPast:now>=next,egdMaxEnd:todayStart-1000};
 }
 async function fetchEgdRange(token,from,to,profile=state.egd.profile){
   if(state.egd.proxyUrl)return (await egdProxyPost('spotreby',{ean:state.egd.ean,profile,from,to})).data;
@@ -456,13 +463,14 @@ async function probeConsumptionProfiles(token,typMereni){
   return {workingProfile:null,results,from,to};
 }
 function egdRangeChunks(fromIso,toIso,chunkDays=7){
-  const from=Date.parse(fromIso),to=Date.parse(toIso),step=15*60000,span=chunkDays*86400000;
+  const from=Date.parse(fromIso),to=Date.parse(toIso),span=chunkDays*86400000;
   if(!Number.isFinite(from)||!Number.isFinite(to)||to<from)return [];
   const out=[];let start=from;
   while(start<=to){
-    const end=Math.min(to,start+span-step);
+    const end=Math.min(to,start+span);
     out.push({from:new Date(start).toISOString(),to:new Date(end).toISOString()});
-    start=end+step;
+    if(end>=to)break;
+    start=end-1000;
   }
   return out;
 }
@@ -492,20 +500,38 @@ function incrementalEgdBounds(monthKey,bounds){
   const existing=existingEgdRecords(monthKey);
   if(!existing.length)return {...bounds,incremental:false,existing};
   const lastMs=Math.max(...existing.map(r=>Number(r.sortKey)).filter(Number.isFinite));
-  const fromMs=Math.max(bounds.start,lastMs+15*60000);
+  const fromMs=Math.max(bounds.start-1000,lastMs+15*60000-1000);
   return {...bounds,from:new Date(fromMs).toISOString(),incremental:true,existing,lastExistingMs:lastMs};
+}
+async function repairMissingEgdIntervals(token,monthKey,profile,records,maxGaps=12){
+  const gaps=closedIntervalGaps(records,monthKey);
+  if(!gaps.length)return {records,attempted:0,recovered:0,remaining:0};
+  const targets=gaps.slice(0,maxGaps),rawPayloads=[];
+  for(const gap of targets){
+    const from=new Date(gap.sortKey-1000).toISOString(),to=new Date(gap.sortKey+1000).toISOString();
+    try{rawPayloads.push(await fetchEgdRange(token,from,to,profile))}
+    catch(e){console.warn('EG.D oprava chybějícího intervalu selhala',gap.sourceTimestamp,e)}
+  }
+  const group=mergeEgdPayloads(rawPayloads,profile);
+  if(!group?.data?.length)return {records,attempted:targets.length,recovered:0,remaining:gaps.length};
+  const seen=new Map(),fresh=group.data.map(x=>apiLocalRecord(state.egd.ean,profile,String(group.units||''),x,seen)).filter(Boolean).filter(r=>r.monthKey===monthKey);
+  const merged=mergeEgdRecords(records,fresh),remaining=closedIntervalGaps(merged,monthKey).length;
+  return {records:merged,attempted:targets.length,recovered:Math.max(0,gaps.length-remaining),remaining};
 }
 function apiLocalRecord(ean,profile,units,item,seen){
   const ms=Date.parse(item.timestamp);if(!Number.isFinite(ms))return null;
   const p=pragueParts(ms),source=sourceStamp(p.year,p.month,p.day,p.hour,p.minute),occ=seen.get(source)||0;seen.set(source,occ+1);
   const kw=apiValueToKw(item.value,units,15);if(kw===null)return null;
   const status=String(item.status||'').trim().toUpperCase(),quality=egdStatusInfo(status);
-  return {id:`${ean}|egd|${profile}|${ms}`,ean,meter:'EG.D OpenAPI',monthKey:`${p.year}-${String(p.month).padStart(2,'0')}`,dateKey:`${p.year}-${String(p.month).padStart(2,'0')}-${String(p.day).padStart(2,'0')}`,sourceTimestamp:source,displayTimestamp:`${String(p.day).padStart(2,'0')}.${String(p.month).padStart(2,'0')}.${p.year} ${String(p.hour).padStart(2,'0')}:${String(p.minute).padStart(2,'0')}${occ?' ['+(occ+1)+']':''}`,occurrenceIndex:occ,sortKey:ms,year:p.year,month:p.month,day:p.day,hour:p.hour,minute:p.minute,weekday:weekdayMon(p),intervalMinutes:15,dcc0:null,dcc1:kw,dkc0:null,dkc1:null,dmc0:null,dmc1:null,apiStatus:status,apiQuality:quality.kind,apiUsable:quality.usable,apiProfile:profile,apiUnits:units,source:'egd-api',dataSchemaVersion:3};
+  return {id:`${ean}|egd|${profile}|${ms}`,ean,meter:'EG.D OpenAPI',monthKey:`${p.year}-${String(p.month).padStart(2,'0')}`,dateKey:`${p.year}-${String(p.month).padStart(2,'0')}-${String(p.day).padStart(2,'0')}`,sourceTimestamp:source,displayTimestamp:`${String(p.day).padStart(2,'0')}.${String(p.month).padStart(2,'0')}.${p.year} ${String(p.hour).padStart(2,'0')}:${String(p.minute).padStart(2,'0')}${occ?' ['+(occ+1)+']':''}`,occurrenceIndex:occ,sortKey:ms,year:p.year,month:p.month,day:p.day,hour:p.hour,minute:p.minute,weekday:weekdayMon(p),intervalMinutes:15,dcc0:null,dcc1:kw,dkc0:null,dkc1:null,dmc0:null,dmc1:null,apiStatus:status,apiQuality:quality.kind,apiUsable:quality.usable,apiProfile:profile,apiUnits:units,apiRawValue:Number.isFinite(Number(item.value))?Number(item.value):null,apiTimestampUtc:String(item.timestamp||new Date(ms).toISOString()),source:'egd-api',dataSchemaVersion:3};
 }
 async function fetchEgdMonth(token,monthKey,profile=state.egd.profile){
   const fullBounds=pragueMonthQueryBounds(monthKey),bounds=incrementalEgdBounds(monthKey,fullBounds);
   if(Date.parse(bounds.to)<Date.parse(bounds.from)){
-    if(bounds.existing.length)return buildEgdMonthPayload(monthKey,bounds.existing,{incremental:true,noNewRange:true,activeProfile:profile});
+    if(bounds.existing.length){
+      const repair=await repairMissingEgdIntervals(token,monthKey,profile,bounds.existing);
+      return buildEgdMonthPayload(monthKey,repair.records,{incremental:true,noNewRange:true,activeProfile:profile,gapRepairAttempted:repair.attempted,gapRepairRecovered:repair.recovered,gapRepairRemaining:repair.remaining});
+    }
     return null;
   }
   let payloads=[],usedChunkFallback=false,usedDailyFallback=false;
@@ -534,16 +560,18 @@ async function fetchEgdMonth(token,monthKey,profile=state.egd.profile){
     return null;
   }
   const units=String(group.units||''),seen=new Map(),fresh=group.data.map(x=>apiLocalRecord(state.egd.ean,profile,units,x,seen)).filter(Boolean).filter(r=>r.monthKey===monthKey);
-  const records=mergeEgdRecords(bounds.existing,fresh);
-  return buildEgdMonthPayload(monthKey,records,{incremental:bounds.incremental,chunkFallback:usedChunkFallback,dailyFallback:usedDailyFallback,refreshedFrom:bounds.from,apiUnits:units,activeProfile:profile});
+  let records=mergeEgdRecords(bounds.existing,fresh);
+  const repair=await repairMissingEgdIntervals(token,monthKey,profile,records);
+  records=repair.records;
+  return buildEgdMonthPayload(monthKey,records,{incremental:bounds.incremental,chunkFallback:usedChunkFallback,dailyFallback:usedDailyFallback,refreshedFrom:bounds.from,apiUnits:units,activeProfile:profile,gapRepairAttempted:repair.attempted,gapRepairRecovered:repair.recovered,gapRepairRemaining:repair.remaining});
 }
 function buildEgdMonthPayload(monthKey,records,extra={}){
   if(!records.length)return null;
   const statusCounts={};for(const r of records){const k=String(r.apiStatus||'?').trim().toUpperCase()||'?';statusCounts[k]=(statusCounts[k]||0)+1}
   const usable=usableRecords(records),provisional=records.filter(recordProvisional),[year,month]=monthKey.split('-').map(Number),bounds=pragueMonthQueryBounds(monthKey),validation=bounds.isPast?validateMonthTimeline(usable,year,month):{complete:false,expectedCount:[...expectedTimestampCounts(year,month).values()].reduce((a,b)=>a+b,0),issues:[]};
-  const complete=bounds.isPast&&validation.complete,incompleteDays=countIncompleteClosedDays(records,monthKey),lastMs=Math.max(...records.map(r=>r.sortKey)),label=`${MONTH_NAMES[month-1]} ${year}`;
+  const complete=bounds.isPast&&validation.complete,gaps=closedIntervalGaps(records,monthKey),incompleteDays=new Set(gaps.map(g=>g.dateKey)).size,missingClosedIntervals=gaps.length,lastMs=Math.max(...records.map(r=>r.sortKey)),label=`${MONTH_NAMES[month-1]} ${year}`;
   const apiUnits=extra.apiUnits||records.find(r=>r.apiUnits)?.apiUnits||'';
-  return {records,month:{monthKey,label,year,month,ean:state.egd.ean,meter:'EG.D OpenAPI',count:records.length,usableCount:usable.length,provisionalCount:provisional.length,excludedQualityCount:records.length-usable.length,expectedCount:validation.expectedCount,complete,incompleteDays,validationVersion:6,dataSchemaVersion:3,enabled:true,finance:emptyFinance(),first:records[0].sourceTimestamp,last:records.at(-1).sourceTimestamp,importedAt:new Date().toISOString(),fileName:'EG.D OpenAPI',source:'egd-api',apiProfile:extra.activeProfile||state.egd.profile,apiUnits,apiStatusCounts:statusCounts,lastAvailableAt:new Date(lastMs).toISOString(),syncedAt:new Date().toISOString(),...extra}};
+  return {records,month:{monthKey,label,year,month,ean:state.egd.ean,meter:'EG.D OpenAPI',count:records.length,usableCount:usable.length,provisionalCount:provisional.length,excludedQualityCount:records.length-usable.length,expectedCount:validation.expectedCount,complete,incompleteDays,missingClosedIntervals,validationVersion:7,dataSchemaVersion:3,enabled:true,finance:emptyFinance(),first:records[0].sourceTimestamp,last:records.at(-1).sourceTimestamp,importedAt:new Date().toISOString(),fileName:'EG.D OpenAPI',source:'egd-api',apiProfile:extra.activeProfile||state.egd.profile,apiUnits,apiStatusCounts:statusCounts,lastAvailableAt:new Date(lastMs).toISOString(),syncedAt:new Date().toISOString(),...extra}};
 }
 async function persistEgdMonth(payload){
   if(!payload)return {saved:false,reason:'no-data'};
@@ -616,14 +644,14 @@ async function syncEgdData({silent=false}={}){
       renderPeriodControls();renderOverview();renderAnalysis();
     }
     await captureLiveForecastSnapshots();
-    const saved=results.filter(x=>x.saved?.saved).length,noData=results.filter(x=>!x.payload&&!x.skipped&&!x.error).length,skipped=results.filter(x=>x.skipped).length,last=latestEgdAvailability(),incremental=results.some(x=>x.payload?.month?.incremental),fallback=results.some(x=>x.payload?.month?.chunkFallback),profileFallback=results.find(x=>x.profileFallback);
+    const saved=results.filter(x=>x.saved?.saved).length,noData=results.filter(x=>!x.payload&&!x.skipped&&!x.error).length,skipped=results.filter(x=>x.skipped).length,last=latestEgdAvailability(),incremental=results.some(x=>x.payload?.month?.incremental),fallback=results.some(x=>x.payload?.month?.chunkFallback),profileFallback=results.find(x=>x.profileFallback),gapRecovered=results.reduce((sum,x)=>sum+Number(x.payload?.month?.gapRepairRecovered||0),0),gapRemaining=results.reduce((sum,x)=>sum+Number(x.payload?.month?.gapRepairRemaining||0),0);
     if(recoverable.length){
       const msg=`${recoverable[0].error.message} Synchronizaci můžeš zkusit později; aplikace dál používá poslední uložená data.`;
       setEgdUiState('warn','EG.D dočasně nedostupné',msg);
       if(!silent)showToast('EG.D nevrátilo nová data; starší data zůstala zachována');
       return {ok:false,recoverable:true,results};
     }
-    const message=`Synchronizováno ${saved} měsíců${skipped?' · kompletní přeskočeno: '+skipped:''}${noData?' · bez nových dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''}${incremental?' · přírůstková aktualizace':''}${fallback?' · načteno po menších blocích':''}${profileFallback?' · automaticky použit profil '+profileFallback.profile:''}${overviewMoved?' · Přehled přepnut na '+monthLabel(currentKey):''}`;
+    const message=`Synchronizováno ${saved} měsíců${skipped?' · kompletní přeskočeno: '+skipped:''}${noData?' · bez nových dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''}${incremental?' · přírůstková aktualizace':''}${fallback?' · načteno po menších blocích':''}${gapRecovered?' · doplněno chybějících intervalů: '+gapRecovered:''}${gapRemaining?' · stále chybí: '+gapRemaining:''}${profileFallback?' · automaticky použit profil '+profileFallback.profile:''}${overviewMoved?' · Přehled přepnut na '+monthLabel(currentKey):''}`;
     setEgdUiState('ok','Připojeno',message);
     if(!silent)showToast('EG.D data byla synchronizována');
     return {ok:true,results};
@@ -710,11 +738,20 @@ function elapsedExpectedIntervalsForDate(dateKey,nowMs=Date.now()){
   }
   return count;
 }
-function countIncompleteClosedDays(records,monthKey){
-  const usable=usableRecords(records),counts=new Map();for(const r of usable)counts.set(r.dateKey,(counts.get(r.dateKey)||0)+1);
-  const today=pragueDayKeyFromMs(Date.now()),currentMonth=today.slice(0,7),dates=monthDateKeys(monthKey);
-  return dates.filter(k=>monthKey<currentMonth||k<today).filter(k=>(counts.get(k)||0)!==expectedIntervalsForDate(k)).length;
+function closedIntervalGaps(records,monthKey){
+  const present=new Set(usableRecords(records).map(r=>Number(r.sortKey)).filter(Number.isFinite)),today=pragueDayKeyFromMs(Date.now()),currentMonth=today.slice(0,7),gaps=[];
+  for(const dateKey of monthDateKeys(monthKey)){
+    if(!(monthKey<currentMonth||dateKey<today))continue;
+    const [y,m,d]=dateKey.split('-').map(Number);
+    for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){
+      const sourceTimestamp=sourceStamp(y,m,d,h,mi),ts=parseCzTimestamp(sourceTimestamp);
+      for(const ms of pragueUtcCandidates(ts))if(!present.has(ms))gaps.push({sortKey:ms,dateKey,sourceTimestamp});
+    }
+  }
+  return gaps.sort((a,b)=>a.sortKey-b.sortKey);
 }
+function countIncompleteClosedDays(records,monthKey){return new Set(closedIntervalGaps(records,monthKey).map(g=>g.dateKey)).size}
+function countMissingClosedIntervals(records,monthKey){return closedIntervalGaps(records,monthKey).length}
 function calendarFractionForSelected(monthKey,selected){
   if(!selected.length)return 0;
   const dates=[...new Set(selected.map(r=>r.dateKey))],total=totalExpectedIntervals(monthKey);if(!total)return 0;
@@ -728,7 +765,7 @@ function calendarFractionForSelected(monthKey,selected){
 function predictMonthEnergy(monthKey,points=historicalEnergyPoints(monthKey)){
   const current=state.records.filter(r=>r.monthKey===monthKey&&recordUsable(r)).sort((a,b)=>a.sortKey-b.sortKey),actualEnergy=current.reduce((a,r)=>a+billingEnergy(r),0);
   const allDates=monthDateKeys(monthKey),observedDates=[...new Set(current.map(r=>r.dateKey))].sort(),expectedSlots=totalExpectedIntervals(monthKey);
-  if(!points.length||!observedDates.length)return {actualEnergy,predictedEnergy:actualEnergy,remainingEnergy:0,paceEnergy:actualEnergy,lowEnergy:actualEnergy,highEnergy:actualEnergy,scale:1,observedDays:observedDates.length,totalDays:allDates.length,expectedSlots,observedSlots:current.length,incompleteClosedDays:countIncompleteClosedDays(state.records.filter(r=>r.monthKey===monthKey),monthKey)};
+  if(!points.length||!observedDates.length)return {actualEnergy,predictedEnergy:actualEnergy,remainingEnergy:0,paceEnergy:actualEnergy,lowEnergy:actualEnergy,highEnergy:actualEnergy,scale:1,observedDays:observedDates.length,totalDays:allDates.length,expectedSlots,observedSlots:current.length,incompleteClosedDays:countIncompleteClosedDays(state.records.filter(r=>r.monthKey===monthKey),monthKey),missingClosedIntervals:countMissingClosedIntervals(state.records.filter(r=>r.monthKey===monthKey),monthKey)};
   const pointWeights=new Map(points.map(p=>[p.key,p.weight])),daily=new Map();
   for(const r of state.records){
     const w=pointWeights.get(r.monthKey);if(!w||!recordUsable(r))continue;
@@ -761,7 +798,7 @@ function predictMonthEnergy(monthKey,points=historicalEnergyPoints(monthKey)){
   let uncertainty=clamp(.10+variability*.35+(1-coverage)*.18,.10,.42);
   const empirical=historicalEnergyForecastMape(monthKey);if(Number.isFinite(empirical)&&empirical>=0)uncertainty=clamp(Math.max(uncertainty,(empirical/100)*1.25),.10,.50);
   const lowEnergy=Math.max(actualEnergy,predictedEnergy*(1-uncertainty)),highEnergy=Math.max(lowEnergy,predictedEnergy*(1+uncertainty));
-  return {actualEnergy,predictedEnergy,remainingEnergy,paceEnergy,baselineProjection,lowEnergy,highEnergy,gapEnergy,remainderToday,futureEnergy,scale,uncertainty,observedDays:observedDates.length,completeObservedDays:completeObserved.length,totalDays:allDates.length,expectedSlots,observedSlots,incompleteClosedDays:countIncompleteClosedDays(state.records.filter(r=>r.monthKey===monthKey),monthKey)};
+  return {actualEnergy,predictedEnergy,remainingEnergy,paceEnergy,baselineProjection,lowEnergy,highEnergy,gapEnergy,remainderToday,futureEnergy,scale,uncertainty,observedDays:observedDates.length,completeObservedDays:completeObserved.length,totalDays:allDates.length,expectedSlots,observedSlots,incompleteClosedDays:countIncompleteClosedDays(state.records.filter(r=>r.monthKey===monthKey),monthKey),missingClosedIntervals:countMissingClosedIntervals(state.records.filter(r=>r.monthKey===monthKey),monthKey)};
 }
 function estimateRateForMonth(monthKey){
   const costPoints=historicalCostPoints(monthKey),energyPoints=historicalEnergyPoints(monthKey),model=weightedCostModel(costPoints),forecast=predictMonthEnergy(monthKey,energyPoints);
@@ -1279,16 +1316,16 @@ async function renderMonths(){
     const isApi=m.source==='egd-api',partial=isApi&&m.complete!==true,estimate=partial?estimatedMonthCost(m.monthKey):null,quality=m.apiStatusCounts||{},sourceTag=isApi?'<span class="month-source">EG.D</span>':'<span class="month-source">XLSX</span>';
     const liveTag=partial?'<span class="month-live-badge">PRŮBĚŽNÝ</span>':'';
     const qualityText=isApi?Object.entries(quality).sort(([a],[b])=>a.localeCompare(b)).map(([code,count])=>`${code} ${count}`).join(' · '):'';
-    const monthRecords=state.records.filter(r=>r.monthKey===m.monthKey),usableCount=monthRecords.filter(recordUsable).length,provisionalCount=monthRecords.filter(recordProvisional).length;
-    const qualityUsage=isApi?` · použito ${usableCount.toLocaleString('cs-CZ')}/${Number(m.count||0).toLocaleString('cs-CZ')}${provisionalCount?` · předběžných ${provisionalCount.toLocaleString('cs-CZ')}`:''}`:'';
+    const monthRecords=state.records.filter(r=>r.monthKey===m.monthKey),usableCount=monthRecords.filter(recordUsable).length,provisionalCount=monthRecords.filter(recordProvisional).length,gaps=isApi?closedIntervalGaps(monthRecords,m.monthKey):[],gapDays=new Set(gaps.map(g=>g.dateKey)).size;
+    const qualityUsage=isApi?` · použito ${usableCount.toLocaleString('cs-CZ')}/${Number(m.count||0).toLocaleString('cs-CZ')}${provisionalCount?` · předběžných ${provisionalCount.toLocaleString('cs-CZ')}`:''}${gaps.length?` · chybí ${gaps.length} intervalů ve ${gapDays} dnech`:' · uzavřené dny bez mezer'}`:'';
     const availability=partial&&m.lastAvailableAt?` · do ${new Date(m.lastAvailableAt).toLocaleString('cs-CZ')}`:'';
     const stateText=monthIsComplete(m.monthKey)?'✓ kompletní':partial&&enabled?'● průběžně':enabled?'⚠ zkontrolovat':'—';
     let estimateHtml='';
     if(partial){
       estimateHtml=estimate&&Number.isFinite(estimate.cost)
-        ?`<div class="month-estimate"><strong>Odhad dosud: ≈ ${fmt.format(estimate.cost)} Kč</strong><span class="estimate-rate">Predikce faktury: ≈ <strong>${fmt.format(estimate.projectedCost)} Kč</strong> · scénářové rozpětí <strong>${fmt.format(estimate.lowProjectedCost)}–${fmt.format(estimate.highProjectedCost)} Kč</strong></span><span class="estimate-rate">Spotřeba měsíce ≈ ${fmt3.format(estimate.predictedEnergy)} kWh · tempo ${fmt3.format(estimate.paceEnergy)} kWh · chybějící uzavřené dny ${estimate.incompleteClosedDays||0}</span><span class="estimate-rate">Cena: fixní část ≈ ${fmt.format(estimate.fixed)} Kč/měs. + ${fmt.format(estimate.variableRate)} Kč/kWh · stabilita ${Math.round(estimate.confidence*100)} % · cenový základ ${estimate.count}/3 měsíců${estimate.months.length?' ('+estimate.months.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span><span class="estimate-rate">Spotřební základ: ${estimate.energyMonths?.length||0} měsíců${estimate.energyMonths?.length?' ('+estimate.energyMonths.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span></div>`
+        ?`<div class="month-estimate"><strong>Odhad dosud: ≈ ${fmt.format(estimate.cost)} Kč</strong><span class="estimate-rate">Predikce faktury: ≈ <strong>${fmt.format(estimate.projectedCost)} Kč</strong> · scénářové rozpětí <strong>${fmt.format(estimate.lowProjectedCost)}–${fmt.format(estimate.highProjectedCost)} Kč</strong></span><span class="estimate-rate">Spotřeba měsíce ≈ ${fmt3.format(estimate.predictedEnergy)} kWh · tempo ${fmt3.format(estimate.paceEnergy)} kWh · chybí ${estimate.missingClosedIntervals||0} intervalů · dotčeno dnů ${estimate.incompleteClosedDays||0}</span><span class="estimate-rate">Cena: fixní část ≈ ${fmt.format(estimate.fixed)} Kč/měs. + ${fmt.format(estimate.variableRate)} Kč/kWh · stabilita ${Math.round(estimate.confidence*100)} % · cenový základ ${estimate.count}/3 měsíců${estimate.months.length?' ('+estimate.months.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span><span class="estimate-rate">Spotřební základ: ${estimate.energyMonths?.length||0} měsíců${estimate.energyMonths?.length?' ('+estimate.energyMonths.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span></div>`
         :estimate&&Number.isFinite(estimate.predictedEnergy)&&estimate.energyMonths?.length
-          ?`<div class="month-estimate"><strong>Predikce spotřeby: ≈ ${fmt3.format(estimate.predictedEnergy)} kWh</strong><span class="estimate-rate">Scénářové rozpětí ${fmt3.format(estimate.lowEnergy)}–${fmt3.format(estimate.highEnergy)} kWh · tempo ${fmt3.format(estimate.paceEnergy)} kWh · chybějící uzavřené dny ${estimate.incompleteClosedDays||0}</span><span class="estimate-rate">Spotřební základ: ${estimate.energyMonths.length} měsíců${estimate.energyMonths.length?' ('+estimate.energyMonths.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}. Náklady zatím nelze odhadnout, protože chybí použitelná historie faktur.</span></div>`
+          ?`<div class="month-estimate"><strong>Predikce spotřeby: ≈ ${fmt3.format(estimate.predictedEnergy)} kWh</strong><span class="estimate-rate">Scénářové rozpětí ${fmt3.format(estimate.lowEnergy)}–${fmt3.format(estimate.highEnergy)} kWh · tempo ${fmt3.format(estimate.paceEnergy)} kWh · chybí ${estimate.missingClosedIntervals||0} intervalů · dotčeno dnů ${estimate.incompleteClosedDays||0}</span><span class="estimate-rate">Spotřební základ: ${estimate.energyMonths.length} měsíců${estimate.energyMonths.length?' ('+estimate.energyMonths.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}. Náklady zatím nelze odhadnout, protože chybí použitelná historie faktur.</span></div>`
           :`<div class="month-estimate"><strong>Predikci zatím nelze určit</strong><span class="estimate-rate">Je potřeba alespoň jeden kompletní předchozí měsíc spotřeby; pro odhad nákladů navíc historie faktur.</span></div>`;
     }
     return `<div class="month-row ${enabled?'':'month-disabled'}">
@@ -1410,6 +1447,8 @@ function exportXLSX(rs,g){
     {name:'Dny v týdnu',rows:[['Den','Průměrná spotřeba dne (kWh)'],...WEEK_MON.map((d,i)=>[d,cnt[i]?sums[i]/cnt[i]:0])]},
     {name:'Finanční přehled',rows:[['Měsíc','Faktura celkem (Kč)','DCC1 spotřeba (kWh)','Efektivní cena (Kč/kWh)'],...financeMonths.map(k=>{const invoice=monthInvoice(k),kwh=monthBillingEnergy(k),price=invoice!==null&&kwh>0?invoice/kwh:'';return [monthLabel(k),invoice??'',kwh,price]})]}
   ];
+  const apiRows=rs.filter(r=>r.source==='egd-api');
+  if(apiRows.length)sheets.splice(3,0,{name:'EG.D raw',rows:[['UTC timestamp','Místní čas','Profil','Jednotka','Raw hodnota','Rekonstruovaná hodnota','Původ hodnoty','Normalizovaný výkon (kW)','Energie intervalu (kWh)','Status','Klasifikace','Použitelné','Předběžné'],...apiRows.map(r=>{const q=egdStatusInfo(r.apiStatus),reconstructed=apiValueFromKw(r.dcc1,r.apiUnits,r.intervalMinutes||15),hasRaw=Number.isFinite(Number(r.apiRawValue));return [r.apiTimestampUtc||new Date(r.sortKey).toISOString(),r.displayTimestamp||r.sourceTimestamp,r.apiProfile||'',r.apiUnits||'',hasRaw?Number(r.apiRawValue):'',reconstructed??'',hasRaw?'raw z EG.D':'rekonstrukce ze staršího záznamu',Number(r.dcc1)||0,billingEnergy(r),r.apiStatus||'',q.kind,q.usable?'ano':'ne',q.provisional?'ano':'ne']})]});
   const files=[];files.push({name:'[Content_Types].xml',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`});
   files.push({name:'_rels/.rels',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`});
   files.push({name:'xl/workbook.xml',data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((s,i)=>`<sheet name="${xmlEscape(s.name)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')}</sheets></workbook>`});
