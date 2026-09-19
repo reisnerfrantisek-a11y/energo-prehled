@@ -1234,6 +1234,53 @@ function currentRange(){
 function sumEnergy(rs){return rs.reduce((s,r)=>s+energy(r),0)}
 function group(rs,keyFn,valFn=energy){const m=new Map();rs.forEach(r=>{const k=keyFn(r);m.set(k,(m.get(k)||0)+valFn(r))});return m}
 function groupAvg(rs,keyFn,valFn=val){const sum=new Map(),count=new Map();rs.forEach(r=>{const k=keyFn(r);sum.set(k,(sum.get(k)||0)+valFn(r));count.set(k,(count.get(k)||0)+1)});return new Map([...sum].map(([k,v])=>[k,v/count.get(k)]))}
+function analysisAverageStats(values){
+  const finite=(Array.isArray(values)?values:[]).map(Number).filter(Number.isFinite);
+  if(state.analysisMode==='raw'){
+    const value=finite.length?finite.reduce((a,b)=>a+b,0)/finite.length:null;
+    return {value,rawMean:value,affected:0,count:finite.length,robust:false};
+  }
+  return CORE.robustMeanStats(finite,{z:3.5,minCount:5});
+}
+function groupedAnalysisStats(rs,keyFn,valFn=val){
+  const values=new Map();for(const r of rs){const k=keyFn(r),v=Number(valFn(r));if(!Number.isFinite(v))continue;if(!values.has(k))values.set(k,[]);values.get(k).push(v)}
+  return new Map([...values].map(([k,v])=>[k,analysisAverageStats(v)]));
+}
+function groupedAnalysisAverage(rs,keyFn,valFn=val){
+  return new Map([...groupedAnalysisStats(rs,keyFn,valFn)].map(([k,stats])=>[k,stats.value]));
+}
+function analysisImpact(rs){
+  if(state.analysisMode!=='robust'||!rs.length)return {days:0,intervals:0};
+  const dateTotals=group(rs,r=>r.dateKey),week={};for(const r of rs)week[r.dateKey]=r.weekday;
+  const dailyBuckets=new Map();for(const [date,total] of dateTotals){const wd=week[date];if(!dailyBuckets.has(wd))dailyBuckets.set(wd,[]);dailyBuckets.get(wd).push(total)}
+  const days=[...dailyBuckets.values()].reduce((n,values)=>n+analysisAverageStats(values).affected,0);
+  const intervalBuckets=new Map();for(const r of rs){const key=`${r.weekday}|${r.hour}|${r.minute}`;if(!intervalBuckets.has(key))intervalBuckets.set(key,[]);intervalBuckets.get(key).push(val(r))}
+  const intervals=[...intervalBuckets.values()].reduce((n,values)=>n+analysisAverageStats(values).affected,0);
+  return {days,intervals};
+}
+function analysisContext(rs){
+  const records=Array.isArray(rs)?rs:[],dates=[...new Set(records.map(r=>r.dateKey))].sort(),months=[...new Set(records.map(r=>r.monthKey))],sources=[...new Set(records.map(r=>r.source||'').filter(Boolean))];
+  const impact=analysisImpact(records),sourceLabels=sources.map(x=>x==='egd-api'?'EG.D':x==='xlsx'?'XLSX':x);
+  return {
+    from:dates[0]||'',to:dates.at(-1)||'',days:dates.length,intervals:records.length,months:months.length,
+    sources:sourceLabels,provisional:records.filter(recordProvisional).length,impact
+  };
+}
+function renderAnalysisContext(rs){
+  const ctx=analysisContext(rs),card=$('#analysisContext');if(!card)return;
+  $('[data-analysis-mode]').forEach(b=>b.classList.toggle('active',b.dataset.analysisMode===state.analysisMode));
+  $('[data-analysis-badge]').forEach(b=>b.textContent=state.analysisMode==='robust'?'Typický profil':'Všechna data');
+  if(!ctx.intervals){
+    $('#analysisPeriod').textContent='Bez aktivních dat';$('#analysisMeta').textContent='—';$('#analysisMethod').textContent='Změň období nebo aktivuj data v záložce Data.';return;
+  }
+  $('#analysisPeriod').textContent=`${formatDateKey(ctx.from)} – ${formatDateKey(ctx.to)}`;
+  const bits=[`${ctx.days.toLocaleString('cs-CZ')} dní`,`${ctx.intervals.toLocaleString('cs-CZ')} intervalů`,`${ctx.months} ${ctx.months===1?'měsíc':'měsíců'}`];
+  if(ctx.sources.length)bits.push(ctx.sources.join(' + '));if(ctx.provisional)bits.push(`${ctx.provisional.toLocaleString('cs-CZ')} předběžných`);
+  $('#analysisMeta').textContent=bits.join(' · ');
+  $('#analysisMethod').textContent=state.analysisMode==='robust'
+    ?`Robustní průměry: extrémy zůstávají v datech, ale jejich vliv je omezen winsorizací podle mediánu a MAD. Aktuálně dotčeno ${ctx.impact.days} denních a ${ctx.impact.intervals} intervalových hodnot.`
+    :'Aritmetické průměry ze všech hodnot bez omezení extrémů. Anomálie a výkonové špičky vždy používají původní data.';
+}
 function selectedPeriodLabel(){
   if(state.period==='all')return sortedRecords().length?`${formatDateKey(earliestDateKey())} – ${formatDateKey(latestDateKey())}`:'Žádná aktivní data';
   if(state.period==='custom')return `${formatDateKey(state.customFrom)} – ${formatDateKey(state.customTo)}`;
