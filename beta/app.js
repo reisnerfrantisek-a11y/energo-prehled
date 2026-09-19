@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.5.2';
+const APP_VERSION = '1.5.3';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -340,17 +340,28 @@ function pragueDayKeyFromMs(ms){
 const EGD_VALID_STATUS='IU012';
 function egdStatusInfo(status){
   const code=String(status||'').trim().toUpperCase();
-  if(code==='IU010')return {code,label:'hodnota neexistuje',usable:false,kind:'missing'};
-  if(code==='IU011')return {code,label:'hodnota chybí',usable:false,kind:'missing'};
-  if(code==='IU012')return {code,label:'platná hodnota',usable:true,kind:'valid'};
-  if(code==='IU013')return {code,label:'odhadnutá hodnota',usable:false,kind:'estimated'};
-  return {code,label:code?'neznámý status':'status neuveden',usable:false,kind:'unknown'};
+  if(code==='IU010')return {code,label:'hodnota neexistuje',usable:false,provisional:false,kind:'missing'};
+  if(code==='IU011')return {code,label:'hodnota chybí',usable:false,provisional:false,kind:'missing'};
+  if(code==='IU012')return {code,label:'platná hodnota',usable:true,provisional:false,kind:'valid'};
+  if(code==='IU013')return {code,label:'odhadnutá hodnota',usable:true,provisional:true,kind:'estimated'};
+  if(code==='IU014')return {code,label:'pochybná/nepoužitelná',usable:false,provisional:false,kind:'invalid'};
+  if(code==='IU015')return {code,label:'měněná/zadaná manuálně',usable:true,provisional:true,kind:'adjusted'};
+  if(code==='IU016')return {code,label:'uvolněná hodnota',usable:true,provisional:false,kind:'released'};
+  if(code==='IU017')return {code,label:'blokovaná hodnota',usable:false,provisional:false,kind:'blocked'};
+  if(code==='IU018')return {code,label:'chráněná hodnota',usable:true,provisional:true,kind:'protected'};
+  if(code==='IU019')return {code,label:'archivovaná hodnota',usable:true,provisional:false,kind:'archived'};
+  if(code==='IU020')return {code,label:'extrapolovaná hodnota',usable:true,provisional:true,kind:'estimated'};
+  if(code==='IU021')return {code,label:'interpolovaná hodnota',usable:true,provisional:true,kind:'estimated'};
+  if(code==='IU022')return {code,label:'externě manuálně změněná',usable:true,provisional:true,kind:'adjusted'};
+  if(code==='IU023')return {code,label:'verze mimo platnost',usable:false,provisional:false,kind:'obsolete'};
+  return {code,label:code?'neznámý status':'status neuveden',usable:false,provisional:false,kind:'unknown'};
 }
 function recordUsable(r){
   if(!r)return false;
   if(r.source!=='egd-api')return true;
-  return r.apiUsable===true||egdStatusInfo(r.apiStatus).usable;
+  return egdStatusInfo(r.apiStatus).usable;
 }
+function recordProvisional(r){return r?.source==='egd-api'&&egdStatusInfo(r.apiStatus).provisional}
 function usableRecords(records){return records.filter(recordUsable)}
 function renderEgdPanel(){
   const hasCreds=!!(state.egd.clientId&&state.egd.clientSecret),hasSelection=!!(state.egd.ean&&state.egd.profile),hasProxy=!!state.egd.proxyUrl;
@@ -390,9 +401,11 @@ function pragueMonthQueryBounds(monthKey){
   const start=pragueUtcCandidates(parseCzTimestamp(`01.${String(month).padStart(2,'0')}.${year} 00:00:00`))[0];
   const next=pragueUtcCandidates(parseCzTimestamp(`01.${String(nextMonth).padStart(2,'0')}.${nextYear} 00:00:00`))[0];
   if(!Number.isFinite(start)||!Number.isFinite(next))throw new Error('Nepodařilo se určit UTC hranice měsíce.');
-  const fullEnd=next-15*60000,now=Date.now();
-  const queryEnd=Math.min(fullEnd,now);
-  return {from:new Date(start).toISOString(),to:new Date(queryEnd).toISOString(),start,end:fullEnd,isPast:now>=next};
+  const fullEnd=next-15*60000,now=Date.now(),nowP=pragueParts(now);
+  const todayStart=pragueUtcCandidates(parseCzTimestamp(`${String(nowP.day).padStart(2,'0')}.${String(nowP.month).padStart(2,'0')}.${nowP.year} 00:00:00`))[0];
+  const egdMaxEnd=todayStart-15*60000;
+  const queryEnd=Math.min(fullEnd,egdMaxEnd);
+  return {from:new Date(start).toISOString(),to:new Date(queryEnd).toISOString(),start,end:fullEnd,isPast:now>=next,egdMaxEnd};
 }
 function apiLocalRecord(ean,profile,units,item,seen){
   const ms=Date.parse(item.timestamp);if(!Number.isFinite(ms))return null;
@@ -412,10 +425,10 @@ async function fetchEgdMonth(token,monthKey){
   const units=String(group.units||''),statusCounts={};for(const x of group.data){const k=String(x.status||'?').trim().toUpperCase()||'?';statusCounts[k]=(statusCounts[k]||0)+1}
   const seen=new Map(),records=group.data.slice().sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)).map(x=>apiLocalRecord(state.egd.ean,state.egd.profile,units,x,seen)).filter(Boolean).filter(r=>r.monthKey===monthKey);
   if(!records.length)return null;
-  const usable=usableRecords(records),[year,month]=monthKey.split('-').map(Number),validation=bounds.isPast?validateMonthTimeline(usable,year,month):{complete:false,expectedCount:[...expectedTimestampCounts(year,month).values()].reduce((a,b)=>a+b,0),issues:[]};
+  const usable=usableRecords(records),provisional=records.filter(recordProvisional),[year,month]=monthKey.split('-').map(Number),validation=bounds.isPast?validateMonthTimeline(usable,year,month):{complete:false,expectedCount:[...expectedTimestampCounts(year,month).values()].reduce((a,b)=>a+b,0),issues:[]};
   const complete=bounds.isPast&&validation.complete,incompleteDays=countIncompleteClosedDays(records,monthKey);
   const lastMs=Math.max(...records.map(r=>r.sortKey)),label=`${MONTH_NAMES[month-1]} ${year}`;
-  return {records,month:{monthKey,label,year,month,ean:state.egd.ean,meter:'EG.D OpenAPI',count:records.length,usableCount:usable.length,excludedQualityCount:records.length-usable.length,expectedCount:validation.expectedCount,complete,incompleteDays,validationVersion:4,dataSchemaVersion:3,enabled:true,finance:emptyFinance(),first:records[0].sourceTimestamp,last:records.at(-1).sourceTimestamp,importedAt:new Date().toISOString(),fileName:'EG.D OpenAPI',source:'egd-api',apiProfile:state.egd.profile,apiUnits:units,apiStatusCounts:statusCounts,lastAvailableAt:new Date(lastMs).toISOString(),syncedAt:new Date().toISOString()}};
+  return {records,month:{monthKey,label,year,month,ean:state.egd.ean,meter:'EG.D OpenAPI',count:records.length,usableCount:usable.length,provisionalCount:provisional.length,excludedQualityCount:records.length-usable.length,expectedCount:validation.expectedCount,complete,incompleteDays,validationVersion:5,dataSchemaVersion:3,enabled:true,finance:emptyFinance(),first:records[0].sourceTimestamp,last:records.at(-1).sourceTimestamp,importedAt:new Date().toISOString(),fileName:'EG.D OpenAPI',source:'egd-api',apiProfile:state.egd.profile,apiUnits:units,apiStatusCounts:statusCounts,lastAvailableAt:new Date(lastMs).toISOString(),syncedAt:new Date().toISOString()}};
 }
 async function persistEgdMonth(payload){
   if(!payload)return {saved:false,reason:'no-data'};
@@ -448,15 +461,15 @@ async function syncEgdData({silent=false}={}){
     state.egd.lastSync=new Date().toISOString();state.egd.verified=true;state.egd.lastError=null;await saveEgdConfig();
     state.resetExportRange=true;await reload();await captureLiveForecastSnapshots();
     const saved=results.filter(x=>x.saved.saved).length,noData=results.filter(x=>!x.payload).length,last=results.map(x=>x.payload?.month?.lastAvailableAt).filter(Boolean).sort().at(-1);
-    setEgdUiState('ok','Připojeno',`Synchronizováno ${saved} měsíců${noData?' · bez dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''}`);
+    setEgdUiState('ok','Připojeno',`Synchronizováno ${saved} měsíců${noData?' · bez dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''} · EG.D OpenAPI dovoluje stahovat nejvýše do včerejšího dne`);
     if(!silent)showToast('EG.D data byla synchronizována');
   }catch(e){state.egd.lastError=e.message;setEgdUiState('error','Chyba synchronizace',e.message);throw e}
 }
 async function maybeAutoSyncEgd(){
   if(state.egd.autoSync!==true||!state.egd.clientId||!state.egd.clientSecret||!state.egd.proxyUrl||!state.egd.ean||!state.egd.profile)return;
   if(typeof navigator!=='undefined'&&navigator.onLine===false)return;
-  const lastMs=state.egd.lastSync?Date.parse(state.egd.lastSync):NaN;
-  if(Number.isFinite(lastMs)&&Date.now()-lastMs<2*60*60*1000)return;
+  const today=pragueDayKeyFromMs(Date.now()),last=state.egd.lastSync?pragueDayKeyFromMs(Date.parse(state.egd.lastSync)):'';
+  if(last&&last===today)return;
   try{await syncEgdData({silent:true})}catch(e){console.error('Automatická EG.D synchronizace selhala',e)}
 }
 
@@ -1102,7 +1115,8 @@ async function renderMonths(){
     const isApi=m.source==='egd-api',partial=isApi&&m.complete!==true,estimate=partial?estimatedMonthCost(m.monthKey):null,quality=m.apiStatusCounts||{},sourceTag=isApi?'<span class="month-source">EG.D</span>':'<span class="month-source">XLSX</span>';
     const liveTag=partial?'<span class="month-live-badge">PRŮBĚŽNÝ</span>':'';
     const qualityText=isApi?Object.entries(quality).sort(([a],[b])=>a.localeCompare(b)).map(([code,count])=>`${code} ${count}`).join(' · '):'';
-    const qualityUsage=isApi?` · použito ${Number(m.usableCount??state.records.filter(r=>r.monthKey===m.monthKey&&recordUsable(r)).length).toLocaleString('cs-CZ')}/${Number(m.count||0).toLocaleString('cs-CZ')}`:'';
+    const monthRecords=state.records.filter(r=>r.monthKey===m.monthKey),usableCount=monthRecords.filter(recordUsable).length,provisionalCount=monthRecords.filter(recordProvisional).length;
+    const qualityUsage=isApi?` · použito ${usableCount.toLocaleString('cs-CZ')}/${Number(m.count||0).toLocaleString('cs-CZ')}${provisionalCount?` · předběžných ${provisionalCount.toLocaleString('cs-CZ')}`:''}`:'';
     const availability=partial&&m.lastAvailableAt?` · do ${new Date(m.lastAvailableAt).toLocaleString('cs-CZ')}`:'';
     const stateText=monthIsComplete(m.monthKey)?'✓ kompletní':partial&&enabled?'● průběžně':enabled?'⚠ zkontrolovat':'—';
     let estimateHtml='';
@@ -1117,7 +1131,7 @@ async function renderMonths(){
       <div class="month-main">
         <strong>${escapeHtml(m.label)} ${sourceTag} ${liveTag}</strong>
         <div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}${escapeHtml(availability)}</div>
-        ${isApi?`<div class="month-quality">Kvalita EG.D: ${escapeHtml(qualityText||'bez stavových kódů')}${escapeHtml(qualityUsage)} · do výpočtů vstupuje pouze IU012 · profil ${escapeHtml(m.apiProfile||'—')} · ${escapeHtml(m.apiUnits||'—')}</div>`:''}
+        ${isApi?`<div class="month-quality">Kvalita EG.D: ${escapeHtml(qualityText||'bez stavových kódů')}${escapeHtml(qualityUsage)} · platné i odhadnuté hodnoty se zobrazují, nepoužitelné se vyřazují · profil ${escapeHtml(m.apiProfile||'—')} · ${escapeHtml(m.apiUnits||'—')}</div>`:''}
         <div class="month-finance">
           <label class="invoice-field"><span>Faktura</span><input inputmode="decimal" data-month-invoice="${m.monthKey}" value="${invoice===null?'':String(invoice).replace('.',',')}" placeholder="${partial?'po uzavření':'např. 1842'}" ${partial?'disabled':''}><b>Kč</b></label>
           <span class="effective-price">${effective===null?(invoice!==null&&kwh===0?'0 kWh · cenu/kWh nelze určit':'Cena/kWh —'):`Efektivně <strong>${fmt.format(effective)} Kč/kWh</strong>`}</span>

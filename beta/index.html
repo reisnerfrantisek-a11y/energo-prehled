@@ -7,16 +7,16 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Energo Beta" />
-  <title>Energo Přehled Beta 1.5.2</title>
+  <title>Energo Přehled Beta 1.5.3</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="../icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=1.5.2" />
+  <link rel="stylesheet" href="styles.css?v=1.5.3" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
       <div>
-        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.5.2</div>
+        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.5.3</div>
         <h1 id="screenTitle">Přehled</h1>
       </div>
       <button class="icon-btn" id="importBtn" aria-label="Importovat report">＋</button>
@@ -177,10 +177,10 @@
           </div>
           <label class="egd-auto-sync">
             <input type="checkbox" id="egdAutoSync" />
-            <span><strong>Synchronizovat při otevření</strong><small>Nejvýše jednou za 2 hodiny, pokud jsou přístupové údaje a proxy dostupné.</small></span>
+            <span><strong>Synchronizovat při otevření</strong><small>Nejvýše jednou denně, pokud jsou přístupové údaje a proxy dostupné.</small></span>
           </label>
           <div class="egd-result" id="egdResult">Po zadání Vercel proxy URL aplikace přes ni bezpečně načte dostupná odběrná místa a profily.</div>
-          <p class="fineprint">Synchronizace přes Vercel proxy stahuje aktuální a předchozí kalendářní měsíc. EG.D aktualizuje měřená data průběžně dle svého systému.</p>
+          <p class="fineprint">Synchronizace přes Vercel proxy stahuje aktuální a předchozí kalendářní měsíc. EG.D OpenAPI umožňuje dotaz nejvýše do včerejšího dne; předběžné/odhadnuté hodnoty se v aplikaci zobrazují.</p>
         </section>
 
         <section class="panel">
@@ -237,6 +237,6 @@
       </div>
     </div>
   </div>
-  <script src="app.js?v=1.5.2" defer></script>
+  <script src="app.js?v=1.5.3" defer></script>
 </body>
 </html>
