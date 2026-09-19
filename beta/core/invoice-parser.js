@@ -130,7 +130,7 @@
 
     const grossFactor=Number.isFinite(vatRate)?1+vatRate:null;
     const variableItems=[...supply,...electricityTax,...distributionEnergy,...systemServices,...poze.filter(x=>x.unit==='MWh'||x.unit==='kWh')];
-    const variableExVatPerKwh=variableRatePerKwh(variableItems);
+    const variableExVatPerKwh=Number.isFinite(consumptionKwh)&&consumptionKwh>0?exactCharge(variableItems)/consumptionKwh:null;
     const fixedItems=[...supplierFixed,...breaker,...distributionFixed,...poze.filter(x=>x.unit==='Měsíc')];
     const fixedMonths=Math.max(1,monthlyUnits(fixedItems)/Math.max(1,fixedItems.filter(x=>x.unit==='Měsíc').length));
     const fixedExVatPerMonth=fixedMonths>0?exactCharge(fixedItems)/fixedMonths:fixedNet;
