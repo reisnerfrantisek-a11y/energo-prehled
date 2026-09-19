@@ -7,16 +7,16 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Energo Beta" />
-  <title>Energo Přehled Beta 1.7.3</title>
+  <title>Energo Přehled Beta 1.7.4</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="../icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=1.7.3" />
+  <link rel="stylesheet" href="styles.css?v=1.7.4" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
       <div>
-        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.7.3</div>
+        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.7.4</div>
         <h1 id="screenTitle">Přehled</h1>
       </div>
       <button class="icon-btn" id="importBtn" aria-label="Importovat report">＋</button>
@@ -208,9 +208,27 @@
       </section>
 
       <section class="screen" data-screen="data">
+        <section class="panel data-source-card" id="dataSourceCard">
+          <div class="panel-head between">
+            <div><h2>Zdroj dat</h2><p id="dataSourceDetail">Stav synchronizace EG.D</p></div>
+            <span class="egd-status" id="dataSourceState">—</span>
+          </div>
+          <div class="data-source-actions">
+            <button class="primary-btn" id="dataSyncNowBtn">Synchronizovat</button>
+            <button class="secondary-btn" id="dataSettingsBtn">Nastavení zdroje</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head between"><div><h2>Měsíce a faktury</h2><p>Import, aktivace měsíců a faktury. Technické připojení a údržba aplikace jsou nově v Nastavení.</p></div><button class="secondary-btn" id="dataImportBtn">Importovat XLSX</button></div>
+          <div id="monthsList" class="months-list"></div>
+        </section>
+      </section>
+
+      <section class="screen" data-screen="settings">
         <section class="panel egd-panel" id="egdPanel">
           <div class="panel-head between">
-            <div><h2>EG.D OpenAPI</h2><p>Průběžná data přímo z Distribuce24</p></div>
+            <div><h2>Zdroj dat · EG.D OpenAPI</h2><p>Připojení, odběrné místo a automatická synchronizace</p></div>
             <span class="egd-status" id="egdStatus">Nepřipojeno</span>
           </div>
           <div id="egdCredentials">
@@ -237,11 +255,7 @@
         </section>
 
         <section class="panel">
-          <div class="panel-head between"><div><h2>Měsíce a faktury</h2><p>Celkovou cenu lze zadat ručně nebo načíst z PDF faktury. U podporované faktury aplikace lokálně vytěží cenové složky a ověřený tarif použije pro predikci nákladů.</p></div><button class="secondary-btn" id="dataImportBtn">Importovat XLSX</button></div>
-          <div id="monthsList" class="months-list"></div>
-        </section>
-        <section class="panel">
-          <div class="panel-head"><div><h2>Záloha dat</h2><p>Ulož nebo obnov lokální databázi aplikace</p></div></div>
+          <div class="panel-head"><div><h2>Záloha a obnova</h2><p>Správa lokální databáze aplikace</p></div></div>
           <div class="backup-actions">
             <button class="secondary-btn" id="backupDataBtn">Vytvořit zálohu</button>
             <button class="secondary-btn" id="restoreDataBtn">Obnovit zálohu</button>
@@ -249,12 +263,14 @@
           </div>
           <p class="fineprint">Záloha obsahuje importované intervaly, aktivaci měsíců, finanční údaje včetně rozpadů PDF faktur i nastavení aplikace. Soubor zůstává pod tvou kontrolou.</p>
         </section>
+
         <section class="panel">
-          <div class="panel-head"><div><h2>Aktualizace aplikace</h2><p>Vynutí stažení nejnovější verze bez smazání energetických dat</p></div></div>
+          <div class="panel-head"><div><h2>Aplikace</h2><p>Aktualizace a informace o verzi</p></div></div>
           <button class="secondary-btn full-btn" id="forceUpdateBtn">Vynutit aktualizaci aplikace</button>
           <p class="fineprint">Smaže pouze cache a Service Worker této beta aplikace. Importované měsíce, ceny faktur a nastavení zůstanou zachované.</p>
           <p class="fineprint">Aktuální kód: <strong id="appVersionText">—</strong></p>
         </section>
+
         <section class="privacy-card">
           <strong>Soukromí</strong>
           <p>Reporty i PDF faktury se zpracovávají přímo v prohlížeči. Samotný PDF soubor se neposílá na hosting ani na server aplikace; při prvním PDF importu se pouze stáhne knihovna PDF.js z jsDelivr.</p>
@@ -279,6 +295,7 @@
       <button class="nav-btn" data-target="analysis"><span>⌁</span><small>Analýza</small></button>
       <button class="nav-btn" data-target="data"><span>▦</span><small>Data</small></button>
       <button class="nav-btn" data-target="export"><span>⇩</span><small>Export</small></button>
+      <button class="nav-btn" data-target="settings"><span>⚙</span><small>Nastavení</small></button>
     </nav>
 
     <div class="toast" id="toast"></div>
@@ -302,11 +319,11 @@
       </div>
     </div>
   </div>
-  <script src="core/model.js?v=1.7.3" defer></script>
-  <script src="core/time.js?v=1.7.3" defer></script>
-  <script src="core/forecast.js?v=1.7.3" defer></script>
-  <script src="core/invoice.js?v=1.7.3" defer></script>
-  <script src="core/invoice-parser.js?v=1.7.3" defer></script>
-  <script src="app.js?v=1.7.3" defer></script>
+  <script src="core/model.js?v=1.7.4" defer></script>
+  <script src="core/time.js?v=1.7.4" defer></script>
+  <script src="core/forecast.js?v=1.7.4" defer></script>
+  <script src="core/invoice.js?v=1.7.4" defer></script>
+  <script src="core/invoice-parser.js?v=1.7.4" defer></script>
+  <script src="app.js?v=1.7.4" defer></script>
 </body>
 </html>

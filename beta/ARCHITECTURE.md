@@ -54,3 +54,7 @@ Průměrové analytické grafy mají dvě explicitní metody:
 - `raw` — aritmetický průměr všech hodnot bez korekce extrémů.
 
 Robustní výpočet pouze omezuje vliv odlehlých hodnot ve výsledném průměru. Zdrojové intervaly se nemění a moduly anomálií i výkonových špiček je nadále používají beze změny. Pro malé vzorky se robustní metoda automaticky vrací k aritmetickému průměru, aby z několika hodnot nevytvářela falešný filtr.
+
+## Navigace Data / Nastavení (1.7.4)
+
+`Data` je operativní obrazovka pro import, měsíce, faktury a rychlou synchronizaci. `Nastavení` obsahuje dlouhodobou konfiguraci a servisní funkce: EG.D OpenAPI připojení, automatickou synchronizaci, zálohu/obnovu, aktualizaci aplikace a informace o soukromí. Tím se odděluje běžná práce s daty od technické konfigurace.

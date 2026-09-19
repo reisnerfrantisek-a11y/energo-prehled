@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.7.3';
+const APP_VERSION = '1.7.4';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -544,6 +544,27 @@ function renderEgdPanel(){
   else if(state.egd.lastError)setEgdUiState('error','Chyba připojení',state.egd.lastError);
   else if(hasCreds)setEgdUiState('warn','Připraveno',hasProxy?'Proxy je nastavena. Ověř připojení nebo spusť synchronizaci.':'Chybí Proxy URL. Přímé spojení může prohlížeč zablokovat kvůli CORS.');
   else setEgdUiState('','Nepřipojeno','Po ověření připojení aplikace načte dostupná odběrná místa a profily.');
+  renderDataSourceCard();
+}
+function renderDataSourceCard(){
+  const status=$('#dataSourceState'),detail=$('#dataSourceDetail'),sync=$('#dataSyncNowBtn');
+  if(!status||!detail||!sync)return;
+  const ready=!!(state.egd.clientId&&state.egd.clientSecret&&state.egd.proxyUrl&&state.egd.ean&&state.egd.profile);
+  const lastAvailable=latestEgdAvailability(),lastSync=state.egd.lastSync;
+  status.className='egd-status';
+  if(lastSync){
+    status.classList.add('ok');status.textContent='Připojeno';
+    const bits=[`Poslední synchronizace ${new Date(lastSync).toLocaleString('cs-CZ')}`];
+    if(lastAvailable)bits.push(`data do ${new Date(lastAvailable).toLocaleString('cs-CZ')}`);
+    detail.textContent=bits.join(' · ');
+  }else if(state.egd.verified){
+    status.classList.add('ok');status.textContent='Připojeno';detail.textContent='Připojení ověřeno · data zatím nebyla synchronizována.';
+  }else if(state.egd.clientId&&state.egd.clientSecret){
+    status.classList.add('warn');status.textContent='Připraveno';detail.textContent='Připojení je nastavené, ale ještě není ověřené.';
+  }else{
+    status.textContent='Nenastaveno';detail.textContent='EG.D není připojeno. Připojení nastavíš v Nastavení.';
+  }
+  sync.disabled=!ready;sync.classList.toggle('hidden',!ready);
 }
 function apiValueToKw(value,units,intervalMinutes=15){return CORE.apiValueToKw(value,units,intervalMinutes)}
 function apiValueFromKw(kw,units,intervalMinutes=15){return CORE.apiValueFromKw(kw,units,intervalMinutes)}
@@ -1504,7 +1525,7 @@ async function reload(){state.records=await getAll('intervals');state.months=awa
 function renderAll(){
   const has=state.records.length>0;
   $('#emptyState').classList.toggle('hidden',has);$('#overviewContent').classList.toggle('hidden',!has);
-  renderPeriodControls();renderOverview();renderAnalysis();renderMonths();renderExportDefaults();renderEgdPanel();
+  renderPeriodControls();renderOverview();renderAnalysis();renderMonths();renderExportDefaults();renderEgdPanel();renderDataSourceCard();
 }
 function renderPeriodControls(){
   $$('.period-chip').forEach(b=>b.classList.toggle('active',b.dataset.period===state.period));
@@ -1919,7 +1940,7 @@ async function forceUpdateApp(){
   }catch(e){console.error(e);alert('Aktualizaci se nepodařilo dokončit: '+e.message)}
 }
 function showToast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>t.classList.remove('show'),2600)}
-function nav(target){$$('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===target));$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.target===target));$('#screenTitle').textContent={overview:'Přehled',analysis:'Analýza',data:'Data',export:'Export'}[target];window.scrollTo({top:0,behavior:'smooth'});if(target==='analysis')renderAnalysis();if(target==='data')renderMonths()}
+function nav(target){$$('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===target));$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.target===target));$('#screenTitle').textContent={overview:'Přehled',analysis:'Analýza',data:'Data',export:'Export',settings:'Nastavení'}[target];window.scrollTo({top:0,behavior:'smooth'});if(target==='analysis')renderAnalysis();if(target==='data'){renderMonths();renderDataSourceCard()}if(target==='settings')renderEgdPanel()}
 function bind(){
   const choose=()=>$('#fileInput').click();
   $('#importBtn').onclick=choose;$('#emptyImportBtn').onclick=choose;$('#dataImportBtn').onclick=choose;
@@ -1948,6 +1969,8 @@ function bind(){
   $('#confirmReplace').onclick=async()=>{const p=state.pendingImport;$('#replaceModal').classList.add('hidden');if(p)await saveImport(p,true)};
   $('#egdTestBtn').onclick=()=>testEgdConnection().catch(e=>alert('EG.D připojení se nepodařilo: '+e.message));
   $('#egdSyncBtn').onclick=()=>syncEgdData().catch(e=>alert('EG.D synchronizace se nepodařila: '+e.message));
+  $('#dataSyncNowBtn').onclick=()=>syncEgdData().catch(e=>alert('EG.D synchronizace se nepodařila: '+e.message));
+  $('#dataSettingsBtn').onclick=()=>nav('settings');
   $('#egdDisconnectBtn').onclick=()=>disconnectEgd().catch(e=>alert('Odpojení EG.D se nepodařilo: '+e.message));
   $('#egdEanSelect').onchange=async()=>{
     state.egd.ean=$('#egdEanSelect').value;

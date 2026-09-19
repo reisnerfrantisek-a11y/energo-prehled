@@ -27,20 +27,20 @@ return {
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.7.3 files are version-aligned and syntactically valid',()=>{
+test('beta 1.7.4 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.7\.3'/);
-  assert.match(html,/BETA 1\.7\.3/);
-  assert.match(sw,/v1\.7\.3/);
-  assert.match(html,/core\/model\.js\?v=1\.7\.3/);
-  assert.match(html,/core\/time\.js\?v=1\.7\.3/);
-  assert.match(html,/core\/forecast\.js\?v=1\.7\.3/);
-  assert.match(html,/core\/invoice\.js\?v=1\.7\.3/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.7\.3/);
-  assert.match(sw,/core\/model\.js\?v=1\.7\.3/);
-  assert.match(sw,/core\/time\.js\?v=1\.7\.3/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.7\.3/);
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.7\.3/);
+  assert.match(app,/APP_VERSION = '1\.7\.4'/);
+  assert.match(html,/BETA 1\.7\.4/);
+  assert.match(sw,/v1\.7\.4/);
+  assert.match(html,/core\/model\.js\?v=1\.7\.4/);
+  assert.match(html,/core\/time\.js\?v=1\.7\.4/);
+  assert.match(html,/core\/forecast\.js\?v=1\.7\.4/);
+  assert.match(html,/core\/invoice\.js\?v=1\.7\.4/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.7\.4/);
+  assert.match(sw,/core\/model\.js\?v=1\.7\.4/);
+  assert.match(sw,/core\/time\.js\?v=1\.7\.4/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.7\.4/);
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.7\.4/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -297,4 +297,32 @@ test('Analysis 2.0 uses querySelectorAll helper for multi-element controls',()=>
   assert.doesNotMatch(app,/(?<!\$)\$\([^;\n]*?\)\.forEach/);
   assert.match(app,/\$\$\('\[data-analysis-mode\]'\)\.forEach/);
   assert.match(app,/\$\$\('\[data-analysis-badge\]'\)\.forEach/);
+});
+
+
+test('Settings tab owns connection, backup, update and privacy controls',()=>{
+  const dataStart=html.indexOf('<section class="screen" data-screen="data">');
+  const settingsStart=html.indexOf('<section class="screen" data-screen="settings">');
+  const exportStart=html.indexOf('<section class="screen" data-screen="export">');
+  assert.ok(dataStart>=0&&settingsStart>dataStart&&exportStart>settingsStart);
+  const dataHtml=html.slice(dataStart,settingsStart),settingsHtml=html.slice(settingsStart,exportStart);
+  assert.match(dataHtml,/id="dataSourceCard"/);
+  assert.match(dataHtml,/id="monthsList"/);
+  assert.doesNotMatch(dataHtml,/id="egdClientId"/);
+  assert.doesNotMatch(dataHtml,/id="backupDataBtn"/);
+  assert.doesNotMatch(dataHtml,/id="forceUpdateBtn"/);
+  assert.match(settingsHtml,/id="egdClientId"/);
+  assert.match(settingsHtml,/id="backupDataBtn"/);
+  assert.match(settingsHtml,/id="forceUpdateBtn"/);
+  assert.match(settingsHtml,/Soukromí/);
+  assert.match(html,/data-target="settings"/);
+  assert.match(app,/settings:'Nastavení'/);
+});
+
+test('Data tab keeps one-tap EG.D sync and settings shortcut',()=>{
+  assert.match(html,/id="dataSyncNowBtn"/);
+  assert.match(html,/id="dataSettingsBtn"/);
+  assert.match(app,/renderDataSourceCard/);
+  assert.match(app,/\$\('#dataSyncNowBtn'\)\.onclick/);
+  assert.match(app,/\$\('#dataSettingsBtn'\)\.onclick=.*nav\('settings'\)/);
 });
