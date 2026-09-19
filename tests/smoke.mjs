@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.4.6'"),'App version must be 1.4.6');
+assert.ok(app.includes("APP_VERSION = '1.4.7'"),'App version must be 1.4.7');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -80,8 +80,8 @@ assert.ok(app.includes('async function forceUpdateApp'),'Safe force-update funct
 assert.ok(app.includes("k.startsWith('energo-prehled-beta-')"),'Force update must target beta cache only');
 assert.ok(!app.includes('indexedDB.deleteDatabase'),'Force update must not delete IndexedDB');
 assert.ok(!app.includes('localStorage.clear()'),'Force update must not clear localStorage');
-assert.ok(index.includes('app.js?v=1.4.6'),'App script must be cache-busted');
-assert.ok(index.includes('styles.css?v=1.4.6'),'Stylesheet must be cache-busted');
+assert.ok(index.includes('app.js?v=1.4.7'),'App script must be cache-busted');
+assert.ok(index.includes('styles.css?v=1.4.7'),'Stylesheet must be cache-busted');
 const refresh=fs.readFileSync('refresh.html','utf8');
 assert.ok(refresh.includes("energo-prehled-beta-"),'Recovery page must clear beta cache');
 assert.ok(!refresh.includes('indexedDB.deleteDatabase'),'Recovery page must preserve IndexedDB');
@@ -104,8 +104,8 @@ assert.ok(app.includes("action==='diagnostics'")||app.includes("egdProxyPost('di
 assert.ok(app.includes("egdProxyPost('spotreby'"),'Proxy consumption flow missing');
 assert.ok(app.includes("if(type==='B')"),'Type B profile selection guard missing');
 assert.ok(app.includes("toUpperCase()==='ICC1'"),'Type B must prefer ICC1');
-assert.ok(app.includes('lastClosedQuarterStart=Math.floor(Date.now()/quarterMs)*quarterMs-quarterMs'),'Current month must query through the last fully closed 15-minute interval');
-assert.ok(!app.includes('lastClosedDayEnd'),'Current-day EG.D data must no longer be blocked');
+assert.ok(app.includes('lastClosedDayEnd=todayStart-15*60000'),'EG.D current-month query must stop at the previous day');
+assert.ok(!app.includes('lastClosedQuarterStart'),'EG.D rejects current-day query bounds');
 assert.ok(app.includes('function estimateRateForMonth'),'Three-month cost estimate missing');
 assert.ok(app.includes('function weightedCostModel'),'Dynamic fixed-variable cost model missing');
 assert.ok(app.includes('function modeledRateAtEnergy'),'Dynamic price curve missing');
@@ -213,4 +213,4 @@ assert.equal(periodTest.currentRange().length,3);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.4.6 smoke tests OK');
+console.log('Energo Přehled Beta 1.4.7 smoke tests OK');
