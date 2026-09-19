@@ -11,11 +11,12 @@
     'electricityTax','supplierFixed','breaker','distributionFixed','vat'
   ];
 
-  function nullableMoney(v){
+  function nullableNumber(v,digits=6){
     if(v===null||v===undefined||v==='')return null;
-    const n=Number(v);
-    return Number.isFinite(n)&&n>=0?Math.round(n*100)/100:null;
+    const n=Number(v);if(!Number.isFinite(n)||n<0)return null;
+    const p=10**digits;return Math.round(n*p)/p;
   }
+  function nullableMoney(v){return nullableNumber(v,2)}
 
   function emptyFinance(){
     const components={};for(const k of COMPONENT_KEYS)components[k]=null;
@@ -61,13 +62,14 @@
     for(const k of COMPONENT_KEYS)base.components[k]=nullableMoney(c[k]);
     const metering=f.metering&&typeof f.metering==='object'?f.metering:{};
     base.metering.ean=String(metering.ean||'');
-    base.metering.consumptionKwh=nullableMoney(metering.consumptionKwh);
+    base.metering.consumptionKwh=nullableNumber(metering.consumptionKwh,6);
     base.metering.tariffCode=String(metering.tariffCode||'');
     base.metering.breaker=String(metering.breaker||'');
     base.metering.product=String(metering.product||'');
     base.metering.productSeries=String(metering.productSeries||'');
     const tariff=f.tariff&&typeof f.tariff==='object'?f.tariff:{};
-    for(const k of ['fixedExVatPerMonth','variableExVatPerKwh','fixedGrossPerMonth','variableGrossPerKwh','vatRate'])base.tariff[k]=nullableMoney(tariff[k]);
+    for(const k of ['fixedExVatPerMonth','variableExVatPerKwh','fixedGrossPerMonth','variableGrossPerKwh'])base.tariff[k]=nullableNumber(tariff[k],6);
+    base.tariff.vatRate=nullableNumber(tariff.vatRate,6);
     base.tariff.validated=tariff.validated===true;
     for(const k of ['sourceMonthKey','sourceDocumentNumber','sourceSupplier'])base.tariff[k]=String(tariff[k]||'');
     const m=f.invoiceMeta&&typeof f.invoiceMeta==='object'?f.invoiceMeta:{};
@@ -103,5 +105,5 @@
     return f.tariff.fixedGrossPerMonth*fraction+f.tariff.variableGrossPerKwh*e;
   }
 
-  return {COMPONENT_KEYS,nullableMoney,emptyFinance,normalizeFinance,componentTotal,hasDetailedBreakdown,hasValidatedTariff,tariffCost};
+  return {COMPONENT_KEYS,nullableNumber,nullableMoney,emptyFinance,normalizeFinance,componentTotal,hasDetailedBreakdown,hasValidatedTariff,tariffCost};
 });
