@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.5.12';
+const APP_VERSION = '1.5.13';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -876,6 +876,27 @@ function forecastWeekdayBaseline(monthKey){
   const vals=sum.map((v,i)=>wgt[i]?v/wgt[i]:0),overall=vals.filter(v=>v>0);const fallback=overall.length?overall.reduce((a,b)=>a+b,0)/overall.length:1;
   return vals.map(v=>v>0?v:fallback);
 }
+function forecastEnergyDailySeries(monthKey){
+  const estimate=estimateRateForMonth(monthKey);
+  if(!estimate||!Number.isFinite(estimate.predictedEnergy))return null;
+  const rs=state.records.filter(r=>r.monthKey===monthKey&&recordUsable(r)).sort((a,b)=>a.sortKey-b.sortKey);
+  if(!rs.length)return null;
+  const dates=monthDateKeys(monthKey),dailyActual=new Map();
+  for(const r of rs)dailyActual.set(r.dateKey,(dailyActual.get(r.dateKey)||0)+billingEnergy(r));
+  const observed=[...dailyActual.keys()].sort(),lastObserved=observed.at(-1);
+  if(!lastObserved)return null;
+  const future=dates.filter(d=>d>lastObserved),baseline=forecastWeekdayBaseline(monthKey);
+  const weights=future.map(d=>Math.max(.0001,(baseline[weekdayFromDateKey(d)]||1)*(estimate.scale||1)));
+  const weightSum=weights.reduce((a,b)=>a+b,0)||1,remaining=Math.max(0,estimate.predictedEnergy-estimate.actualEnergy);
+  const futureValues=new Map(future.map((d,i)=>[d,remaining*(weights[i]||0)/weightSum]));
+  const data=dates.map(d=>({
+    date:d,
+    label:`${d.slice(8,10)}.${d.slice(5,7)}.`,
+    value:d<=lastObserved?(dailyActual.get(d)||0):(futureValues.get(d)||0),
+    kind:d<=lastObserved?'actual':'forecast'
+  }));
+  return {data,estimate,lastObserved};
+}
 function forecastCostSeries(monthKey){
   const estimate=estimatedMonthCost(monthKey);if(!estimate||!Number.isFinite(estimate.projectedCost))return null;
   const rs=state.records.filter(r=>r.monthKey===monthKey).sort((a,b)=>a.sortKey-b.sortKey),dates=monthDateKeys(monthKey);if(!rs.length)return null;
@@ -1080,6 +1101,36 @@ function lineChart(el,data,{hero=false,unit='kWh'}={}){
   </svg>`;
   attachChartTooltip(el,data,{w,left:p.l,right:p.r,htmlForPoint:d=>`<strong>${escapeHtml(d.label)}</strong><span>${escapeHtml(chartValue(Number(d.value)||0,unit))}</span>`});
 }
+function energyForecastLineChart(el,data){
+  if(!data?.length){el.innerHTML='<div class="chart-empty">Zatím nejsou data</div>';return}
+  const w=700,h=200,p={l:64,r:14,t:34,b:38},vals=data.map(d=>Number(d.value)||0),axisMax=niceAxisMax(Math.max(...vals,.001)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4);
+  const x=i=>p.l+(i/(Math.max(1,data.length-1)))*(w-p.l-p.r),y=v=>p.t+(1-v/axisMax)*(h-p.t-p.b);
+  const lastActual=Math.max(0,data.map(d=>d.kind).lastIndexOf('actual')),actualData=data.slice(0,lastActual+1),forecastData=data.slice(lastActual);
+  const actualPts=actualData.map((d,i)=>`${x(i)},${y(Number(d.value)||0)}`).join(' ');
+  const forecastPts=forecastData.map((d,j)=>`${x(lastActual+j)},${y(Number(d.value)||0)}`).join(' ');
+  const actualArea=`${p.l},${h-p.b} ${actualPts} ${x(lastActual)},${h-p.b}`;
+  const forecastArea=forecastData.length>1?`${x(lastActual)},${h-p.b} ${forecastPts} ${w-p.r},${h-p.b}`:'';
+  const xlabels=data.filter((_,i)=>i===0||i===data.length-1||i%Math.ceil(data.length/5)===0),grid='rgba(255,255,255,.13)',text='#afbdd0',orange='#f0a23a';
+  el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="Denní spotřeba a predikce do konce měsíce">
+    <defs>
+      <linearGradient id="energyActualArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#67a9ff" stop-opacity=".30"/><stop offset="1" stop-color="#67a9ff" stop-opacity="0"/></linearGradient>
+      <linearGradient id="energyForecastArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${orange}" stop-opacity=".24"/><stop offset="1" stop-color="${orange}" stop-opacity="0"/></linearGradient>
+    </defs>
+    <text class="chart-y-label" x="${p.l}" y="12" text-anchor="start" fill="${text}">kWh</text>
+    <line x1="${w-190}" x2="${w-168}" y1="11" y2="11" stroke="#8fc1ff" stroke-width="3"/><text x="${w-162}" y="14" fill="${text}" font-size="11" font-weight="700">skutečnost</text>
+    <line x1="${w-92}" x2="${w-70}" y1="11" y2="11" stroke="${orange}" stroke-width="3"/><text x="${w-64}" y="14" fill="${text}" font-size="11" font-weight="700">predikce</text>
+    ${ticks.map(t=>`<line x1="${p.l}" x2="${w-p.r}" y1="${y(t)}" y2="${y(t)}" stroke="${grid}" stroke-width="1"/><text class="chart-y-label" x="${p.l-7}" y="${y(t)+3}" text-anchor="end" fill="${text}">${escapeHtml(chartValue(t,'kWh').replace(' kWh',''))}</text>`).join('')}
+    <polygon points="${actualArea}" fill="url(#energyActualArea)"/>
+    ${forecastArea?`<polygon points="${forecastArea}" fill="url(#energyForecastArea)"/>`:''}
+    <polyline points="${actualPts}" fill="none" stroke="#8fc1ff" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>
+    ${forecastData.length>1?`<polyline points="${forecastPts}" fill="none" stroke="${orange}" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>`:''}
+    ${forecastData.length>1?`<line x1="${x(lastActual)}" x2="${x(lastActual)}" y1="${p.t}" y2="${h-p.b}" stroke="${orange}" opacity=".6" stroke-dasharray="4 5"/>`:''}
+    <circle cx="${x(lastActual)}" cy="${y(vals[lastActual])}" r="4" fill="#fff"><title>Poslední skutečnost: ${escapeHtml(data[lastActual].label)} · ${escapeHtml(chartValue(vals[lastActual],'kWh'))}</title></circle>
+    ${forecastData.length>1?`<circle cx="${x(data.length-1)}" cy="${y(vals.at(-1))}" r="4" fill="${orange}"><title>Predikce: ${escapeHtml(data.at(-1).label)} · ${escapeHtml(chartValue(vals.at(-1),'kWh'))}</title></circle>`:''}
+    ${xlabels.map(d=>{const i=data.indexOf(d);return `<text class="chart-x-label" x="${x(i)}" y="${h-8}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" fill="${text}">${escapeHtml(d.label)}</text>`}).join('')}
+  </svg>`;
+  attachChartTooltip(el,data,{w,left:p.l,right:p.r,htmlForPoint:d=>`<strong>${escapeHtml(d.label)}</strong><span>${d.kind==='forecast'?'Predikce':'Skutečnost'} ${escapeHtml(chartValue(Number(d.value)||0,'kWh'))}</span>`});
+}
 function forecastBandChart(el,data){
   if(!data?.length){el.innerHTML='<div class="chart-empty">Forecast zatím není k dispozici</div>';return}
   const w=700,h=250,p={l:64,r:14,t:30,b:42},vals=data.flatMap(d=>[d.actual,d.central,d.low,d.high]).filter(Number.isFinite),axisMax=niceAxisMax(Math.max(...vals,1)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4);
@@ -1278,7 +1329,9 @@ function renderOverview(){
     else{const delta=(total-prevTotal)/prevTotal*100;$('#heroDelta').textContent=`${delta>=0?'▲':'▼'} ${fmt.format(Math.abs(delta))} % proti předchozímu období`}
   }
   const daily=group(rs,r=>r.dateKey),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));
-  lineChart($('#mainChart'),dailyData,{hero:true,unit:'kWh'});
+  const liveMonthKey=state.period==='month'?expectedCurrentMonthKeys()[0]:null,forecastSeries=liveMonthKey&&monthIsLivePartial(liveMonthKey)?forecastEnergyDailySeries(liveMonthKey):null;
+  if(forecastSeries?.data?.some(d=>d.kind==='forecast'))energyForecastLineChart($('#mainChart'),forecastSeries.data);
+  else lineChart($('#mainChart'),dailyData,{hero:true,unit:'kWh'});
   $('#avgDayLabel').textContent='Denní průměr';$('#avgDay').textContent=fmt3.format(total/Math.max(1,daily.size));$('#avgDayUnit').textContent='kWh / den';
   const peak=rs.reduce((a,b)=>val(b)>val(a)?b:a,rs[0]);$('#maxPowerLabel').textContent='Maximum';$('#maxPower').textContent=fmt.format(val(peak));$('#maxPowerSub').textContent=`kW · ${peak.displayTimestamp}`;
   const best=[...daily].sort((a,b)=>b[1]-a[1])[0];$('#bestDayLabel').textContent='Nejsilnější den';$('#bestDay').textContent=best?`${best[0].slice(8,10)}.${best[0].slice(5,7)}.`:'—';$('#bestDaySub').textContent=best?`${fmt3.format(best[1])} kWh`:'—';
