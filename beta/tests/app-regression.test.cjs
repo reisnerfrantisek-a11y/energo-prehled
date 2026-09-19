@@ -6,6 +6,7 @@ const Core=require('../core/model.js');
 const Invoice=require('../core/invoice.js');
 const Time=require('../core/time.js');
 const Forecast=require('../core/forecast.js');
+const InvoiceParser=require('../core/invoice-parser.js');
 
 const root=path.resolve(__dirname,'..');
 const app=fs.readFileSync(path.join(root,'app.js'),'utf8');
@@ -18,15 +19,15 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,estimateRateForMonth
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
-  const window={EnergoCore:Core,EnergoInvoice:Invoice,EnergoTime:Time,EnergoForecast:Forecast,scrollTo:()=>{}};
+  const window={EnergoCore:Core,EnergoInvoice:Invoice,EnergoTime:Time,EnergoForecast:Forecast,EnergoInvoiceParser:InvoiceParser,scrollTo:()=>{}};
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.6 files are version-aligned and syntactically valid',()=>{
+test('beta 1.6.1 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
   assert.match(app,/APP_VERSION = '1\.6\.0'/);
   assert.match(html,/BETA 1\.6\.0/);
@@ -109,4 +110,32 @@ test('live-month chart spans actual, forecast band, cumulative mode and previous
   const cumulative=api.prepareEnergyChartSeries('2026-09');
   assert.ok(Math.abs(cumulative.data.at(-1).value-cumulative.estimate.predictedEnergy)<1e-8);
   assert.ok(cumulative.comparison.values[17]>cumulative.comparison.values[0]);
+});
+
+
+test('verified PDF tariff takes priority over regression for live-month cost forecast',()=>{
+  const api=loadApp();
+  api.state.months=[];api.state.records=[];
+  function addMonth(key,complete,source,days,dayKwh,finance){
+    const [y,m]=key.split('-').map(Number);
+    api.state.months.push({monthKey:key,enabled:true,complete,source,lastAvailableAt:source==='egd-api'?'2026-09-18T21:45:00Z':null,finance});
+    for(let d=1;d<=days;d++)for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){
+      const dateKey=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`,wd0=new Date(Date.UTC(y,m-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;
+      api.state.records.push({id:`${key}-${d}-${h}-${mi}`,ean:'859000000000000001',monthKey:key,dateKey,sortKey:Date.UTC(y,m-1,d,h,mi),year:y,month:m,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:dayKwh/6,source,apiStatus:source==='egd-api'?'W':undefined});
+    }
+  }
+  addMonth('2026-07',true,'xlsx',31,1,{invoiceTotal:380});
+  addMonth('2026-08',true,'xlsx',31,1.2,{
+    invoiceTotal:406.55,source:'pdf',
+    metering:{ean:'859000000000000001',consumptionKwh:12},
+    tariff:{validated:true,fixedGrossPerMonth:328.9627,variableGrossPerKwh:6.465853,sourceMonthKey:'2026-08'},
+    invoiceMeta:{extractionConfidence:1}
+  });
+  addMonth('2026-09',false,'egd-api',18,1.4,{invoiceTotal:null});
+  const e=api.estimateRateForMonth('2026-09');
+  assert.equal(e.modelType,'tariff');
+  assert.equal(e.tariffSourceMonth,'2026-08');
+  assert.ok(Math.abs(e.fixed-328.9627)<1e-9);
+  assert.ok(Math.abs(e.variableRate-6.465853)<1e-9);
+  assert.ok(Math.abs(e.projectedCost-(e.fixed+e.variableRate*e.predictedEnergy))<1e-8);
 });
