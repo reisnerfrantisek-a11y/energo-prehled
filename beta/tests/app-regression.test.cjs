@@ -19,7 +19,7 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
@@ -27,20 +27,20 @@ return {
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.7.0 files are version-aligned and syntactically valid',()=>{
+test('beta 1.7.1 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.7\.0'/);
-  assert.match(html,/BETA 1\.7\.0/);
-  assert.match(sw,/v1\.7\.0/);
-  assert.match(html,/core\/model\.js\?v=1\.7\.0/);
-  assert.match(html,/core\/time\.js\?v=1\.7\.0/);
-  assert.match(html,/core\/forecast\.js\?v=1\.7\.0/);
-  assert.match(html,/core\/invoice\.js\?v=1\.7\.0/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.7\.0/);
-  assert.match(sw,/core\/model\.js\?v=1\.7\.0/);
-  assert.match(sw,/core\/time\.js\?v=1\.7\.0/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.7\.0/);
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.7\.0/);
+  assert.match(app,/APP_VERSION = '1\.7\.1'/);
+  assert.match(html,/BETA 1\.7\.1/);
+  assert.match(sw,/v1\.7\.1/);
+  assert.match(html,/core\/model\.js\?v=1\.7\.1/);
+  assert.match(html,/core\/time\.js\?v=1\.7\.1/);
+  assert.match(html,/core\/forecast\.js\?v=1\.7\.1/);
+  assert.match(html,/core\/invoice\.js\?v=1\.7\.1/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.7\.1/);
+  assert.match(sw,/core\/model\.js\?v=1\.7\.1/);
+  assert.match(sw,/core\/time\.js\?v=1\.7\.1/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.7\.1/);
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.7\.1/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -204,4 +204,48 @@ test('Forecast 2.0 metadata is exposed for a live month',()=>{
   assert.ok(e.forecastWeights.recent7>0);
   assert.ok(Number.isFinite(e.recent7Projection));
   assert.ok(e.lowEnergy<=e.predictedEnergy&&e.predictedEnergy<=e.highEnergy);
+});
+
+
+test('cost overview spans actual blue period, orange forecast and supports previous-month comparison',()=>{
+  const api=loadApp();api.state.months=[];api.state.records=[];
+  function addMonth(key,complete,source,days,dayKwh,finance){
+    const [y,m]=key.split('-').map(Number);
+    api.state.months.push({monthKey:key,enabled:true,complete,source,lastAvailableAt:source==='egd-api'?'2026-09-18T21:45:00Z':null,finance});
+    for(let d=1;d<=days;d++)for(let hh=0;hh<24;hh++)for(let mi=0;mi<60;mi+=15){
+      const dateKey=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`,wd0=new Date(Date.UTC(y,m-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;
+      api.state.records.push({id:`${key}-${d}-${hh}-${mi}`,ean:'859000000000000001',monthKey:key,dateKey,sortKey:Date.UTC(y,m-1,d,hh,mi),year:y,month:m,day:d,hour:hh,minute:mi,weekday:wd,intervalMinutes:15,dcc1:dayKwh/6,source,apiStatus:source==='egd-api'?'W':undefined});
+    }
+  }
+  addMonth('2026-07',true,'xlsx',31,1,{invoiceTotal:380});
+  addMonth('2026-08',true,'xlsx',31,1.2,{
+    invoiceTotal:406.55,source:'pdf',
+    metering:{ean:'859000000000000001',consumptionKwh:12},
+    tariff:{validated:true,fixedGrossPerMonth:328.9627,variableGrossPerKwh:6.465853,sourceMonthKey:'2026-08'},
+    invoiceMeta:{extractionConfidence:1}
+  });
+  addMonth('2026-09',false,'egd-api',18,1.4,{invoiceTotal:null});
+  api.state.compareMode='previous';api.state.chartMode='daily';
+  const daily=api.prepareCostChartSeries('2026-09');
+  assert.equal(daily.data.length,30);
+  assert.equal(daily.data[17].kind,'actual');
+  assert.equal(daily.data[18].kind,'forecast');
+  assert.ok(daily.data[17].value>0);
+  assert.ok(daily.data[18].value>0);
+  assert.equal(daily.comparison.monthKey,'2026-08');
+  assert.equal(daily.comparison.values.length,30);
+  assert.ok(daily.comparison.values.every(Number.isFinite));
+
+  api.state.chartMode='cumulative';
+  const cumulative=api.prepareCostChartSeries('2026-09');
+  assert.ok(Math.abs(cumulative.data.at(-1).value-cumulative.estimate.projectedCost)<1e-8);
+  const dailyComparisonSum=daily.comparison.values.reduce((sum,v)=>sum+(Number(v)||0),0);
+  assert.ok(Math.abs(cumulative.comparison.values.at(-1)-dailyComparisonSum)<1e-8);
+  assert.ok(cumulative.comparison.values.at(-1)>0);
+});
+
+test('cost overview keeps monthly forecast controls visible',()=>{
+  assert.match(app,/chartControls\.classList\.toggle\('hidden',state\.period!=='month'\)/);
+  assert.match(app,/prepareCostChartSeries/);
+  assert.match(app,/unit:'Kč'/);
 });
