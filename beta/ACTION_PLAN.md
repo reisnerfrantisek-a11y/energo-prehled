@@ -5,7 +5,7 @@ Společný desetibodový **Akční plán** je aktivní od verze 1.7.0. Jednotliv
 1. **Architektura a regresní testy — průběžně.** Core moduly jsou oddělené od UI, CI běží na každé relevantní změně a další funkce dostávají vlastní regresní scénáře.
 2. **Predikční model spotřeby 2.0 — nasazeno v 1.7.0.** Ensemble kombinuje historii stejného dne v týdnu, posledních 7 dní, posledních 14 dní a průběžné tempo. Váhy se mění podle množství dostupných dat.
 3. **Kalibrované predikční pásmo — nasazeno v 1.7.0.** Dokud není dost backtestů, používá se konzervativní heuristika. Od dvou historických chyb se pásmo začne kalibrovat; s dalšími měsíci roste váha empirické chyby.
-4. **Rozšířený srovnávací režim — nasazeno v 1.7.0.** Hlavní měsíční graf umí bez srovnání, minulý měsíc a stejný měsíc předchozího roku.
+4. **Rozšířený srovnávací režim — nasazeno v 1.7.0, rozšířeno v 1.7.1.** Hlavní měsíční graf umí bez srovnání, minulý měsíc a stejný měsíc předchozího roku; od 1.7.1 stejné možnosti fungují i v nákladové části včetně oranžové predikce.
 5. **Další kumulativní pohledy a cílové trajektorie spotřeby — částečně.** Denní/kumulativní režim je hotový; uživatelský cíl a trajektorie k cíli budou další etapa.
 6. **Datový health score — nasazeno v 1.7.0.** Měsíční přehled hodnotí kompletnost uzavřených intervalů, použitelnost dat a aktuálnost zdroje.
 7. **Detailní finanční model z reálných tarifních složek a PDF faktur — probíhá od 1.6.1.** Lokální E.ON PDF parser, rozpad ceny a ověřený tarif mají přednost před regresí.
