@@ -1025,7 +1025,7 @@ async function captureLiveForecastSnapshots(){
     if(!monthIsLivePartial(m.monthKey))continue;
     const estimate=estimateRateForMonth(m.monthKey);if(!estimate||!Number.isFinite(estimate.predictedEnergy))continue;
     const asOfDate=m.lastAvailableAt?pragueDayKeyFromMs(Date.parse(m.lastAvailableAt)):pragueDayKeyFromMs(Date.now());if(!asOfDate)continue;
-    const snap={asOfDate,createdAt:new Date().toISOString(),projectedCost:Number.isFinite(estimate.projectedCost)?estimate.projectedCost:null,lowProjectedCost:Number.isFinite(estimate.lowProjectedCost)?estimate.lowProjectedCost:null,highProjectedCost:Number.isFinite(estimate.highProjectedCost)?estimate.highProjectedCost:null,predictedEnergy:estimate.predictedEnergy,lowEnergy:estimate.lowEnergy,highEnergy:estimate.highEnergy,modelStability:estimate.confidence};
+    const snap={asOfDate,createdAt:new Date().toISOString(),projectedCost:Number.isFinite(estimate.projectedCost)?estimate.projectedCost:null,lowProjectedCost:Number.isFinite(estimate.lowProjectedCost)?estimate.lowProjectedCost:null,highProjectedCost:Number.isFinite(estimate.highProjectedCost)?estimate.highProjectedCost:null,predictedEnergy:estimate.predictedEnergy,lowEnergy:estimate.lowEnergy,highEnergy:estimate.highEnergy,modelStability:estimate.confidence,forecastModel:estimate.forecastModel||'legacy',forecastWeights:estimate.forecastWeights||null,uncertainty:estimate.uncertainty,uncertaintySource:estimate.uncertaintySource||'heuristic'};
     const history=forecastHistoryForMonth(m).filter(x=>x.asOfDate!==asOfDate);history.push(snap);history.sort((a,b)=>a.asOfDate.localeCompare(b.asOfDate));
     const updated={...m,forecastHistory:history.slice(-62)};updates.push(updated);
   }
