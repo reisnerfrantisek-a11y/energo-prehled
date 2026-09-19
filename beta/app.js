@@ -106,11 +106,15 @@ function parseMoneyInput(raw){
 }
 async function setMonthInvoice(monthKey,rawValue){
   const month=state.months.find(m=>m.monthKey===monthKey);if(!month)return;
-  const finance=normalizeFinance(month.finance),previousTotal=finance.invoiceTotal,invoiceTotal=parseMoneyInput(rawValue);finance.invoiceTotal=invoiceTotal;
-  const changed=previousTotal!==invoiceTotal;
-  if(changed&&finance.source==='pdf')finance.tariff.validated=false;
-  finance.source='manual';finance.invoiceMeta.extractionStatus=invoiceTotal===null?'none':changed&&finance.invoiceMeta.parserVersion?'manual-adjusted':'manual';finance.invoiceMeta.extractionConfidence=invoiceTotal===null?null:1;
-  if(invoiceTotal!==null)finance.totals.incVat=invoiceTotal;
+  let finance=normalizeFinance(month.finance);const previousTotal=finance.invoiceTotal,invoiceTotal=parseMoneyInput(rawValue),changed=previousTotal!==invoiceTotal,wasPdf=finance.source==='pdf';
+  if(changed&&wasPdf){
+    if(!confirm('Tento měsíc obsahuje rozpad z PDF faktury. Ruční změnou celkové částky se rozpad a odvozený tarif odstraní. Pokračovat?')){renderMonths();return}
+    const blank=emptyFinance(),meta={...finance.invoiceMeta,extractionStatus:'manual-adjusted',extractionConfidence:1};
+    finance={...blank,invoiceMeta:meta,source:'manual'};
+  }
+  finance.invoiceTotal=invoiceTotal;finance.source='manual';
+  finance.invoiceMeta.extractionStatus=invoiceTotal===null?'none':changed&&wasPdf?'manual-adjusted':'manual';finance.invoiceMeta.extractionConfidence=invoiceTotal===null?null:1;
+  finance.totals.incVat=invoiceTotal;
   await new Promise((resolve,reject)=>{
     const tx=db.transaction('months','readwrite'),store=tx.objectStore('months');
     store.put({...month,finance});
