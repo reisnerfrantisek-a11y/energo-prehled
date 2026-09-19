@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.4.2';
+const APP_VERSION = '1.4.3';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -36,7 +36,7 @@ let state = {
   customTo: localStorage.getItem(CUSTOM_TO_KEY) || '',
   daypartMode: localStorage.getItem(DAYPART_KEY)==='average'?'average':'percent',
   dashboardMode: localStorage.getItem(DASHBOARD_MODE_KEY)==='cost'?'cost':'energy',
-  egd: {clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null},
+  egd: {clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,autoSync:false},
   pendingImport: null,
   resetExportRange: false
 };
@@ -220,7 +220,7 @@ async function parseReport(file){
 
 // ---------- EG.D OpenAPI ----------
 function egdConnectionConfig(){
-  return {clientId:state.egd.clientId,clientSecret:state.egd.clientSecret,proxyUrl:state.egd.proxyUrl||'',ean:state.egd.ean,profile:state.egd.profile,lastSync:state.egd.lastSync||null};
+  return {clientId:state.egd.clientId,clientSecret:state.egd.clientSecret,proxyUrl:state.egd.proxyUrl||'',ean:state.egd.ean,profile:state.egd.profile,lastSync:state.egd.lastSync||null,autoSync:state.egd.autoSync===true};
 }
 async function saveEgdConfig(){await setSetting('egd-config',egdConnectionConfig())}
 function egdNetworkError(e){
@@ -319,7 +319,7 @@ function setEgdUiState(kind,label,message){
 async function disconnectEgd(){
   if(!confirm('Odpojit EG.D OpenAPI z tohoto zařízení? Naměřená data už uložená v aplikaci zůstanou zachovaná.'))return;
   await deleteSetting('egd-config');
-  state.egd={clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,verified:false};
+  state.egd={clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,autoSync:false,verified:false};
   renderEgdPanel();showToast('EG.D připojení bylo odstraněno');
 }
 async function saveEgdSelections(){
@@ -327,11 +327,20 @@ async function saveEgdSelections(){
   state.egd.profile=$('#egdProfileSelect').value||state.egd.profile;
   await saveEgdConfig();
 }
+function latestEgdAvailability(){
+  const dates=state.months.filter(m=>m.source==='egd-api'&&m.lastAvailableAt).map(m=>m.lastAvailableAt).sort();
+  return dates.at(-1)||null;
+}
+function pragueDayKeyFromMs(ms){
+  if(!Number.isFinite(ms))return '';
+  const p=pragueParts(ms);return `${p.year}-${String(p.month).padStart(2,'0')}-${String(p.day).padStart(2,'0')}`;
+}
 function renderEgdPanel(){
-  const hasCreds=!!(state.egd.clientId&&state.egd.clientSecret),hasSelection=!!(state.egd.ean&&state.egd.profile);
+  const hasCreds=!!(state.egd.clientId&&state.egd.clientSecret),hasSelection=!!(state.egd.ean&&state.egd.profile),hasProxy=!!state.egd.proxyUrl;
   $('#egdClientId').value=state.egd.clientId||'';
   $('#egdClientSecret').value=state.egd.clientSecret||'';
   $('#egdProxyUrl').value=state.egd.proxyUrl||'';
+  $('#egdAutoSync').checked=state.egd.autoSync===true;
   $('#egdConfig').classList.toggle('hidden',!state.egd.oms.length);
   $('#egdSyncBtn').classList.toggle('hidden',!(hasCreds&&hasSelection));
   $('#egdDisconnectBtn').classList.toggle('hidden',!hasCreds);
@@ -341,9 +350,14 @@ function renderEgdPanel(){
     const electric=state.egd.profiles.filter(p=>String(p.komodita||'').toUpperCase()==='ELEKTRINA');
     profSel.innerHTML=electric.map(p=>`<option value="${escapeHtml(p.kod)}" ${p.kod===state.egd.profile?'selected':''}>${escapeHtml(p.nazev||p.kod)} · ${escapeHtml(p.kod)}</option>`).join('');
   }
-  if(state.egd.verified)setEgdUiState('ok','Připojeno',state.egd.lastSync?`Poslední synchronizace: ${new Date(state.egd.lastSync).toLocaleString('cs-CZ')}`:'Připojení ověřeno. Data lze synchronizovat.');
+  const lastAvailable=latestEgdAvailability(),lastSync=state.egd.lastSync;
+  if(lastSync){
+    const bits=[`Poslední synchronizace: ${new Date(lastSync).toLocaleString('cs-CZ')}`];
+    if(lastAvailable)bits.push(`data do: ${new Date(lastAvailable).toLocaleString('cs-CZ')}`);
+    setEgdUiState('ok','Připojeno',bits.join(' · '));
+  }else if(state.egd.verified)setEgdUiState('ok','Připojeno','Připojení ověřeno. Data lze synchronizovat.');
   else if(state.egd.lastError)setEgdUiState('error','Chyba připojení',state.egd.lastError);
-  else if(hasCreds)setEgdUiState('warn','Připraveno',state.egd.proxyUrl?'Proxy je nastavena. Ověř připojení nebo spusť synchronizaci.':'Chybí Proxy URL. Přímé spojení může prohlížeč zablokovat kvůli CORS.');
+  else if(hasCreds)setEgdUiState('warn','Připraveno',hasProxy?'Proxy je nastavena. Ověř připojení nebo spusť synchronizaci.':'Chybí Proxy URL. Přímé spojení může prohlížeč zablokovat kvůli CORS.');
   else setEgdUiState('','Nepřipojeno','Po ověření připojení aplikace načte dostupná odběrná místa a profily.');
 }
 function apiValueToKw(value,units,intervalMinutes=15){
@@ -398,7 +412,7 @@ function currentAndPreviousMonthKeys(){
   const p=pragueParts(Date.now()),idx=monthIndex(`${p.year}-${String(p.month).padStart(2,'0')}`);
   return [monthKeyFromIndex(idx-1),monthKeyFromIndex(idx)];
 }
-async function syncEgdData(){
+async function syncEgdData({silent=false}={}){
   await saveEgdSelections();
   if(!state.egd.clientId||!state.egd.clientSecret||!state.egd.ean||!state.egd.profile)throw new Error('Nejdřív ověř EG.D připojení a vyber odběrné místo a profil.');
   const localEans=[...new Set(state.records.map(r=>r.ean).filter(Boolean))];
@@ -407,15 +421,22 @@ async function syncEgdData(){
   try{
     const token=state.egd.proxyUrl?null:await egdToken(),results=[];
     for(const key of currentAndPreviousMonthKeys()){
-      showToast(`EG.D: načítám ${monthLabel(key)}…`);
+      if(!silent)showToast(`EG.D: načítám ${monthLabel(key)}…`);
       const payload=await fetchEgdMonth(token,key),saved=await persistEgdMonth(payload);results.push({key,payload,saved});
     }
     state.egd.lastSync=new Date().toISOString();state.egd.verified=true;state.egd.lastError=null;await saveEgdConfig();
     state.resetExportRange=true;await reload();
     const saved=results.filter(x=>x.saved.saved).length,noData=results.filter(x=>!x.payload).length,last=results.map(x=>x.payload?.month?.lastAvailableAt).filter(Boolean).sort().at(-1);
     setEgdUiState('ok','Připojeno',`Synchronizováno ${saved} měsíců${noData?' · bez dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''}`);
-    showToast('EG.D data byla synchronizována');
+    if(!silent)showToast('EG.D data byla synchronizována');
   }catch(e){state.egd.lastError=e.message;setEgdUiState('error','Chyba synchronizace',e.message);throw e}
+}
+async function maybeAutoSyncEgd(){
+  if(state.egd.autoSync!==true||!state.egd.clientId||!state.egd.clientSecret||!state.egd.proxyUrl||!state.egd.ean||!state.egd.profile)return;
+  if(typeof navigator!=='undefined'&&navigator.onLine===false)return;
+  const today=pragueDayKeyFromMs(Date.now()),last=state.egd.lastSync?pragueDayKeyFromMs(Date.parse(state.egd.lastSync)):'';
+  if(last&&last===today)return;
+  try{await syncEgdData({silent:true})}catch(e){console.error('Automatická EG.D synchronizace selhala',e)}
 }
 
 // ---------- Analytics ----------
@@ -428,6 +449,22 @@ function monthMeta(k){return state.months.find(m=>m.monthKey===k)||null}
 function monthInvoice(k){const m=monthMeta(k),f=normalizeFinance(m?.finance);return f.invoiceTotal}
 function monthBillingEnergy(k){return state.records.filter(r=>r.monthKey===k).reduce((sum,r)=>sum+billingEnergy(r),0)}
 function monthEffectivePrice(k){const invoice=monthInvoice(k),kwh=monthBillingEnergy(k);return invoice!==null&&kwh>0?invoice/kwh:null}
+function estimateRateForMonth(monthKey){
+  const idx=monthIndex(monthKey);if(idx===null)return {rate:null,months:[],count:0,requested:3,totalCost:0,totalEnergy:0};
+  const keys=[idx-3,idx-2,idx-1].map(monthKeyFromIndex),months=[];let totalCost=0,totalEnergy=0;
+  for(const key of keys){
+    const meta=monthMeta(key),invoice=monthInvoice(key),kwh=monthBillingEnergy(key);
+    if(!meta||meta.enabled===false||!monthIsComplete(key)||invoice===null||kwh<=0)continue;
+    months.push(key);totalCost+=invoice;totalEnergy+=kwh;
+  }
+  return {rate:totalEnergy>0?totalCost/totalEnergy:null,months,count:months.length,requested:3,totalCost,totalEnergy};
+}
+function estimatedMonthCost(monthKey,rs=null){
+  const meta=monthMeta(monthKey);if(!meta||!monthIsLivePartial(monthKey))return null;
+  const basis=estimateRateForMonth(monthKey);if(!Number.isFinite(basis.rate))return {...basis,cost:null,energy:0};
+  const selected=Array.isArray(rs)?rs:state.records.filter(r=>r.monthKey===monthKey),selectedEnergy=selected.reduce((sum,r)=>sum+billingEnergy(r),0);
+  return {...basis,cost:selectedEnergy*basis.rate,energy:selectedEnergy};
+}
 function costForRecords(rs){
   const groups=new Map();for(const r of rs){if(!groups.has(r.monthKey))groups.set(r.monthKey,[]);groups.get(r.monthKey).push(r)}
   let total=0,coveredEnergy=0,knownMonths=0;const missing=[],unallocatable=[],monthCosts=new Map();
@@ -443,11 +480,24 @@ function costForRecords(rs){
   }
   return {total,coveredEnergy,knownMonths,missing,unallocatable,monthCosts,groupCount:groups.size};
 }
+function costProjectionForRecords(rs){
+  const actual=costForRecords(rs),groups=new Map(),estimatedMonths=new Map();let estimateTotal=0,estimateEnergy=0;
+  for(const r of rs){if(!groups.has(r.monthKey))groups.set(r.monthKey,[]);groups.get(r.monthKey).push(r)}
+  for(const [k,selected] of groups){
+    if(!monthIsLivePartial(k))continue;
+    const estimate=estimatedMonthCost(k,selected);
+    if(estimate&&Number.isFinite(estimate.cost)){estimatedMonths.set(k,estimate);estimateTotal+=estimate.cost;estimateEnergy+=estimate.energy}
+  }
+  const estimatedKeys=new Set(estimatedMonths.keys());
+  return {...actual,estimateTotal,estimateEnergy,estimatedMonths,totalWithEstimate:actual.total+estimateTotal,coveredEnergyWithEstimate:actual.coveredEnergy+estimateEnergy,missingUnresolved:actual.missing.filter(k=>!estimatedKeys.has(k)),unallocatableUnresolved:actual.unallocatable.filter(k=>!estimatedKeys.has(k))};
+}
 function dailyCostData(rs){
   const out=new Map(),groups=new Map();for(const r of rs){if(!groups.has(r.monthKey))groups.set(r.monthKey,[]);groups.get(r.monthKey).push(r)}
   for(const [k,selected] of groups){
-    const invoice=monthInvoice(k),fullEnergy=monthBillingEnergy(k);if(invoice===null||fullEnergy<=0)continue;
-    const rate=invoice/fullEnergy;
+    let rate=null;
+    if(monthIsLivePartial(k))rate=estimateRateForMonth(k).rate;
+    else{const invoice=monthInvoice(k),fullEnergy=monthBillingEnergy(k);if(invoice!==null&&fullEnergy>0)rate=invoice/fullEnergy}
+    if(!Number.isFinite(rate))continue;
     for(const r of selected)out.set(r.dateKey,(out.get(r.dateKey)||0)+billingEnergy(r)*rate);
   }
   return out;
@@ -615,10 +665,20 @@ function renderOverview(){
 
   const activeMonths=state.months.filter(m=>m.enabled!==false).sort((a,b)=>a.monthKey.localeCompare(b.monthKey));
   if(costMode){
-    const costMonthly=activeMonths.map(m=>({label:monthLabel(m.monthKey),short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:monthInvoice(m.monthKey)})).filter(x=>x.value!==null);
-    const priceMonthly=activeMonths.map(m=>({label:monthLabel(m.monthKey),short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:monthEffectivePrice(m.monthKey)})).filter(x=>x.value!==null);
+    const costMonthly=activeMonths.map(m=>{
+      const invoice=monthInvoice(m.monthKey),estimate=monthIsLivePartial(m.monthKey)?estimatedMonthCost(m.monthKey):null;
+      if(invoice!==null&&m.complete===true)return {label:monthLabel(m.monthKey),short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:invoice};
+      if(estimate&&Number.isFinite(estimate.cost))return {label:monthLabel(m.monthKey)+' · odhad',short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:estimate.cost};
+      return null;
+    }).filter(Boolean);
+    const priceMonthly=activeMonths.map(m=>{
+      const actual=monthEffectivePrice(m.monthKey),estimate=monthIsLivePartial(m.monthKey)?estimatedMonthCost(m.monthKey):null;
+      if(actual!==null&&m.complete===true)return {label:monthLabel(m.monthKey),short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:actual};
+      if(estimate&&Number.isFinite(estimate.rate))return {label:monthLabel(m.monthKey)+' · odhad',short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:estimate.rate};
+      return null;
+    }).filter(Boolean);
     $('#monthlyChartTitle').textContent='Náklady po měsících';
-    $('#monthlyChartSubtitle').textContent='Celkové částky z vyplněných faktur';
+    $('#monthlyChartSubtitle').textContent='Faktury; průběžný měsíc je zobrazen jako odhad';
     barChart($('#monthlyChart'),costMonthly,{unit:'Kč'});
     lineChart($('#effectivePriceChart'),priceMonthly,{unit:'Kč/kWh'});
   }else{
@@ -633,7 +693,7 @@ function renderOverview(){
   const dcc0Btn=$('.metric-btn[data-metric="dcc0"]');if(dcc0Btn)dcc0Btn.disabled=rangeHasApi;
   if(rangeHasApi&&state.metric==='dcc0'){
     state.metric='dcc1';localStorage.setItem(METRIC_KEY,state.metric);rs=currentRange();
-    $('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
+    $$('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
   }
   $('#heroPeriod').textContent=selectedPeriodLabel();
 
@@ -651,12 +711,19 @@ function renderOverview(){
   }
 
   if(costMode){
-    const cb=costForRecords(rs),daily=dailyCostData(rs),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));
+    const cb=costProjectionForRecords(rs),daily=dailyCostData(rs),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));
+    const estimatedCount=cb.estimatedMonths.size,hasCost=cb.knownMonths>0||estimatedCount>0,total=cb.totalWithEstimate;
     $('#heroUnit').textContent='Kč';
-    $('#heroKwh').textContent=cb.knownMonths?fmt.format(cb.total):'—';
-    if(!cb.knownMonths)$('#heroDelta').textContent='Pro zvolené období není vyplněná žádná faktura';
-    else if(cb.missing.length)$('#heroDelta').textContent=`Neúplné náklady · chybí ${cb.missing.length} ${cb.missing.length===1?'faktura':'faktury'}`;
-    else if(cb.unallocatable.length)$('#heroDelta').textContent='Část nákladů nelze rozdělit na neúplné nulové období';
+    $('#heroKwh').textContent=hasCost?(estimatedCount?'≈ '+fmt.format(total):fmt.format(total)):'—';
+    const liveKeys=[...new Set(rs.filter(r=>monthIsLivePartial(r.monthKey)).map(r=>r.monthKey))];
+    if(cb.missingUnresolved.length)$('#heroDelta').textContent=`Neúplné náklady · chybí ${cb.missingUnresolved.length} ${cb.missingUnresolved.length===1?'faktura':'faktury'}`;
+    else if(cb.unallocatableUnresolved.length)$('#heroDelta').textContent='Část nákladů nelze rozdělit na neúplné období';
+    else if(estimatedCount){
+      const [key,estimate]=[...cb.estimatedMonths].at(-1);
+      $('#heroDelta').textContent=`Odhad ${monthLabel(key)} · ${fmt.format(estimate.rate)} Kč/kWh · základ ${estimate.count}/3 předchozích měsíců`;
+    }
+    else if(liveKeys.length)$('#heroDelta').textContent='Odhad nelze určit · chybí použitelná faktura v předchozích 3 měsících';
+    else if(!cb.knownMonths)$('#heroDelta').textContent='Pro zvolené období není vyplněná žádná faktura';
     else if(state.period==='custom')$('#heroDelta').textContent='Vlastní období · náklady jsou poměrně přepočtené podle DCC1';
     else if(state.period==='all')$('#heroDelta').textContent='Součet všech vyplněných faktur';
     else{
@@ -667,11 +734,12 @@ function renderOverview(){
     }
     lineChart($('#mainChart'),dailyData,{hero:true,unit:'Kč'});
     const dayCount=Math.max(1,new Set(rs.map(r=>r.dateKey)).size);
-    $('#avgDayLabel').textContent='Průměr / den';$('#avgDay').textContent=cb.knownMonths?fmt.format(cb.total/dayCount):'—';$('#avgDayUnit').textContent='Kč / den';
-    $('#maxPowerLabel').textContent='Efektivní cena';$('#maxPower').textContent=cb.coveredEnergy>0?fmt.format(cb.total/cb.coveredEnergy):'—';$('#maxPowerSub').textContent='Kč / kWh · podle DCC1';
-    const expensive=[...cb.monthCosts].sort((a,b)=>b[1]-a[1])[0];
-    $('#bestDayLabel').textContent='Nejdražší měsíc';$('#bestDay').textContent=expensive?`${expensive[0].slice(5,7)}/${expensive[0].slice(2,4)}`:'—';$('#bestDaySub').textContent=expensive?`${fmt.format(expensive[1])} Kč`:'—';
-    $('#baseLoadLabel').textContent='Pokrytí faktur';$('#baseLoad').textContent=`${cb.knownMonths}/${cb.groupCount}`;$('#baseLoadUnit').textContent='měsíců s cenou';
+    $('#avgDayLabel').textContent=estimatedCount?'Odhad / den':'Průměr / den';$('#avgDay').textContent=hasCost?fmt.format(total/dayCount):'—';$('#avgDayUnit').textContent='Kč / den';
+    $('#maxPowerLabel').textContent=estimatedCount?'Použitá cena':'Efektivní cena';$('#maxPower').textContent=cb.coveredEnergyWithEstimate>0?fmt.format(total/cb.coveredEnergyWithEstimate):'—';$('#maxPowerSub').textContent=estimatedCount?'Kč / kWh · včetně odhadu':'Kč / kWh · podle DCC1';
+    const combinedCosts=new Map(cb.monthCosts);for(const [k,e] of cb.estimatedMonths)combinedCosts.set(k,e.cost);
+    const expensive=[...combinedCosts].sort((a,b)=>b[1]-a[1])[0],expensiveEstimated=expensive&&cb.estimatedMonths.has(expensive[0]);
+    $('#bestDayLabel').textContent='Nejdražší měsíc';$('#bestDay').textContent=expensive?`${expensive[0].slice(5,7)}/${expensive[0].slice(2,4)}`:'—';$('#bestDaySub').textContent=expensive?`${expensiveEstimated?'≈ ':''}${fmt.format(expensive[1])} Kč`:'—';
+    $('#baseLoadLabel').textContent='Pokrytí nákladů';$('#baseLoad').textContent=estimatedCount?`${cb.knownMonths} + ${estimatedCount}/${cb.groupCount}`:`${cb.knownMonths}/${cb.groupCount}`;$('#baseLoadUnit').textContent=estimatedCount?'faktury + odhad':'měsíců s cenou';
     return;
   }
 
@@ -730,20 +798,28 @@ async function renderMonths(){
   const months=[...state.months].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));
   $('#monthsList').innerHTML=months.length?months.map(m=>{
     const enabled=m.enabled!==false,finance=normalizeFinance(m.finance),invoice=finance.invoiceTotal,kwh=monthBillingEnergy(m.monthKey),effective=invoice!==null&&kwh>0?invoice/kwh:null;
-    const isApi=m.source==='egd-api',partial=isApi&&m.complete!==true,quality=m.apiStatusCounts||{},sourceTag=isApi?'<span class="month-source">EG.D</span>':'<span class="month-source">XLSX</span>';
+    const isApi=m.source==='egd-api',partial=isApi&&m.complete!==true,estimate=partial?estimatedMonthCost(m.monthKey):null,quality=m.apiStatusCounts||{},sourceTag=isApi?'<span class="month-source">EG.D</span>':'<span class="month-source">XLSX</span>';
+    const liveTag=partial?'<span class="month-live-badge">PRŮBĚŽNÝ</span>':'';
     const qualityText=isApi?Object.entries(quality).sort(([a],[b])=>a.localeCompare(b)).map(([code,count])=>`${code} ${count}`).join(' · '):'';
     const availability=partial&&m.lastAvailableAt?` · do ${new Date(m.lastAvailableAt).toLocaleString('cs-CZ')}`:'';
     const stateText=monthIsComplete(m.monthKey)?'✓ kompletní':partial&&enabled?'● průběžně':enabled?'⚠ zkontrolovat':'—';
+    let estimateHtml='';
+    if(partial){
+      estimateHtml=estimate&&Number.isFinite(estimate.cost)
+        ?`<div class="month-estimate"><strong>Odhad nákladů: ≈ ${fmt.format(estimate.cost)} Kč</strong><span class="estimate-rate">Dosavadní spotřeba ${fmt3.format(estimate.energy)} kWh × ${fmt.format(estimate.rate)} Kč/kWh · základ ${estimate.count}/3 předchozích měsíců${estimate.months.length?' ('+estimate.months.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span></div>`
+        :`<div class="month-estimate"><strong>Odhad nákladů zatím nelze určit</strong><span class="estimate-rate">Je potřeba alespoň jedna kompletní faktura se spotřebou v předchozích třech měsících.</span></div>`;
+    }
     return `<div class="month-row ${enabled?'':'month-disabled'}">
       <div class="month-main">
-        <strong>${escapeHtml(m.label)} ${sourceTag}</strong>
+        <strong>${escapeHtml(m.label)} ${sourceTag} ${liveTag}</strong>
         <div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}${escapeHtml(availability)}</div>
-        ${isApi?`<div class="month-quality">Kvalita EG.D: ${escapeHtml(qualityText)} · profil ${escapeHtml(m.apiProfile||'—')} · ${escapeHtml(m.apiUnits||'—')}</div>`:''}
+        ${isApi?`<div class="month-quality">Kvalita EG.D: ${escapeHtml(qualityText||'bez stavových kódů')} · profil ${escapeHtml(m.apiProfile||'—')} · ${escapeHtml(m.apiUnits||'—')}</div>`:''}
         <div class="month-finance">
           <label class="invoice-field"><span>Faktura</span><input inputmode="decimal" data-month-invoice="${m.monthKey}" value="${invoice===null?'':String(invoice).replace('.',',')}" placeholder="${partial?'po uzavření':'např. 1842'}" ${partial?'disabled':''}><b>Kč</b></label>
           <span class="effective-price">${effective===null?(invoice!==null&&kwh===0?'0 kWh · cenu/kWh nelze určit':'Cena/kWh —'):`Efektivně <strong>${fmt.format(effective)} Kč/kWh</strong>`}</span>
         </div>
-        <div class="finance-note">Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.</div>
+        ${estimateHtml}
+        <div class="finance-note">${partial?'Fakturu doplníš po uzavření měsíce. Odhad se nikam neukládá a průběžně se přepočítává.':'Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.'}</div>
       </div>
       <div class="month-actions">
         <label class="month-toggle" title="${enabled?'Vypnout měsíc':'Zapnout měsíc'}">
@@ -940,6 +1016,7 @@ function bind(){
     await saveEgdConfig();renderEgdPanel();
   };
   $('#egdProfileSelect').onchange=()=>saveEgdSelections().catch(console.error);
+  $('#egdAutoSync').onchange=async e=>{state.egd.autoSync=e.target.checked;await saveEgdConfig();showToast(state.egd.autoSync?'Automatická synchronizace zapnuta':'Automatická synchronizace vypnuta')};
   $('#forceUpdateBtn').onclick=forceUpdateApp;
   $('#appVersionText').textContent=APP_VERSION;
   $('#backupDataBtn').onclick=()=>backupLocalData().catch(e=>alert('Zálohu se nepodařilo vytvořit: '+e.message));
@@ -956,5 +1033,5 @@ function bind(){
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
   }
-  try{db=await openDB();await loadEgdSettings();bind();await reload()}catch(e){console.error(e);alert('Aplikaci se nepodařilo inicializovat: '+e.message)}
+  try{db=await openDB();await loadEgdSettings();bind();await reload();await maybeAutoSyncEgd()}catch(e){console.error(e);alert('Aplikaci se nepodařilo inicializovat: '+e.message)}
 })();

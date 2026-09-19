@@ -62,3 +62,13 @@
 .egd-config{margin-top:4px}
 .month-source{display:inline-flex;align-items:center;margin-left:6px;padding:2px 6px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:9px;font-weight:800;vertical-align:1px}
 .month-quality{font-size:10px!important;margin-top:5px!important}
+
+.egd-auto-sync{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:11px 12px;border:1px solid var(--border);border-radius:12px;background:var(--bg);cursor:pointer}
+.egd-auto-sync input{margin-top:2px;width:18px;height:18px;accent-color:var(--accent);flex:0 0 auto}
+.egd-auto-sync span{display:flex;flex-direction:column;gap:2px}
+.egd-auto-sync strong{font-size:12px;color:var(--text)}
+.egd-auto-sync small{font-size:10px;line-height:1.4;color:var(--muted)}
+.month-live-badge{display:inline-flex;align-items:center;margin-left:6px;padding:2px 6px;border-radius:999px;background:color-mix(in srgb,#2fb36d 12%,var(--surface));border:1px solid color-mix(in srgb,#2fb36d 30%,var(--border));color:#24945a;font-size:9px;font-weight:800;vertical-align:1px}
+.month-estimate{margin-top:8px;padding:9px 10px;border-radius:10px;background:color-mix(in srgb,var(--accent) 7%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 18%,var(--border));font-size:11px;line-height:1.45;color:var(--muted)}
+.month-estimate strong{color:var(--text)}
+.month-estimate .estimate-rate{display:block;margin-top:2px;font-size:10px}
