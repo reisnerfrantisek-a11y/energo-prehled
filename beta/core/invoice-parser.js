@@ -9,10 +9,10 @@
   'use strict';
   if(!Invoice)throw new Error('EnergoInvoice is required.');
 
-  const PARSER_VERSION='eon-cz-1.1.0';
+  const PARSER_VERSION='eon-cz-1.2.0';
   const NUM='[0-9]+(?:\\s[0-9]{3})*(?:[.,][0-9]+)?';
 
-  function pdfItemsToLayoutText(items,yTolerance=2.5){
+  function pdfItemsToRows(items,yTolerance=1.6){
     const rows=[];
     for(const item of Array.isArray(items)?items:[]){
       const str=String(item?.str||'').trim();if(!str)continue;
@@ -22,7 +22,19 @@
       if(!row){row={y,parts:[]};rows.push(row)}
       row.parts.push({x,str});
     }
-    return rows.sort((a,b)=>b.y-a.y).map(r=>r.parts.sort((a,b)=>a.x-b.x).map(p=>p.str).join(' ')).join('\n');
+    return rows.sort((a,b)=>b.y-a.y).map(r=>({y:r.y,parts:r.parts.sort((a,b)=>a.x-b.x)}));
+  }
+  function rowsToText(rows,predicate=null){
+    return (Array.isArray(rows)?rows:[]).map(r=>{
+      const parts=predicate?r.parts.filter(predicate):r.parts;
+      return parts.map(p=>p.str).join(' ').trim();
+    }).filter(Boolean).join('\n');
+  }
+  function pdfItemsToLayoutText(items,yTolerance=1.6){return rowsToText(pdfItemsToRows(items,yTolerance))}
+  function pdfItemsToColumnFlowText(items,splitX=420,yTolerance=1.6){
+    const rows=pdfItemsToRows(items,yTolerance);
+    const left=rowsToText(rows,p=>p.x<splitX),right=rowsToText(rows,p=>p.x>=splitX);
+    return [left,right].filter(Boolean).join('\n');
   }
   function normalizeText(text){
     return String(text||'').replace(/\u00ad/g,'').replace(/[\u00a0\u202f]/g,' ').replace(/[\t\r\n]+/g,' ').replace(/\s+/g,' ').trim();
@@ -224,5 +236,32 @@
     };
   }
 
-  return {PARSER_VERSION,pdfItemsToLayoutText,normalizeText,parseCzNumber,parseEonInvoiceText};
+  function parseScore(result){
+    const f=result?.finance||{},c=f.components||{},m=f.metering||{},meta=f.invoiceMeta||{},t=f.tariff||{},v=result?.validation||{};
+    let score=0;
+    if(result?.invoiceMonthKey)score+=18;
+    if(meta.documentNumber)score+=8;
+    if(m.ean)score+=8;
+    if(Number.isFinite(m.consumptionKwh)&&m.consumptionKwh>0)score+=14;
+    if(Number.isFinite(f.invoiceTotal))score+=8;
+    if(Number.isFinite(f.totals?.exVat))score+=6;
+    for(const k of ['supplyEnergy','supplierFixed','electricityTax','distributionEnergy','breaker','systemServices','distributionFixed','poze'])if(Number.isFinite(c[k]))score+=4;
+    if(t.validated)score+=24;
+    if(Number.isFinite(v.componentDifference)&&Math.abs(v.componentDifference)<=0.05)score+=10;
+    score-=((result?.fatal?.length)||0)*40;
+    score-=((result?.warnings?.length)||0)*3;
+    return score;
+  }
+  function parseEonInvoiceCandidates(candidates,opts={}){
+    const list=(Array.isArray(candidates)?candidates:[]).map((c,i)=>typeof c==='string'?{name:`candidate-${i+1}`,text:c}:c).filter(c=>c&&String(c.text||'').trim());
+    if(!list.length)return parseEonInvoiceText('',opts);
+    const attempts=list.map(c=>{const result=parseEonInvoiceText(c.text,{...opts,extractionStrategy:c.name||''});return {name:c.name||'',result,score:parseScore(result)}});
+    attempts.sort((a,b)=>b.score-a.score);
+    const best=attempts[0].result;
+    best.extractionStrategy=attempts[0].name;
+    best.candidateScores=attempts.map(a=>({name:a.name,score:a.score,fatal:a.result.fatal.length,warnings:a.result.warnings.length,tariffValidated:a.result.finance?.tariff?.validated===true}));
+    return best;
+  }
+
+  return {PARSER_VERSION,pdfItemsToRows,rowsToText,pdfItemsToLayoutText,pdfItemsToColumnFlowText,normalizeText,parseCzNumber,parseEonInvoiceText,parseEonInvoiceCandidates};
 });
