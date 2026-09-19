@@ -120,3 +120,18 @@
 .forecast-meta .scenario-low strong{color:#24945a}.forecast-meta .scenario-mid strong{color:var(--accent)}.forecast-meta .scenario-high strong{color:#b96f12}
 .forecast-meta .forecast-model{grid-column:1/-1}
 @media(max-width:480px){.forecast-meta .forecast-model{grid-column:auto}}
+
+.invoice-pdf-btn{border:1px solid color-mix(in srgb,var(--accent) 30%,var(--border));background:var(--accent-soft);color:var(--accent);padding:7px 10px;border-radius:10px;font-size:10px;font-weight:800}
+.invoice-pdf-btn:disabled{opacity:.42;cursor:not-allowed}
+.invoice-source-summary{margin-top:8px;padding:9px 10px;border-radius:10px;border:1px solid color-mix(in srgb,#2fb36d 28%,var(--border));background:color-mix(in srgb,#2fb36d 7%,var(--surface));display:flex;flex-direction:column;gap:2px}
+.invoice-source-summary strong{font-size:11px;color:#24945a}.invoice-source-summary span{font-size:10px;color:var(--muted);line-height:1.4}
+.invoice-review-modal{max-height:min(82vh,720px);overflow:auto}
+.invoice-review-modal h4{margin:16px 0 8px;font-size:13px}
+.invoice-review-summary,.invoice-review-components{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.invoice-review-summary>div,.invoice-review-components>div{padding:9px 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);display:flex;flex-direction:column;gap:2px}
+.invoice-review-summary span,.invoice-review-components span{font-size:9px;color:var(--muted);font-weight:700}
+.invoice-review-summary strong,.invoice-review-components strong{font-size:11px;color:var(--text);word-break:break-word}
+.invoice-review-warnings{margin-top:12px;padding:10px 11px;border-radius:11px;background:color-mix(in srgb,#2fb36d 7%,var(--surface));border:1px solid color-mix(in srgb,#2fb36d 25%,var(--border));display:flex;flex-direction:column;gap:4px}
+.invoice-review-warnings.has-warning{background:color-mix(in srgb,#f0a23a 8%,var(--surface));border-color:color-mix(in srgb,#f0a23a 30%,var(--border))}
+.invoice-review-warnings strong{font-size:11px}.invoice-review-warnings span{font-size:10px;line-height:1.4;color:var(--muted)}
+@media(max-width:480px){.invoice-review-summary,.invoice-review-components{grid-template-columns:1fr}.invoice-review-modal{padding:18px}.invoice-pdf-btn{padding:7px 9px}}
