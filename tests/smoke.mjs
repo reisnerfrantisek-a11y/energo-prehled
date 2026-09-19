@@ -10,7 +10,7 @@ new Function(sw);
 
 for(const id of [
   'backupDataBtn','restoreDataBtn','backupFileInput','exportBtn','fileInput','replaceModal','monthsList','heroDelta',
-  'periodNavigator','periodPrev','periodNext','periodAnchorLabel','anchorMonthInput','customPeriodControls','customFrom','customTo','heroCard','daypartSubtitle','dashboardModeToggle','heroUnit','metricToggle','effectivePricePanel','effectivePriceChart','forceUpdateBtn','appVersionText','egdPanel','egdStatus','egdClientId','egdClientSecret','egdConfig','egdEanSelect','egdProfileSelect','egdTestBtn','egdSyncBtn','egdDisconnectBtn','egdResult'
+  'periodNavigator','periodPrev','periodNext','periodAnchorLabel','anchorMonthInput','customPeriodControls','customFrom','customTo','heroCard','daypartSubtitle','dashboardModeToggle','heroUnit','metricToggle','effectivePricePanel','effectivePriceChart','forceUpdateBtn','appVersionText','egdPanel','egdStatus','egdClientId','egdClientSecret','egdProxyUrl','egdConfig','egdEanSelect','egdProfileSelect','egdTestBtn','egdSyncBtn','egdDisconnectBtn','egdResult'
 ]){
   assert.ok(index.includes(`id="${id}"`), `Missing UI element #${id}`);
 }
@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.4.0'"),'App version must be 1.4.0');
+assert.ok(app.includes("APP_VERSION = '1.4.1'"),'App version must be 1.4.1');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -80,8 +80,8 @@ assert.ok(app.includes('async function forceUpdateApp'),'Safe force-update funct
 assert.ok(app.includes("k.startsWith('energo-prehled-beta-')"),'Force update must target beta cache only');
 assert.ok(!app.includes('indexedDB.deleteDatabase'),'Force update must not delete IndexedDB');
 assert.ok(!app.includes('localStorage.clear()'),'Force update must not clear localStorage');
-assert.ok(index.includes('app.js?v=1.4.0'),'App script must be cache-busted');
-assert.ok(index.includes('styles.css?v=1.4.0'),'Stylesheet must be cache-busted');
+assert.ok(index.includes('app.js?v=1.4.1'),'App script must be cache-busted');
+assert.ok(index.includes('styles.css?v=1.4.1'),'Stylesheet must be cache-busted');
 const refresh=fs.readFileSync('refresh.html','utf8');
 assert.ok(refresh.includes("energo-prehled-beta-"),'Recovery page must clear beta cache');
 assert.ok(!refresh.includes('indexedDB.deleteDatabase'),'Recovery page must preserve IndexedDB');
@@ -98,6 +98,21 @@ assert.ok(app.includes("previous.source!=='egd-api'"),'Completed XLSX months mus
 assert.ok(app.includes("r.source==='egd-api'"),'API source semantics missing');
 assert.ok(!app.slice(app.indexOf('async function backupLocalData'),app.indexOf('async function restoreLocalData')).includes("getAll('settings')"),'Secrets must not be included in backup');
 assert.ok(index.includes('Client secret'),'EG.D credential UI missing');
+assert.ok(index.includes('Proxy URL'),'Vercel proxy URL UI missing');
+assert.ok(app.includes('async function egdProxyPost'),'Proxy transport missing');
+assert.ok(app.includes("action==='diagnostics'")||app.includes("egdProxyPost('diagnostics'"),'Proxy diagnostics flow missing');
+assert.ok(app.includes("egdProxyPost('spotreby'"),'Proxy consumption flow missing');
+
+const proxy=fs.readFileSync('vercel-egd-proxy/api/egd.js','utf8');
+new Function(proxy.replace('export default async function handler','async function handler'));
+assert.ok(proxy.includes("ALLOWED_ORIGIN='https://reisnerfrantisek-a11y.github.io'"),'Proxy origin restriction missing');
+assert.ok(proxy.includes("body.action==='diagnostics'"),'Proxy diagnostics action missing');
+assert.ok(proxy.includes("body.action==='spotreby'"),'Proxy spotreby action missing');
+assert.ok(proxy.includes("days>35"),'Proxy date-range limit missing');
+assert.ok(proxy.includes("pageSize:3000"),'Proxy page size must be limited to 3000');
+assert.ok(!proxy.includes('process.env.EGD_CLIENT_SECRET'),'Proxy should not persist EG.D secret in server env');
+assert.ok(!proxy.includes('http://'),'Proxy must not use insecure upstream URLs');
+assert.ok(!proxy.includes('targetUrl'),'Proxy must not be a generic arbitrary-target relay');
 
 const analyticsStart=app.indexOf('const val = r =>');
 const analyticsEnd=app.indexOf('// ---------- SVG charts ----------',analyticsStart);
@@ -145,4 +160,4 @@ assert.equal(periodTest.currentRange().length,2);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.4.0 smoke tests OK');
+console.log('Energo Přehled Beta 1.4.1 smoke tests OK');
