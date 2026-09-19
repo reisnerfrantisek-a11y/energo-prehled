@@ -99,3 +99,32 @@ test('PDF.js items are reconstructed by visual rows instead of extraction order'
   assert.match(text,/Odečtové období: 01\.08\.2026 - 31\.08\.2026/);
   assert.match(text,/Dodané množství jednotarif 01\.08\.2026 31\.08\.2026 MWh 0,012 2 440,00 29,28/);
 });
+
+
+test('candidate parser picks the complete layout over a broken extraction',()=>{
+  const broken='E.ON Energie, a.s. Faktura celkem 335,99 406,55 859000000000000001 EAN';
+  const r=Parser.parseEonInvoiceCandidates([
+    {name:'broken',text:broken},
+    {name:'layout-rows',text:sample}
+  ],{fileName:'invoice.pdf'});
+  assert.equal(r.extractionStrategy,'layout-rows');
+  assert.equal(r.canSave,true);
+  assert.equal(r.invoiceMonthKey,'2026-08');
+  assert.equal(r.finance.metering.consumptionKwh,12);
+  assert.equal(r.finance.tariff.validated,true);
+  assert.ok(r.candidateScores[0].score>r.candidateScores[1].score);
+});
+
+test('column-flow reconstruction keeps sidebar labels together',()=>{
+  const items=[
+    {str:'Celková',transform:[1,0,0,1,70,400]},
+    {str:'spotřeba',transform:[1,0,0,1,105,400]},
+    {str:'0,01200',transform:[1,0,0,1,240,400]},
+    {str:'MWh',transform:[1,0,0,1,280,400]},
+    {str:'4124160632',transform:[1,0,0,1,448,500]},
+    {str:'Číslo daňového dokladu',transform:[1,0,0,1,448,485]}
+  ];
+  const text=Parser.pdfItemsToColumnFlowText(items,420);
+  assert.match(text,/Celková spotřeba 0,01200 MWh/);
+  assert.match(text,/4124160632\nČíslo daňového dokladu/);
+});
