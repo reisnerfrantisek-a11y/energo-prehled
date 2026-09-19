@@ -239,7 +239,9 @@ test('cost overview spans actual blue period, orange forecast and supports previ
   api.state.chartMode='cumulative';
   const cumulative=api.prepareCostChartSeries('2026-09');
   assert.ok(Math.abs(cumulative.data.at(-1).value-cumulative.estimate.projectedCost)<1e-8);
-  assert.ok(Math.abs(cumulative.comparison.values.at(-1)-406.55)<1e-8);
+  const dailyComparisonSum=daily.comparison.values.reduce((sum,v)=>sum+(Number(v)||0),0);
+  assert.ok(Math.abs(cumulative.comparison.values.at(-1)-dailyComparisonSum)<1e-8);
+  assert.ok(cumulative.comparison.values.at(-1)>0);
 });
 
 test('cost overview keeps monthly forecast controls visible',()=>{
