@@ -335,7 +335,7 @@ function renderEgdPanel(){
   }
   if(state.egd.verified)setEgdUiState('ok','Připojeno',state.egd.lastSync?`Poslední synchronizace: ${new Date(state.egd.lastSync).toLocaleString('cs-CZ')}`:'Připojení ověřeno. Data lze synchronizovat.');
   else if(state.egd.lastError)setEgdUiState('error','Chyba připojení',state.egd.lastError);
-  else if(hasCreds)setEgdUiState('warn','Připraveno','Přístupové údaje jsou uložené lokálně. Ověř připojení nebo spusť synchronizaci.');
+  else if(hasCreds)setEgdUiState('warn','Připraveno',state.egd.proxyUrl?'Proxy je nastavena. Ověř připojení nebo spusť synchronizaci.':'Chybí Proxy URL. Přímé spojení může prohlížeč zablokovat kvůli CORS.');
   else setEgdUiState('','Nepřipojeno','Po ověření připojení aplikace načte dostupná odběrná místa a profily.');
 }
 function apiValueToKw(value,units,intervalMinutes=15){
@@ -372,7 +372,7 @@ async function fetchEgdMonth(token,monthKey){
   const seen=new Map(),records=group.data.slice().sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)).map(x=>apiLocalRecord(state.egd.ean,state.egd.profile,units,x,seen)).filter(Boolean).filter(r=>r.monthKey===monthKey);
   if(!records.length)return null;
   const [year,month]=monthKey.split('-').map(Number),validation=bounds.isPast?validateMonthTimeline(records,year,month):{complete:false,expectedCount:[...expectedTimestampCounts(year,month).values()].reduce((a,b)=>a+b,0),issues:[]};
-  const complete=bounds.isPast&&validation.complete&&(statusCounts.F||0)===0;
+  const complete=bounds.isPast&&validation.complete;
   const lastMs=Math.max(...records.map(r=>r.sortKey)),label=`${MONTH_NAMES[month-1]} ${year}`;
   return {records,month:{monthKey,label,year,month,ean:state.egd.ean,meter:'EG.D OpenAPI',count:records.length,expectedCount:validation.expectedCount,complete,incompleteDays:complete?0:1,validationVersion:3,enabled:true,finance:emptyFinance(),first:records[0].sourceTimestamp,last:records.at(-1).sourceTimestamp,importedAt:new Date().toISOString(),fileName:'EG.D OpenAPI',source:'egd-api',apiProfile:state.egd.profile,apiUnits:units,apiStatusCounts:statusCounts,lastAvailableAt:new Date(lastMs).toISOString(),syncedAt:new Date().toISOString()}};
 }
@@ -720,7 +720,7 @@ async function renderMonths(){
   $('#monthsList').innerHTML=months.length?months.map(m=>{
     const enabled=m.enabled!==false,finance=normalizeFinance(m.finance),invoice=finance.invoiceTotal,kwh=monthBillingEnergy(m.monthKey),effective=invoice!==null&&kwh>0?invoice/kwh:null;
     const isApi=m.source==='egd-api',partial=isApi&&m.complete!==true,quality=m.apiStatusCounts||{},sourceTag=isApi?'<span class="month-source">EG.D</span>':'<span class="month-source">XLSX</span>';
-    const qualityText=isApi?`W ${quality.W||0} · G ${quality.G||0} · F ${quality.F||0}`:'';
+    const qualityText=isApi?Object.entries(quality).sort(([a],[b])=>a.localeCompare(b)).map(([code,count])=>`${code} ${count}`).join(' · '):'';
     const availability=partial&&m.lastAvailableAt?` · do ${new Date(m.lastAvailableAt).toLocaleString('cs-CZ')}`:'';
     const stateText=monthIsComplete(m.monthKey)?'✓ kompletní':partial&&enabled?'● průběžně':enabled?'⚠ zkontrolovat':'—';
     return `<div class="month-row ${enabled?'':'month-disabled'}">
