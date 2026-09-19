@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.4.2';
+const APP_VERSION = '1.4.3';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -428,6 +428,22 @@ function monthMeta(k){return state.months.find(m=>m.monthKey===k)||null}
 function monthInvoice(k){const m=monthMeta(k),f=normalizeFinance(m?.finance);return f.invoiceTotal}
 function monthBillingEnergy(k){return state.records.filter(r=>r.monthKey===k).reduce((sum,r)=>sum+billingEnergy(r),0)}
 function monthEffectivePrice(k){const invoice=monthInvoice(k),kwh=monthBillingEnergy(k);return invoice!==null&&kwh>0?invoice/kwh:null}
+function estimateRateForMonth(monthKey){
+  const idx=monthIndex(monthKey);if(idx===null)return {rate:null,months:[],count:0,requested:3,totalCost:0,totalEnergy:0};
+  const keys=[idx-3,idx-2,idx-1].map(monthKeyFromIndex),months=[];let totalCost=0,totalEnergy=0;
+  for(const key of keys){
+    const meta=monthMeta(key),invoice=monthInvoice(key),kwh=monthBillingEnergy(key);
+    if(!meta||meta.enabled===false||!monthIsComplete(key)||invoice===null||kwh<=0)continue;
+    months.push(key);totalCost+=invoice;totalEnergy+=kwh;
+  }
+  return {rate:totalEnergy>0?totalCost/totalEnergy:null,months,count:months.length,requested:3,totalCost,totalEnergy};
+}
+function estimatedMonthCost(monthKey,rs=null){
+  const meta=monthMeta(monthKey);if(!meta||!monthIsLivePartial(monthKey))return null;
+  const basis=estimateRateForMonth(monthKey);if(!Number.isFinite(basis.rate))return {...basis,cost:null,energy:0};
+  const selected=Array.isArray(rs)?rs:state.records.filter(r=>r.monthKey===monthKey),selectedEnergy=selected.reduce((sum,r)=>sum+billingEnergy(r),0);
+  return {...basis,cost:selectedEnergy*basis.rate,energy:selectedEnergy};
+}
 function costForRecords(rs){
   const groups=new Map();for(const r of rs){if(!groups.has(r.monthKey))groups.set(r.monthKey,[]);groups.get(r.monthKey).push(r)}
   let total=0,coveredEnergy=0,knownMonths=0;const missing=[],unallocatable=[],monthCosts=new Map();
@@ -443,11 +459,24 @@ function costForRecords(rs){
   }
   return {total,coveredEnergy,knownMonths,missing,unallocatable,monthCosts,groupCount:groups.size};
 }
+function costProjectionForRecords(rs){
+  const actual=costForRecords(rs),groups=new Map(),estimatedMonths=new Map();let estimateTotal=0,estimateEnergy=0;
+  for(const r of rs){if(!groups.has(r.monthKey))groups.set(r.monthKey,[]);groups.get(r.monthKey).push(r)}
+  for(const [k,selected] of groups){
+    if(!monthIsLivePartial(k))continue;
+    const estimate=estimatedMonthCost(k,selected);
+    if(estimate&&Number.isFinite(estimate.cost)){estimatedMonths.set(k,estimate);estimateTotal+=estimate.cost;estimateEnergy+=estimate.energy}
+  }
+  const estimatedKeys=new Set(estimatedMonths.keys());
+  return {...actual,estimateTotal,estimateEnergy,estimatedMonths,totalWithEstimate:actual.total+estimateTotal,coveredEnergyWithEstimate:actual.coveredEnergy+estimateEnergy,missingUnresolved:actual.missing.filter(k=>!estimatedKeys.has(k)),unallocatableUnresolved:actual.unallocatable.filter(k=>!estimatedKeys.has(k))};
+}
 function dailyCostData(rs){
   const out=new Map(),groups=new Map();for(const r of rs){if(!groups.has(r.monthKey))groups.set(r.monthKey,[]);groups.get(r.monthKey).push(r)}
   for(const [k,selected] of groups){
-    const invoice=monthInvoice(k),fullEnergy=monthBillingEnergy(k);if(invoice===null||fullEnergy<=0)continue;
-    const rate=invoice/fullEnergy;
+    let rate=null;
+    if(monthIsLivePartial(k))rate=estimateRateForMonth(k).rate;
+    else{const invoice=monthInvoice(k),fullEnergy=monthBillingEnergy(k);if(invoice!==null&&fullEnergy>0)rate=invoice/fullEnergy}
+    if(!Number.isFinite(rate))continue;
     for(const r of selected)out.set(r.dateKey,(out.get(r.dateKey)||0)+billingEnergy(r)*rate);
   }
   return out;
