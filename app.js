@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.4.8';
+const APP_VERSION = '1.5.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -111,7 +111,7 @@ async function setMonthInvoice(monthKey,rawValue){
 }
 async function persistImport(payload, replace=false){
   const previous=replace?state.months.find(m=>m.monthKey===payload.month.monthKey):null;
-  const monthToSave={...payload.month,enabled:previous?previous.enabled!==false:payload.month.enabled!==false,finance:previous?normalizeFinance(previous.finance):normalizeFinance(payload.month.finance)};
+  const monthToSave={...payload.month,enabled:previous?previous.enabled!==false:payload.month.enabled!==false,finance:previous?normalizeFinance(previous.finance):normalizeFinance(payload.month.finance),forecastHistory:Array.isArray(previous?.forecastHistory)?previous.forecastHistory:(Array.isArray(payload.month.forecastHistory)?payload.month.forecastHistory:[])};
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'), s=tx.objectStore('intervals'), months=tx.objectStore('months');
     const write=()=>{payload.records.forEach(r=>s.put(r));months.put(monthToSave)};
@@ -426,7 +426,7 @@ async function syncEgdData({silent=false}={}){
       const payload=await fetchEgdMonth(token,key),saved=await persistEgdMonth(payload);results.push({key,payload,saved});
     }
     state.egd.lastSync=new Date().toISOString();state.egd.verified=true;state.egd.lastError=null;await saveEgdConfig();
-    state.resetExportRange=true;await reload();
+    state.resetExportRange=true;await reload();await captureLiveForecastSnapshots();
     const saved=results.filter(x=>x.saved.saved).length,noData=results.filter(x=>!x.payload).length,last=results.map(x=>x.payload?.month?.lastAvailableAt).filter(Boolean).sort().at(-1);
     setEgdUiState('ok','Připojeno',`Synchronizováno ${saved} měsíců${noData?' · bez dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''}`);
     if(!silent)showToast('EG.D data byla synchronizována');
