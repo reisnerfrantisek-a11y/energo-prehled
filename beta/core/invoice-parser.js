@@ -61,6 +61,9 @@
   function normalizeText(text){
     return String(text||'').replace(/\u00ad/g,'').replace(/[\u00a0\u202f]/g,' ').replace(/[\t\r\n]+/g,' ').replace(/\s+/g,' ').trim();
   }
+  function normalizeLines(text){
+    return String(text||'').replace(/\u00ad/g,'').replace(/[\u00a0\u202f]/g,' ').replace(/\r/g,'\n').split(/\n+/).map(line=>line.replace(/[\t ]+/g,' ').trim()).filter(Boolean).join('\n');
+  }
   function parseCzNumber(raw){
     if(raw===null||raw===undefined)return null;
     const s=String(raw).replace(/[\u00a0\u202f\s]/g,'').replace(',','.').trim();
@@ -83,7 +86,7 @@
   function first(text,re,group=1){const m=text.match(re);return m?String(m[group]??'').trim():''}
   function collectCharge(text,labelSource){
     const unit='(MWh|kWh|Měsíc|Mesíc|Mesic)';
-    const re=new RegExp(`${labelSource}[\\s\\S]{0,650}?${unit}\\s+(${NUM})\\s+(${NUM})\\s+(${NUM})`,'gi'),out=[],seen=new Set();
+    const re=new RegExp(`${labelSource}[^\\n]{0,520}?${unit}\\s+(${NUM})\\s+(${NUM})\\s+(${NUM})(?=\\s|$)`,'gi'),out=[],seen=new Set();
     for(const m of text.matchAll(re)){
       const item={
         unit:/^mwh$/i.test(m[1])?'MWh':/^kwh$/i.test(m[1])?'kWh':'Měsíc',
@@ -120,7 +123,7 @@
   function round(v,d=6){if(!Number.isFinite(v))return null;const p=10**d;return Math.round(v*p)/p}
 
   function parseEonInvoiceText(rawText,opts={}){
-    const text=normalizeText(rawText),warnings=[],fatal=[];
+    const layoutText=normalizeLines(rawText),text=normalizeText(rawText),warnings=[],fatal=[],hasLineStructure=layoutText.includes('\n');
     if(!/E\.\s*ON\s+Energie\s*,?\s*a\.s\./i.test(text)&&!/EON\s+Energie/i.test(text))fatal.push('Dokument nebyl rozpoznán jako faktura E.ON Energie.');
 
     const periodMatch=text.match(/Odečtové období:[\s\S]{0,160}?(\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{4})[\s\S]{0,80}?[-–][\s\S]{0,80}?(\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{4})/i)
@@ -145,15 +148,15 @@
     const issuedAt=isoDate(beforeLabel(text,'Datum vystavení faktury','\\d{1,2}\\.\\s*\\d{1,2}\\.\\s*\\d{4}'));
     const dueAt=isoDate(beforeLabel(text,'Datum splatnosti faktury','\\d{1,2}\\.\\s*\\d{1,2}\\.\\s*\\d{4}'));
 
-    const supply=collectCharge(text,'Dodané množství(?:\\s+jednotarif|\\s+ve vysokém tarifu|\\s+ve nízkém tarifu)?');
-    const supplierFixed=collectCharge(text,'Stálý plat');
-    const electricityTax=collectCharge(text,'Daň z elektřiny');
-    const distributionEnergy=collectCharge(text,'Cena za distrib\\.?\\s*množství elektřiny(?:\\s+ve vysokém tarifu|\\s+ve nízkém tarifu)?');
-    const breaker=collectCharge(text,'Cena za příkon podle hodnoty hl\\.?\\s*jističe[^M]{0,45}');
-    const systemServices=collectCharge(text,'Pevná cena za systémové služby');
-    const distributionFixed=collectCharge(text,'Cena za provoz nesíťové infrastruktury');
-    let poze=collectCharge(text,'Složka ceny na podporu el\\.?\\s*z podpor\\.?\\s*zdrojů energie');
-    if(!poze.length)poze=collectCharge(text,'Složka ceny na podporu elektřiny z podporovaných zdrojů energie');
+    const supply=hasLineStructure?collectCharge(layoutText,'Dodané množství(?:\\s+jednotarif|\\s+ve vysokém tarifu|\\s+ve nízkém tarifu)?'):[];
+    const supplierFixed=hasLineStructure?collectCharge(layoutText,'Stálý plat'):[];
+    const electricityTax=hasLineStructure?collectCharge(layoutText,'Daň z elektřiny'):[];
+    const distributionEnergy=hasLineStructure?collectCharge(layoutText,'Cena za distrib\\.?\\s*množství elektřiny(?:\\s+ve vysokém tarifu|\\s+ve nízkém tarifu)?'):[];
+    const breaker=hasLineStructure?collectCharge(layoutText,'Cena za příkon podle hodnoty hl\\.?\\s*jističe[^M]{0,45}'):[];
+    const systemServices=hasLineStructure?collectCharge(layoutText,'Pevná cena za systémové služby'):[];
+    const distributionFixed=hasLineStructure?collectCharge(layoutText,'Cena za provoz nesíťové infrastruktury'):[];
+    let poze=hasLineStructure?collectCharge(layoutText,'Složka ceny na podporu el\\.?\\s*z podpor\\.?\\s*zdrojů energie'):[];
+    if(!poze.length&&hasLineStructure)poze=collectCharge(layoutText,'Složka ceny na podporu elektřiny z podporovaných zdrojů energie');
 
     const groups={supply,supplierFixed,electricityTax,distributionEnergy,breaker,systemServices,distributionFixed,poze};
     const ag={};for(const [k,v] of Object.entries(groups))ag[k]=aggregate(v);
@@ -292,5 +295,5 @@
     return best;
   }
 
-  return {PARSER_VERSION,pdfItemsToRows,rowsToText,pdfItemsToLayoutText,pdfItemsToColumnFlowText,pdfItemsToEolText,uniqueCompositeText,normalizeText,parseCzNumber,parseEonInvoiceText,parseEonInvoiceCandidates};
+  return {PARSER_VERSION,pdfItemsToRows,rowsToText,pdfItemsToLayoutText,pdfItemsToColumnFlowText,pdfItemsToEolText,uniqueCompositeText,normalizeText,normalizeLines,parseCzNumber,parseEonInvoiceText,parseEonInvoiceCandidates};
 });
