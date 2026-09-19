@@ -146,3 +146,16 @@
 .invoice-tech-details{margin-top:5px;border-top:1px solid color-mix(in srgb,var(--border) 70%,transparent);padding-top:7px;color:var(--muted)}
 .invoice-tech-details summary{font-size:10px;font-weight:800;color:var(--muted);cursor:pointer;list-style-position:inside}
 .invoice-tech-details div{margin-top:6px;font-size:9px;line-height:1.45;overflow-wrap:anywhere;opacity:.85}
+
+.chart-compare{display:flex;align-items:center;gap:7px;color:#c6d2e2;font-size:10px;font-weight:750}
+.chart-compare select{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:#e9f0f8;border-radius:9px;padding:7px 8px;font-size:10px;font-weight:750;outline:0}
+.chart-compare option{color:#0b1220;background:#fff}
+.data-health-card{display:flex;align-items:center;gap:14px;padding:13px 15px;margin:12px 0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+.data-health-score{display:flex;align-items:baseline;gap:2px;min-width:70px}.data-health-score strong{font-size:30px;letter-spacing:-.05em}.data-health-score span{font-size:11px;color:var(--muted);font-weight:700}
+.data-health-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}.data-health-main>div:first-child{display:flex;align-items:center;gap:7px}.data-health-main>div:first-child strong{font-size:12px}.data-health-main>div:first-child span{font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:850;letter-spacing:.04em}
+.data-health-metrics{display:flex;gap:10px;flex-wrap:wrap}.data-health-metrics span{font-size:9px;color:var(--muted)}.data-health-metrics b{color:var(--text)}
+.data-health-main small{font-size:9px;color:var(--muted);line-height:1.4}
+.data-health-card[data-grade="výborná"],.data-health-card[data-grade="dobrá"]{border-color:color-mix(in srgb,#2fb36d 35%,var(--border))}
+.data-health-card[data-grade="pozor"]{border-color:color-mix(in srgb,#f0a23a 45%,var(--border))}
+.data-health-card[data-grade="slabší"],.data-health-card[data-grade="problém"]{border-color:color-mix(in srgb,#d95c5c 45%,var(--border))}
+@media(max-width:480px){.chart-compare{width:100%;justify-content:space-between}.chart-compare select{flex:1;max-width:180px}.data-health-card{align-items:flex-start}.data-health-metrics{gap:5px 9px}}

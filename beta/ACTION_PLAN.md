@@ -1,18 +1,26 @@
 # Akční plán Energo aplikace
 
-Tento dokument je společný desetibodový **Akční plán**. Aktivně jej začneme plnit až po vydání stabilní verze 1.6.0.
+Společný desetibodový **Akční plán** je aktivní od verze 1.7.0. Jednotlivé body se nasazují po etapách a každý větší zásah musí projít regresní sadou.
 
-1. Dál zpevňovat architekturu a regresní testy při každé větší změně.
-2. Predikční model spotřeby 2.0: ensemble historie dne v týdnu + posledních 7/14 dní + průběžné tempo.
-3. Kalibrované predikční pásmo podle skutečných historických chyb modelu.
-4. Rozšířený srovnávací režim: minulý měsíc a stejný měsíc předchozího roku.
-5. Další kumulativní pohledy a cílové trajektorie spotřeby.
-6. Datový health score s jednoduchým souhrnem kvality, mezer a aktuálnosti.
-7. Detailní finanční model z reálných tarifních složek a PDF faktur. **Zahájeno ve 1.6.1:** lokální E.ON PDF parser, rozpad ceny a tarifní model mají přednost před regresí.
-8. Automatická detekce změny režimu spotřeby a adaptace forecastu.
-9. Analýza výkonových maxim, výkonových pásem a vztahu k hlavnímu jističi.
-10. Automatický měsíční report se skutečností, historickou predikcí, odchylkou, fakturou, maximem a nejsilnějším dnem.
+1. **Architektura a regresní testy — průběžně.** Core moduly jsou oddělené od UI, CI běží na každé relevantní změně a další funkce dostávají vlastní regresní scénáře.
+2. **Predikční model spotřeby 2.0 — nasazeno v 1.7.0.** Ensemble kombinuje historii stejného dne v týdnu, posledních 7 dní, posledních 14 dní a průběžné tempo. Váhy se mění podle množství dostupných dat.
+3. **Kalibrované predikční pásmo — nasazeno v 1.7.0.** Dokud není dost backtestů, používá se konzervativní heuristika. Od dvou historických chyb se pásmo začne kalibrovat; s dalšími měsíci roste váha empirické chyby.
+4. **Rozšířený srovnávací režim — nasazeno v 1.7.0.** Hlavní měsíční graf umí bez srovnání, minulý měsíc a stejný měsíc předchozího roku.
+5. **Další kumulativní pohledy a cílové trajektorie spotřeby — částečně.** Denní/kumulativní režim je hotový; uživatelský cíl a trajektorie k cíli budou další etapa.
+6. **Datový health score — nasazeno v 1.7.0.** Měsíční přehled hodnotí kompletnost uzavřených intervalů, použitelnost dat a aktuálnost zdroje.
+7. **Detailní finanční model z reálných tarifních složek a PDF faktur — probíhá od 1.6.1.** Lokální E.ON PDF parser, rozpad ceny a ověřený tarif mají přednost před regresí.
+8. **Automatická detekce změny režimu spotřeby a adaptace forecastu — další etapa.**
+9. **Analýza výkonových maxim, výkonových pásem a vztahu k hlavnímu jističi — další etapa.**
+10. **Automatický měsíční report — další etapa.** Skutečnost, historická predikce, odchylka, faktura, maximum a nejsilnější den.
 
-## Poznámka k verzi 1.6.0
+## Verze 1.7.0 — první etapa
 
-Verze 1.6.0 je technický základ před zahájením Akčního plánu: modularizace čistých výpočtů, automatické regresní testy a připravené UI prvky pro predikční pásmo, kumulativní zobrazení a základní porovnání s minulým měsícem.
+První etapa Akčního plánu soustředí změny do predikce a důvěryhodnosti dat:
+
+- Forecast 2.0 (ensemble),
+- kalibrace pásma podle rolling backtestu,
+- srovnání s minulým měsícem / stejným měsícem loni,
+- datový health score,
+- rozšířené snapshoty forecastu pro další vyhodnocování.
+
+Body 5, 8, 9 a 10 budou pokračovat v následujících verzích, aby se do jednoho release nemíchalo příliš mnoho nezávislých změn.
