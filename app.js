@@ -693,7 +693,7 @@ function renderOverview(){
   const dcc0Btn=$('.metric-btn[data-metric="dcc0"]');if(dcc0Btn)dcc0Btn.disabled=rangeHasApi;
   if(rangeHasApi&&state.metric==='dcc0'){
     state.metric='dcc1';localStorage.setItem(METRIC_KEY,state.metric);rs=currentRange();
-    $('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
+    $$('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
   }
   $('#heroPeriod').textContent=selectedPeriodLabel();
 
