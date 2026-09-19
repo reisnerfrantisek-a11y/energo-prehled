@@ -118,6 +118,99 @@ async function setMonthInvoice(monthKey,rawValue){
   });
   await reload();showToast(`${monthLabel(monthKey)}: ${invoiceTotal===null?'cena faktury odstraněna':fmt.format(invoiceTotal)+' Kč'}`);
 }
+const PDFJS_URL='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+const PDFJS_WORKER_URL='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+let pdfJsPromise=null;
+function loadPdfJs(){
+  if(window.pdfjsLib){window.pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS_WORKER_URL;return Promise.resolve(window.pdfjsLib)}
+  if(pdfJsPromise)return pdfJsPromise;
+  pdfJsPromise=new Promise((resolve,reject)=>{
+    const script=document.createElement('script');script.src=PDFJS_URL;script.async=true;script.crossOrigin='anonymous';
+    script.onload=()=>{
+      if(!window.pdfjsLib){reject(new Error('Knihovna PDF.js se nenačetla.'));return}
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS_WORKER_URL;resolve(window.pdfjsLib);
+    };
+    script.onerror=()=>reject(new Error('Nepodařilo se načíst lokální PDF parser. Zkontroluj připojení k internetu a zkus to znovu.'));
+    document.head.appendChild(script);
+  }).catch(e=>{pdfJsPromise=null;throw e});
+  return pdfJsPromise;
+}
+async function extractPdfText(file){
+  if(!file||!/\.pdf$/i.test(file.name||'')&&file.type!=='application/pdf')throw new Error('Vyber PDF fakturu.');
+  if(file.size>20*1024*1024)throw new Error('PDF je větší než 20 MB.');
+  const pdfjs=await loadPdfJs(),data=new Uint8Array(await file.arrayBuffer());
+  const doc=await pdfjs.getDocument({data}).promise;if(doc.numPages>30)throw new Error('PDF má více než 30 stran.');
+  const pages=[];
+  for(let p=1;p<=doc.numPages;p++){
+    const page=await doc.getPage(p),content=await page.getTextContent();
+    pages.push(content.items.map(x=>String(x.str||'')).join(' '));
+  }
+  try{await doc.destroy()}catch{}
+  const text=pages.join('\n');
+  if(text.trim().length<80)throw new Error('PDF neobsahuje čitelnou textovou vrstvu. Naskenované faktury zatím nejsou podporované.');
+  return text;
+}
+function invoiceComponentRows(finance){
+  const f=normalizeFinance(finance),c=f.components;
+  return [
+    ['Silová elektřina',c.supplyEnergy],['Stálý plat dodavatele',c.supplierFixed],['Daň z elektřiny',c.electricityTax],
+    ['Distribuce podle spotřeby',c.distributionEnergy],['Plat za jistič',c.breaker],['Systémové služby',c.systemServices],
+    ['Nesíťová infrastruktura',c.distributionFixed],['POZE',c.poze],['Ostatní',c.other],['DPH',c.vat]
+  ].filter(([,v])=>v!==null&&Number.isFinite(Number(v)));
+}
+function renderInvoiceReview(){
+  const pending=state.pendingInvoicePdf,box=$('#invoiceReviewSummary'),components=$('#invoiceReviewComponents'),warnings=$('#invoiceReviewWarnings'),save=$('#confirmInvoicePdf');
+  if(!pending||!box||!components||!warnings||!save)return;
+  const r=pending.result,f=r.finance,t=f.tariff,m=f.metering;
+  box.innerHTML=[
+    ['Měsíc',r.invoiceMonthKey?monthLabel(r.invoiceMonthKey):'—'],
+    ['Dodavatel',f.invoiceMeta.supplier||'—'],
+    ['Doklad',f.invoiceMeta.documentNumber||'—'],
+    ['EAN',m.ean||'—'],
+    ['Spotřeba z faktury',Number.isFinite(m.consumptionKwh)?fmt3.format(m.consumptionKwh)+' kWh':'—'],
+    ['Celkem bez DPH',Number.isFinite(f.totals.exVat)?fmt.format(f.totals.exVat)+' Kč':'—'],
+    ['DPH',Number.isFinite(f.totals.vat)?fmt.format(f.totals.vat)+' Kč':'—'],
+    ['Celkem s DPH',Number.isFinite(f.invoiceTotal)?fmt.format(f.invoiceTotal)+' Kč':'—']
+  ].map(([k,v])=>`<div><span>${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></div>`).join('');
+  components.innerHTML=invoiceComponentRows(f).map(([k,v])=>`<div><span>${escapeHtml(k)}</span><strong>${fmt.format(v)} Kč</strong></div>`).join('');
+  const model=t.validated?`Tarifní model: ${fmt.format(t.fixedGrossPerMonth)} Kč/měs. + ${fmt3.format(t.variableGrossPerKwh)} Kč/kWh vč. DPH`:'Tarifní model nebyl ověřen.';
+  const items=[...(r.fatal||[]),...(r.warnings||[])];
+  warnings.innerHTML=`<strong>${escapeHtml(model)}</strong>${items.length?items.map(x=>`<span>${escapeHtml(x)}</span>`).join(''):'<span>Kontroly součtů a cenových složek prošly bez výhrad.</span>'}`;
+  warnings.classList.toggle('has-warning',items.length>0);
+  save.disabled=!r.canSave;
+}
+async function handleInvoicePdfFile(file){
+  const pending=state.pendingInvoicePdf;if(!pending?.monthKey)return;
+  try{
+    showToast('Čtu PDF fakturu lokálně…');
+    const text=await extractPdfText(file),result=INVOICE_PARSER.parseEonInvoiceText(text,{fileName:file.name,importedAt:new Date().toISOString()}),target=pending.monthKey;
+    if(result.invoiceMonthKey&&result.invoiceMonthKey!==target)result.fatal.push(`Faktura patří do ${monthLabel(result.invoiceMonthKey)}, ale byla vybrána u ${monthLabel(target)}.`);
+    const localEans=[...new Set(state.records.filter(r=>r.monthKey===target).map(r=>String(r.ean||'')).filter(Boolean))];
+    if(result.validation.ean&&localEans.length&& !localEans.includes(result.validation.ean))result.fatal.push('EAN na faktuře neodpovídá energetickým datům zvoleného měsíce.');
+    const appKwh=monthBillingEnergy(target),pdfKwh=Number(result.validation.consumptionKwh);
+    if(appKwh>0&&Number.isFinite(pdfKwh)){
+      const diff=Math.abs(appKwh-pdfKwh),limit=Math.max(.5,pdfKwh*.05);
+      if(diff>limit)result.warnings.push(`Spotřeba faktury ${fmt3.format(pdfKwh)} kWh se liší od intervalových dat aplikace ${fmt3.format(appKwh)} kWh.`);
+    }
+    result.canSave=result.fatal.length===0;
+    state.pendingInvoicePdf={monthKey:target,fileName:file.name,result};
+    renderInvoiceReview();$('#invoiceReviewModal').classList.remove('hidden');
+  }catch(e){
+    console.error(e);state.pendingInvoicePdf=null;alert('Fakturu se nepodařilo načíst:\n'+e.message);
+  }finally{$('#invoicePdfInput').value=''}
+}
+async function saveParsedInvoice(){
+  const pending=state.pendingInvoicePdf;if(!pending?.result?.canSave)return;
+  const month=state.months.find(m=>m.monthKey===pending.monthKey);if(!month)return;
+  const finance=normalizeFinance(pending.result.finance);
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction('months','readwrite'),store=tx.objectStore('months');store.put({...month,finance});
+    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+  });
+  $('#invoiceReviewModal').classList.add('hidden');state.pendingInvoicePdf=null;await reload();showToast(`${monthLabel(month.monthKey)}: PDF faktura uložena`);
+}
+function cancelInvoicePdf(){state.pendingInvoicePdf=null;$('#invoiceReviewModal').classList.add('hidden');$('#invoicePdfInput').value=''}
+
 async function persistImport(payload, replace=false){
   const previous=replace?state.months.find(m=>m.monthKey===payload.month.monthKey):null;
   const monthToSave={...payload.month,enabled:previous?previous.enabled!==false:payload.month.enabled!==false,finance:previous?normalizeFinance(previous.finance):normalizeFinance(payload.month.finance),forecastHistory:Array.isArray(previous?.forecastHistory)?previous.forecastHistory:(Array.isArray(payload.month.forecastHistory)?payload.month.forecastHistory:[])};
