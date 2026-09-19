@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.5.11';
+const APP_VERSION = '1.5.12';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -1266,7 +1266,11 @@ function renderOverview(){
     if(keysContainDisabled(currentKeys))$('#heroDelta').textContent='Období obsahuje vypnutý měsíc';
     else if(currentKeys.some(monthIsLivePartial)){
       const live=state.months.find(m=>currentKeys.includes(m.monthKey)&&monthIsLivePartial(m.monthKey));
-      $('#heroDelta').textContent=live?.lastAvailableAt?`Průběžná data do ${new Date(live.lastAvailableAt).toLocaleString('cs-CZ')}`:'Průběžná data z EG.D';
+      const estimate=live?estimateRateForMonth(live.monthKey):null;
+      const availability=live?.lastAvailableAt?`data do ${new Date(live.lastAvailableAt).toLocaleString('cs-CZ')}`:'průběžná data EG.D';
+      if(estimate&&Number.isFinite(estimate.predictedEnergy)){
+        $('#heroDelta').textContent=`Spotřeba dosud ${fmt3.format(total)} kWh · predikce celého měsíce ≈ ${fmt3.format(estimate.predictedEnergy)} kWh · tempo ${fmt3.format(estimate.paceEnergy)} kWh · ${availability}`;
+      }else $('#heroDelta').textContent=`Spotřeba dosud ${fmt3.format(total)} kWh · ${availability}`;
     }
     else if(!keysComplete(currentKeys))$('#heroDelta').textContent='Neúplné období · chybí importované měsíce';
     else if(!keysComplete(prevKeys))$('#heroDelta').textContent='Předchozí srovnatelné období není kompletní';
