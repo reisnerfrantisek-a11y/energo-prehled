@@ -534,6 +534,85 @@ function estimatedMonthCost(monthKey,rs=null){
   const cost=Number.isFinite(fallbackSelected)?basis.blend*dynamicSelected+(1-basis.blend)*fallbackSelected:dynamicSelected;
   return {...basis,cost,energy:selectedEnergy,selectedDays};
 }
+function median(values){
+  const a=values.filter(Number.isFinite).slice().sort((x,y)=>x-y);if(!a.length)return null;const m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2;
+}
+function forecastHistoryForMonth(month){return Array.isArray(month?.forecastHistory)?month.forecastHistory.filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x.asOfDate||'')&&Number.isFinite(Number(x.projectedCost))):[]}
+function evaluationForecast(monthKey,history){
+  const dates=monthDateKeys(monthKey),days=dates.length;if(!history.length||!days)return null;
+  const rows=history.map(x=>{const day=Number(String(x.asOfDate).slice(8,10));return {...x,daysRemaining:Math.max(0,days-day)}}).sort((a,b)=>a.asOfDate.localeCompare(b.asOfDate));
+  const seven=rows.filter(x=>x.daysRemaining>=7).sort((a,b)=>a.daysRemaining-b.daysRemaining)[0];
+  return seven||rows.at(-1);
+}
+function forecastAccuracyRows(){
+  const rows=[];
+  for(const m of state.months){
+    const invoice=monthInvoice(m.monthKey),history=forecastHistoryForMonth(m);
+    if(!monthIsComplete(m.monthKey)||invoice===null||!history.length)continue;
+    const snap=evaluationForecast(m.monthKey,history);if(!snap)continue;
+    const predicted=Number(snap.projectedCost),error=predicted-invoice,errorPct=invoice>0?error/invoice*100:null;
+    const low=Number(snap.lowProjectedCost),high=Number(snap.highProjectedCost),inside=Number.isFinite(low)&&Number.isFinite(high)?invoice>=low&&invoice<=high:null;
+    rows.push({monthKey:m.monthKey,invoice,predicted,error,errorPct,inside,daysRemaining:snap.daysRemaining,asOfDate:snap.asOfDate,low,high});
+  }
+  return rows.sort((a,b)=>b.monthKey.localeCompare(a.monthKey));
+}
+function forecastAccuracySummary(){
+  const rows=forecastAccuracyRows(),pct=rows.map(r=>Math.abs(r.errorPct)).filter(Number.isFinite),covered=rows.filter(r=>r.inside!==null),inside=covered.filter(r=>r.inside).length;
+  return {rows,count:rows.length,mape:pct.length?pct.reduce((a,b)=>a+b,0)/pct.length:null,rangeHit:covered.length?inside/covered.length*100:null};
+}
+async function captureLiveForecastSnapshots(){
+  const updates=[];
+  for(const m of state.months){
+    if(!monthIsLivePartial(m.monthKey))continue;
+    const estimate=estimatedMonthCost(m.monthKey);if(!estimate||!Number.isFinite(estimate.projectedCost))continue;
+    const asOfDate=m.lastAvailableAt?pragueDayKeyFromMs(Date.parse(m.lastAvailableAt)):pragueDayKeyFromMs(Date.now());if(!asOfDate)continue;
+    const snap={asOfDate,createdAt:new Date().toISOString(),projectedCost:estimate.projectedCost,lowProjectedCost:estimate.lowProjectedCost,highProjectedCost:estimate.highProjectedCost,predictedEnergy:estimate.predictedEnergy,confidence:estimate.confidence};
+    const history=forecastHistoryForMonth(m).filter(x=>x.asOfDate!==asOfDate);history.push(snap);history.sort((a,b)=>a.asOfDate.localeCompare(b.asOfDate));
+    const updated={...m,forecastHistory:history.slice(-45)};updates.push(updated);
+  }
+  if(!updates.length)return;
+  await new Promise((resolve,reject)=>{const tx=db.transaction('months','readwrite'),store=tx.objectStore('months');updates.forEach(m=>store.put(m));tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error)});
+  for(const updated of updates){const i=state.months.findIndex(m=>m.monthKey===updated.monthKey);if(i>=0)state.months[i]=updated}
+}
+function forecastWeekdayBaseline(monthKey){
+  const points=historicalCostPoints(monthKey),weights=new Map(points.map(p=>[p.key,p.weight])),sum=Array(7).fill(0),wgt=Array(7).fill(0);
+  const byDay=new Map();
+  for(const r of state.records){const w=weights.get(r.monthKey);if(!w)continue;const k=r.dateKey,o=byDay.get(k)||{energy:0,weekday:r.weekday,weight:w};o.energy+=billingEnergy(r);byDay.set(k,o)}
+  for(const d of byDay.values()){sum[d.weekday]+=d.energy*d.weight;wgt[d.weekday]+=d.weight}
+  const vals=sum.map((v,i)=>wgt[i]?v/wgt[i]:0),overall=vals.filter(v=>v>0);const fallback=overall.length?overall.reduce((a,b)=>a+b,0)/overall.length:1;
+  return vals.map(v=>v>0?v:fallback);
+}
+function forecastCostSeries(monthKey){
+  const estimate=estimatedMonthCost(monthKey);if(!estimate||!Number.isFinite(estimate.projectedCost))return null;
+  const rs=state.records.filter(r=>r.monthKey===monthKey).sort((a,b)=>a.sortKey-b.sortKey),dates=monthDateKeys(monthKey);if(!rs.length)return null;
+  const dailyActual=dailyCostData(rs),lastObserved=[...new Set(rs.map(r=>r.dateKey))].sort().at(-1),baseline=forecastWeekdayBaseline(monthKey);
+  let actualCum=0;const actualByDate=new Map();for(const d of dates){if(d>lastObserved)break;actualCum+=dailyActual.get(d)||0;actualByDate.set(d,actualCum)}
+  const future=dates.filter(d=>d>lastObserved),weights=future.map(d=>{const wd=weekdayFromDateKey(d),e=(baseline[wd]||1)*(estimate.scale||1);return Math.max(.0001,(Number(estimate.fixed)||0)/Math.max(1,estimate.totalDays)+(Number(estimate.variableRate)||0)*e)}),weightSum=weights.reduce((a,b)=>a+b,0)||1;
+  const centralRemain=Math.max(0,estimate.projectedCost-actualCum),lowRemain=Math.max(0,estimate.lowProjectedCost-actualCum),highRemain=Math.max(0,estimate.highProjectedCost-actualCum);
+  let cw=0;const data=[];
+  for(const d of dates){
+    if(d<=lastObserved){const v=actualByDate.get(d)||actualCum;data.push({date:d,label:`${d.slice(8,10)}.${d.slice(5,7)}.`,actual:v,central:v,low:v,high:v,forecast:false});continue}
+    const i=future.indexOf(d);cw+=weights[i]||0;const f=clamp(cw/weightSum,0,1);data.push({date:d,label:`${d.slice(8,10)}.${d.slice(5,7)}.`,actual:null,central:actualCum+centralRemain*f,low:actualCum+lowRemain*f,high:actualCum+highRemain*f,forecast:true});
+  }
+  return {data,estimate,lastObserved,actualCost:actualCum};
+}
+function detectDailyAnomalies(rs){
+  const targetDates=new Set(rs.map(r=>r.dateKey)),all=sortedRecords(),daily=new Map();
+  for(const r of all){const o=daily.get(r.dateKey)||{energy:0,weekday:r.weekday,dateKey:r.dateKey};o.energy+=energy(r);daily.set(r.dateKey,o)}
+  const days=[...daily.values()].sort((a,b)=>a.dateKey.localeCompare(b.dateKey)),out=[];
+  for(let i=0;i<days.length;i++){const d=days[i];if(!targetDates.has(d.dateKey))continue;const hist=days.slice(0,i).filter(x=>x.weekday===d.weekday).slice(-10).map(x=>x.energy);if(hist.length<3)continue;const med=median(hist);if(!(med>0))continue;const deviations=hist.map(v=>Math.abs(v-med)),mad=median(deviations)||0,ratio=d.energy/med,z=mad>0?.6745*(d.energy-med)/mad:0;
+    if((ratio>=1.7&&d.energy-med>=Math.max(.5,med*.45))||z>=4)out.push({...d,baseline:med,ratio,z});
+  }
+  return out.sort((a,b)=>b.ratio-a.ratio).slice(0,8);
+}
+function detectIntervalAnomalies(rs){
+  const targets=new Set(rs.map(r=>r.id)),history=new Map(),out=[];
+  for(const r of sortedRecords()){const key=`${r.weekday}|${r.hour}|${r.minute}`,hist=history.get(key)||[];
+    if(targets.has(r.id)&&hist.length>=4){const med=median(hist),current=val(r);if(med!==null&&current>=1&&current-med>=.8&&current>=Math.max(med*2.5,med+.8))out.push({record:r,current,baseline:med,ratio:med>0?current/med:Infinity})}
+    hist.push(val(r));if(hist.length>12)hist.shift();history.set(key,hist);
+  }
+  return out.sort((a,b)=>(b.current-b.baseline)-(a.current-a.baseline)).slice(0,8);
+}
 function costForRecords(rs){
   const groups=new Map();for(const r of rs){if(!groups.has(r.monthKey))groups.set(r.monthKey,[]);groups.get(r.monthKey).push(r)}
   let total=0,coveredEnergy=0,knownMonths=0;const missing=[],unallocatable=[],monthCosts=new Map();
