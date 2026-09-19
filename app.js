@@ -665,10 +665,20 @@ function renderOverview(){
 
   const activeMonths=state.months.filter(m=>m.enabled!==false).sort((a,b)=>a.monthKey.localeCompare(b.monthKey));
   if(costMode){
-    const costMonthly=activeMonths.map(m=>({label:monthLabel(m.monthKey),short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:monthInvoice(m.monthKey)})).filter(x=>x.value!==null);
-    const priceMonthly=activeMonths.map(m=>({label:monthLabel(m.monthKey),short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:monthEffectivePrice(m.monthKey)})).filter(x=>x.value!==null);
+    const costMonthly=activeMonths.map(m=>{
+      const invoice=monthInvoice(m.monthKey),estimate=monthIsLivePartial(m.monthKey)?estimatedMonthCost(m.monthKey):null;
+      if(invoice!==null&&m.complete===true)return {label:monthLabel(m.monthKey),short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:invoice};
+      if(estimate&&Number.isFinite(estimate.cost))return {label:monthLabel(m.monthKey)+' · odhad',short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:estimate.cost};
+      return null;
+    }).filter(Boolean);
+    const priceMonthly=activeMonths.map(m=>{
+      const actual=monthEffectivePrice(m.monthKey),estimate=monthIsLivePartial(m.monthKey)?estimatedMonthCost(m.monthKey):null;
+      if(actual!==null&&m.complete===true)return {label:monthLabel(m.monthKey),short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:actual};
+      if(estimate&&Number.isFinite(estimate.rate))return {label:monthLabel(m.monthKey)+' · odhad',short:m.monthKey.slice(5,7)+'/'+m.monthKey.slice(2,4),value:estimate.rate};
+      return null;
+    }).filter(Boolean);
     $('#monthlyChartTitle').textContent='Náklady po měsících';
-    $('#monthlyChartSubtitle').textContent='Celkové částky z vyplněných faktur';
+    $('#monthlyChartSubtitle').textContent='Faktury; průběžný měsíc je zobrazen jako odhad';
     barChart($('#monthlyChart'),costMonthly,{unit:'Kč'});
     lineChart($('#effectivePriceChart'),priceMonthly,{unit:'Kč/kWh'});
   }else{
@@ -701,12 +711,19 @@ function renderOverview(){
   }
 
   if(costMode){
-    const cb=costForRecords(rs),daily=dailyCostData(rs),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));
+    const cb=costProjectionForRecords(rs),daily=dailyCostData(rs),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));
+    const estimatedCount=cb.estimatedMonths.size,hasCost=cb.knownMonths>0||estimatedCount>0,total=cb.totalWithEstimate;
     $('#heroUnit').textContent='Kč';
-    $('#heroKwh').textContent=cb.knownMonths?fmt.format(cb.total):'—';
-    if(!cb.knownMonths)$('#heroDelta').textContent='Pro zvolené období není vyplněná žádná faktura';
-    else if(cb.missing.length)$('#heroDelta').textContent=`Neúplné náklady · chybí ${cb.missing.length} ${cb.missing.length===1?'faktura':'faktury'}`;
-    else if(cb.unallocatable.length)$('#heroDelta').textContent='Část nákladů nelze rozdělit na neúplné nulové období';
+    $('#heroKwh').textContent=hasCost?(estimatedCount?'≈ '+fmt.format(total):fmt.format(total)):'—';
+    const liveKeys=[...new Set(rs.filter(r=>monthIsLivePartial(r.monthKey)).map(r=>r.monthKey))];
+    if(cb.missingUnresolved.length)$('#heroDelta').textContent=`Neúplné náklady · chybí ${cb.missingUnresolved.length} ${cb.missingUnresolved.length===1?'faktura':'faktury'}`;
+    else if(cb.unallocatableUnresolved.length)$('#heroDelta').textContent='Část nákladů nelze rozdělit na neúplné období';
+    else if(estimatedCount){
+      const [key,estimate]=[...cb.estimatedMonths].at(-1);
+      $('#heroDelta').textContent=`Odhad ${monthLabel(key)} · ${fmt.format(estimate.rate)} Kč/kWh · základ ${estimate.count}/3 předchozích měsíců`;
+    }
+    else if(liveKeys.length)$('#heroDelta').textContent='Odhad nelze určit · chybí použitelná faktura v předchozích 3 měsících';
+    else if(!cb.knownMonths)$('#heroDelta').textContent='Pro zvolené období není vyplněná žádná faktura';
     else if(state.period==='custom')$('#heroDelta').textContent='Vlastní období · náklady jsou poměrně přepočtené podle DCC1';
     else if(state.period==='all')$('#heroDelta').textContent='Součet všech vyplněných faktur';
     else{
@@ -717,11 +734,12 @@ function renderOverview(){
     }
     lineChart($('#mainChart'),dailyData,{hero:true,unit:'Kč'});
     const dayCount=Math.max(1,new Set(rs.map(r=>r.dateKey)).size);
-    $('#avgDayLabel').textContent='Průměr / den';$('#avgDay').textContent=cb.knownMonths?fmt.format(cb.total/dayCount):'—';$('#avgDayUnit').textContent='Kč / den';
-    $('#maxPowerLabel').textContent='Efektivní cena';$('#maxPower').textContent=cb.coveredEnergy>0?fmt.format(cb.total/cb.coveredEnergy):'—';$('#maxPowerSub').textContent='Kč / kWh · podle DCC1';
-    const expensive=[...cb.monthCosts].sort((a,b)=>b[1]-a[1])[0];
-    $('#bestDayLabel').textContent='Nejdražší měsíc';$('#bestDay').textContent=expensive?`${expensive[0].slice(5,7)}/${expensive[0].slice(2,4)}`:'—';$('#bestDaySub').textContent=expensive?`${fmt.format(expensive[1])} Kč`:'—';
-    $('#baseLoadLabel').textContent='Pokrytí faktur';$('#baseLoad').textContent=`${cb.knownMonths}/${cb.groupCount}`;$('#baseLoadUnit').textContent='měsíců s cenou';
+    $('#avgDayLabel').textContent=estimatedCount?'Odhad / den':'Průměr / den';$('#avgDay').textContent=hasCost?fmt.format(total/dayCount):'—';$('#avgDayUnit').textContent='Kč / den';
+    $('#maxPowerLabel').textContent=estimatedCount?'Použitá cena':'Efektivní cena';$('#maxPower').textContent=cb.coveredEnergyWithEstimate>0?fmt.format(total/cb.coveredEnergyWithEstimate):'—';$('#maxPowerSub').textContent=estimatedCount?'Kč / kWh · včetně odhadu':'Kč / kWh · podle DCC1';
+    const combinedCosts=new Map(cb.monthCosts);for(const [k,e] of cb.estimatedMonths)combinedCosts.set(k,e.cost);
+    const expensive=[...combinedCosts].sort((a,b)=>b[1]-a[1])[0],expensiveEstimated=expensive&&cb.estimatedMonths.has(expensive[0]);
+    $('#bestDayLabel').textContent='Nejdražší měsíc';$('#bestDay').textContent=expensive?`${expensive[0].slice(5,7)}/${expensive[0].slice(2,4)}`:'—';$('#bestDaySub').textContent=expensive?`${expensiveEstimated?'≈ ':''}${fmt.format(expensive[1])} Kč`:'—';
+    $('#baseLoadLabel').textContent='Pokrytí nákladů';$('#baseLoad').textContent=estimatedCount?`${cb.knownMonths} + ${estimatedCount}/${cb.groupCount}`:`${cb.knownMonths}/${cb.groupCount}`;$('#baseLoadUnit').textContent=estimatedCount?'faktury + odhad':'měsíců s cenou';
     return;
   }
 
@@ -780,20 +798,28 @@ async function renderMonths(){
   const months=[...state.months].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));
   $('#monthsList').innerHTML=months.length?months.map(m=>{
     const enabled=m.enabled!==false,finance=normalizeFinance(m.finance),invoice=finance.invoiceTotal,kwh=monthBillingEnergy(m.monthKey),effective=invoice!==null&&kwh>0?invoice/kwh:null;
-    const isApi=m.source==='egd-api',partial=isApi&&m.complete!==true,quality=m.apiStatusCounts||{},sourceTag=isApi?'<span class="month-source">EG.D</span>':'<span class="month-source">XLSX</span>';
+    const isApi=m.source==='egd-api',partial=isApi&&m.complete!==true,estimate=partial?estimatedMonthCost(m.monthKey):null,quality=m.apiStatusCounts||{},sourceTag=isApi?'<span class="month-source">EG.D</span>':'<span class="month-source">XLSX</span>';
+    const liveTag=partial?'<span class="month-live-badge">PRŮBĚŽNÝ</span>':'';
     const qualityText=isApi?Object.entries(quality).sort(([a],[b])=>a.localeCompare(b)).map(([code,count])=>`${code} ${count}`).join(' · '):'';
     const availability=partial&&m.lastAvailableAt?` · do ${new Date(m.lastAvailableAt).toLocaleString('cs-CZ')}`:'';
     const stateText=monthIsComplete(m.monthKey)?'✓ kompletní':partial&&enabled?'● průběžně':enabled?'⚠ zkontrolovat':'—';
+    let estimateHtml='';
+    if(partial){
+      estimateHtml=estimate&&Number.isFinite(estimate.cost)
+        ?`<div class="month-estimate"><strong>Odhad nákladů: ≈ ${fmt.format(estimate.cost)} Kč</strong><span class="estimate-rate">Dosavadní spotřeba ${fmt3.format(estimate.energy)} kWh × ${fmt.format(estimate.rate)} Kč/kWh · základ ${estimate.count}/3 předchozích měsíců${estimate.months.length?' ('+estimate.months.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span></div>`
+        :`<div class="month-estimate"><strong>Odhad nákladů zatím nelze určit</strong><span class="estimate-rate">Je potřeba alespoň jedna kompletní faktura se spotřebou v předchozích třech měsících.</span></div>`;
+    }
     return `<div class="month-row ${enabled?'':'month-disabled'}">
       <div class="month-main">
-        <strong>${escapeHtml(m.label)} ${sourceTag}</strong>
+        <strong>${escapeHtml(m.label)} ${sourceTag} ${liveTag}</strong>
         <div>${Number(m.count||0).toLocaleString('cs-CZ')} intervalů · ${escapeHtml(m.fileName||'')}${escapeHtml(availability)}</div>
-        ${isApi?`<div class="month-quality">Kvalita EG.D: ${escapeHtml(qualityText)} · profil ${escapeHtml(m.apiProfile||'—')} · ${escapeHtml(m.apiUnits||'—')}</div>`:''}
+        ${isApi?`<div class="month-quality">Kvalita EG.D: ${escapeHtml(qualityText||'bez stavových kódů')} · profil ${escapeHtml(m.apiProfile||'—')} · ${escapeHtml(m.apiUnits||'—')}</div>`:''}
         <div class="month-finance">
           <label class="invoice-field"><span>Faktura</span><input inputmode="decimal" data-month-invoice="${m.monthKey}" value="${invoice===null?'':String(invoice).replace('.',',')}" placeholder="${partial?'po uzavření':'např. 1842'}" ${partial?'disabled':''}><b>Kč</b></label>
           <span class="effective-price">${effective===null?(invoice!==null&&kwh===0?'0 kWh · cenu/kWh nelze určit':'Cena/kWh —'):`Efektivně <strong>${fmt.format(effective)} Kč/kWh</strong>`}</span>
         </div>
-        <div class="finance-note">Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.</div>
+        ${estimateHtml}
+        <div class="finance-note">${partial?'Fakturu doplníš po uzavření měsíce. Odhad se nikam neukládá a průběžně se přepočítává.':'Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.'}</div>
       </div>
       <div class="month-actions">
         <label class="month-toggle" title="${enabled?'Vypnout měsíc':'Zapnout měsíc'}">
