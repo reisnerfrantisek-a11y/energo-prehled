@@ -8,7 +8,7 @@ Tento dokument je společný desetibodový **Akční plán**. Aktivně jej začn
 4. Rozšířený srovnávací režim: minulý měsíc a stejný měsíc předchozího roku.
 5. Další kumulativní pohledy a cílové trajektorie spotřeby.
 6. Datový health score s jednoduchým souhrnem kvality, mezer a aktuálnosti.
-7. Detailní finanční model z reálných tarifních složek a PDF faktur.
+7. Detailní finanční model z reálných tarifních složek a PDF faktur. **Zahájeno ve 1.6.1:** lokální E.ON PDF parser, rozpad ceny a tarifní model mají přednost před regresí.
 8. Automatická detekce změny režimu spotřeby a adaptace forecastu.
 9. Analýza výkonových maxim, výkonových pásem a vztahu k hlavnímu jističi.
 10. Automatický měsíční report se skutečností, historickou predikcí, odchylkou, fakturou, maximem a nejsilnějším dnem.
