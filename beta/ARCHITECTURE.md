@@ -1,21 +1,21 @@
-# Energo Přehled Beta 1.6 – architektura
+# Energo Přehled Beta 1.7 – architektura
 
-## Cíl verze 1.6
+## Cíl verze 1.7
 
-Verze 1.6 odděluje stabilní výpočetní logiku od UI monolitu tak, aby se další vývoj dal testovat bez prohlížeče a aby změna jedné části aplikace nerozbíjela EG.D synchronizaci, DST nebo predikce.
+Verze 1.7 navazuje na modularizaci 1.6 a zahajuje Akční plán. Výpočetní logika zůstává oddělená od UI; Forecast 2.0 a kalibrace nejistoty jsou čisté funkce v core vrstvě a jejich integrace je krytá regresními scénáři.
 
 ## Moduly
 
 - `core/model.js` – čisté matematické funkce, převody kW/kWh, kalendářní pomocné funkce a cenová regrese.
 - `core/time.js` – Europe/Prague, převod lokálního času na UTC kandidáty a DST 92/96/100 intervalů.
-- `core/forecast.js` – rozdělení měsíční predikce do dní, predikční pásmo a kumulativní transformace.
+- `core/forecast.js` – Forecast 2.0 ensemble, kalibrace nejistoty z backtestů, rozdělení měsíční predikce do dní a kumulativní transformace.
 - `core/invoice.js` – zpětně kompatibilní finanční schéma, detailní cenové složky a ověřený tarif.
 - `core/invoice-parser.js` – lokální textový parser podporovaných PDF faktur a validační pravidla.
 - `app.js` – orchestrace IndexedDB, EG.D, UI a vykreslování. Čisté výpočty deleguje do core modulů.
 
 ## Regresní ochrana
 
-CI workflow `.github/workflows/test-beta-core.yml` používá Node 20 a při každém relevantním push/PR kontroluje:
+CI workflow `.github/workflows/test-beta-core.yml` používá Node 24 a při každém relevantním push/PR kontroluje:
 
 - syntaxi aplikace a konzistenci verze,
 - vazby HTML ID ↔ JS,
@@ -25,9 +25,11 @@ CI workflow `.github/workflows/test-beta-core.yml` používá Node 20 a při ka�
 - zpětnou kompatibilitu finančních dat,
 - parser PDF faktur, součty cenových složek a tarifní sazby,
 - rozdělení predikce, predikční pásmo a kumulativní graf,
-- srovnávací řadu s minulým měsícem.
+- srovnávací řadu s minulým měsícem i stejným měsícem předchozího roku,
+- Forecast 2.0 ensemble a kalibraci pásma,
+- datový health score.
 
-## UI 1.6
+## UI 1.7
 
 Hlavní měsíční graf spotřeby podporuje:
 
@@ -35,7 +37,9 @@ Hlavní měsíční graf spotřeby podporuje:
 - modrou skutečnost,
 - oranžovou predikci,
 - světle oranžové predikční pásmo,
-- volitelné srovnání s minulým měsícem.
+- volitelné srovnání s minulým měsícem nebo stejným měsícem loni,
+- datový health score pro vybraný měsíc,
+- stručný popis složení Forecastu 2.0 a zdroje predikčního pásma.
 
 ## Zásada kompatibility
 
