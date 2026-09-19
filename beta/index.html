@@ -7,20 +7,21 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Energo Beta" />
-  <title>Energo Přehled Beta 1.6.0</title>
+  <title>Energo Přehled Beta 1.6.1</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="../icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=1.6.0" />
+  <link rel="stylesheet" href="styles.css?v=1.6.1" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
       <div>
-        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.6.0</div>
+        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.6.1</div>
         <h1 id="screenTitle">Přehled</h1>
       </div>
       <button class="icon-btn" id="importBtn" aria-label="Importovat report">＋</button>
       <input id="fileInput" type="file" multiple accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+      <input id="invoicePdfInput" type="file" accept=".pdf,application/pdf" hidden />
     </header>
 
     <main>
@@ -194,7 +195,7 @@
         </section>
 
         <section class="panel">
-          <div class="panel-head between"><div><h2>Měsíce a faktury</h2><p>Každý měsíc můžeš vypnout nebo doplnit celkovou cenu faktury. Průběžný měsíc má dynamický odhad nákladů, predikci celé faktury a scénářové rozpětí.</p></div><button class="secondary-btn" id="dataImportBtn">Importovat XLSX</button></div>
+          <div class="panel-head between"><div><h2>Měsíce a faktury</h2><p>Celkovou cenu lze zadat ručně nebo načíst z PDF faktury. U podporované faktury aplikace lokálně vytěží cenové složky a ověřený tarif použije pro predikci nákladů.</p></div><button class="secondary-btn" id="dataImportBtn">Importovat XLSX</button></div>
           <div id="monthsList" class="months-list"></div>
         </section>
         <section class="panel">
@@ -204,7 +205,7 @@
             <button class="secondary-btn" id="restoreDataBtn">Obnovit zálohu</button>
             <input id="backupFileInput" type="file" accept="application/json,.json" hidden />
           </div>
-          <p class="fineprint">Záloha obsahuje importované intervaly, aktivaci měsíců, finanční údaje i nastavení aplikace. Soubor zůstává pod tvou kontrolou.</p>
+          <p class="fineprint">Záloha obsahuje importované intervaly, aktivaci měsíců, finanční údaje včetně rozpadů PDF faktur i nastavení aplikace. Soubor zůstává pod tvou kontrolou.</p>
         </section>
         <section class="panel">
           <div class="panel-head"><div><h2>Aktualizace aplikace</h2><p>Vynutí stažení nejnovější verze bez smazání energetických dat</p></div></div>
@@ -214,7 +215,7 @@
         </section>
         <section class="privacy-card">
           <strong>Soukromí</strong>
-          <p>Report se při importu zpracovává přímo v prohlížeči. Energetická data se neposílají na hosting ani na server aplikace.</p>
+          <p>Reporty i PDF faktury se zpracovávají přímo v prohlížeči. Samotný PDF soubor se neposílá na hosting ani na server aplikace; při prvním PDF importu se pouze stáhne knihovna PDF.js z jsDelivr.</p>
         </section>
       </section>
 
@@ -246,11 +247,24 @@
         <div class="modal-actions"><button class="secondary-btn" id="cancelReplace">Zrušit</button><button class="danger-btn" id="confirmReplace">Nahradit</button></div>
       </div>
     </div>
+
+    <div class="modal-backdrop hidden" id="invoiceReviewModal">
+      <div class="modal invoice-review-modal">
+        <h3>Kontrola PDF faktury</h3>
+        <p>Než se údaje uloží, zkontroluj rozpoznané období, částky a cenové složky.</p>
+        <div class="invoice-review-summary" id="invoiceReviewSummary"></div>
+        <h4>Rozpad ceny</h4>
+        <div class="invoice-review-components" id="invoiceReviewComponents"></div>
+        <div class="invoice-review-warnings" id="invoiceReviewWarnings"></div>
+        <div class="modal-actions"><button class="secondary-btn" id="cancelInvoicePdf">Zrušit</button><button class="primary-btn" id="confirmInvoicePdf">Uložit fakturu</button></div>
+      </div>
+    </div>
   </div>
-  <script src="core/model.js?v=1.6.0" defer></script>
-  <script src="core/time.js?v=1.6.0" defer></script>
-  <script src="core/forecast.js?v=1.6.0" defer></script>
-  <script src="core/invoice.js?v=1.6.0" defer></script>
-  <script src="app.js?v=1.6.0" defer></script>
+  <script src="core/model.js?v=1.6.1" defer></script>
+  <script src="core/time.js?v=1.6.1" defer></script>
+  <script src="core/forecast.js?v=1.6.1" defer></script>
+  <script src="core/invoice.js?v=1.6.1" defer></script>
+  <script src="core/invoice-parser.js?v=1.6.1" defer></script>
+  <script src="app.js?v=1.6.1" defer></script>
 </body>
 </html>
