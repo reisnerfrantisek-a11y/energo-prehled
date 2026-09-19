@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.4.4';
+const APP_VERSION = '1.4.5';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -477,7 +477,7 @@ function weightedCostModel(points){
   const sst=points.reduce((sum,p)=>sum+p.weight*(p.cost-mean)**2,0),r2=sst>1e-9?clamp(1-sse/sst,0,1):0;
   const energies=points.map(p=>p.energy),minE=Math.min(...energies),maxE=Math.max(...energies),spreadRatio=minE>0?maxE/minE:1;
   const spreadScore=clamp((spreadRatio-1)/0.5,0,1),fitScore=clamp((r2-0.2)/0.8,0,1),countScore=points.length>=3?1:points.length===2?.35:0;
-  const confidence=spreadScore*fitScore*countScore,blend=points.length>=2?clamp(.2+.7*confidence,.2,.9):0;
+  const confidence=spreadScore*fitScore*countScore,blend=points.length<2?0:confidence>=.9?1:confidence>=.6?.6+((confidence-.6)/.3)*.4:.2+(confidence/.6)*.4;
   return {fixed,variableRate,fallbackRate,r2,spreadRatio,confidence,blend,count:points.length,totalCost:points.reduce((a,p)=>a+p.cost,0),totalEnergy:points.reduce((a,p)=>a+p.energy,0),weightedCost,weightedEnergy};
 }
 function modeledRateAtEnergy(model,energy){
