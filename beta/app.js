@@ -312,11 +312,11 @@ async function testEgdConnection(){
   await saveEgdConfig();
   setEgdUiState('warn','Ověřuji…','Získávám token a číselníky EG.D.');
   try{
-    let oms,profiles,statuses;
+    let oms,profiles,statuses,token=null;
     if(state.egd.proxyUrl){
       const out=await egdProxyPost('diagnostics');oms=out.om;profiles=out.profily;statuses=out.statusy;
     }else{
-      const token=await egdToken(clientId,clientSecret);
+      token=await egdToken(clientId,clientSecret);
       oms=await egdGet('/om',token);profiles=await egdGet('/profily',token);statuses=await egdGet('/statusy',token);
     }
     state.egd.oms=Array.isArray(oms)?oms:[];
@@ -330,8 +330,13 @@ async function testEgdConnection(){
     const om=state.egd.oms.find(x=>x.ean===state.egd.ean);
     state.egd.profile=chooseConsumptionProfile(state.egd.profiles,om?.typMereni,state.egd.profile);
     if(!state.egd.profile)throw new Error('V číselníku EG.D nebyl nalezen elektrický profil spotřeby.');
+    const probe=await probeConsumptionProfiles(token,om?.typMereni);
+    if(probe.workingProfile)state.egd.profile=probe.workingProfile;
     state.egd.verified=true;await saveEgdConfig();renderEgdPanel();
-    setEgdUiState('ok','Připojeno',`Ověřeno · ${state.egd.oms.length} odběrných míst · profil ${state.egd.profile}`);
+    const probeText=probe.workingProfile
+      ?` · /spotreby OK: ${probe.workingProfile}`
+      :` · přihlášení OK, ale /spotreby selhalo: ${probe.results.map(x=>x.profile+' '+(x.ok?'OK':'CHYBA')).join(', ')}`;
+    setEgdUiState(probe.workingProfile?'ok':'warn',probe.workingProfile?'Připojeno':'Připojeno, datový endpoint chybuje',`Ověřeno · ${state.egd.oms.length} odběrných míst · profil ${state.egd.profile}${probeText}`);
   }catch(e){
     state.egd.verified=false;state.egd.lastError=e.message;renderEgdPanel();setEgdUiState('error','Chyba připojení',e.message);throw e;
   }
@@ -432,6 +437,22 @@ function pragueMonthQueryBounds(monthKey){
 async function fetchEgdRange(token,from,to,profile=state.egd.profile){
   if(state.egd.proxyUrl)return (await egdProxyPost('spotreby',{ean:state.egd.ean,profile,from,to})).data;
   return egdGet('/spotreby',token,{ean:state.egd.ean,profile,from,to,pageStart:1,pageSize:3000});
+}
+async function probeConsumptionProfiles(token,typMereni){
+  const p=pragueParts(Date.now()),monthKey=`${p.year}-${String(p.month).padStart(2,'0')}`,bounds=pragueMonthQueryBounds(monthKey),end=Date.parse(bounds.to);
+  if(!Number.isFinite(end)||end<bounds.start)return {workingProfile:null,results:[]};
+  const from=new Date(Math.max(bounds.start,end-45*60000)).toISOString(),to=new Date(end).toISOString();
+  const candidates=consumptionProfileCandidates(state.egd.profiles,typMereni,state.egd.profile).filter(p=>['ICQ2','ICC1'].includes(String(p).toUpperCase())).slice(0,2);
+  const results=[];
+  for(const profile of candidates){
+    try{
+      const raw=await fetchEgdRange(token,from,to,profile);
+      const group=mergeEgdPayloads([raw],profile),count=group?.data?.length||0;
+      results.push({profile,ok:true,count});
+      return {workingProfile:profile,results,from,to};
+    }catch(e){results.push({profile,ok:false,error:e.message})}
+  }
+  return {workingProfile:null,results,from,to};
 }
 function egdRangeChunks(fromIso,toIso,chunkDays=7){
   const from=Date.parse(fromIso),to=Date.parse(toIso),step=15*60000,span=chunkDays*86400000;
