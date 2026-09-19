@@ -857,6 +857,39 @@ function closedIntervalGaps(records,monthKey){
 }
 function countIncompleteClosedDays(records,monthKey){return new Set(closedIntervalGaps(records,monthKey).map(g=>g.dateKey)).size}
 function countMissingClosedIntervals(records,monthKey){return closedIntervalGaps(records,monthKey).length}
+function monthDataHealth(monthKey){
+  const meta=monthMeta(monthKey),records=state.records.filter(r=>r.monthKey===monthKey);
+  if(!meta||!records.length)return null;
+  const usable=records.filter(recordUsable),provisional=records.filter(recordProvisional);
+  const today=pragueDayKeyFromMs(Date.now()),currentMonth=today.slice(0,7),closedDates=monthDateKeys(monthKey).filter(k=>monthKey<currentMonth||k<today);
+  const expectedClosed=closedDates.reduce((a,k)=>a+expectedIntervalsForDate(k),0),gaps=closedIntervalGaps(records,monthKey),closedGapCount=gaps.filter(g=>closedDates.includes(g.dateKey)).length;
+  const completeness=expectedClosed>0?clamp(1-closedGapCount/expectedClosed,0,1):1;
+  const usability=records.length?clamp(usable.length/records.length,0,1):0;
+  let freshness=1,ageHours=0;
+  if(monthIsLivePartial(monthKey)&&meta.lastAvailableAt){
+    const ms=Date.parse(meta.lastAvailableAt);ageHours=Number.isFinite(ms)?Math.max(0,(Date.now()-ms)/3600000):999;
+    freshness=ageHours<=36?1:ageHours<=60?.85:ageHours<=84?.65:ageHours<=132?.45:.2;
+  }
+  const provisionalShare=usable.length?provisional.length/usable.length:0,provisionalPenalty=Math.min(.03,provisionalShare*.03);
+  const score=Math.round(clamp((completeness*.50+usability*.30+freshness*.20-provisionalPenalty)*100,0,100));
+  const grade=score>=97?'výborná':score>=90?'dobrá':score>=75?'pozor':score>=55?'slabší':'problém';
+  return {score,grade,completeness,usability,freshness,ageHours,expectedClosed,missingClosed:closedGapCount,raw:records.length,usable:usable.length,provisional:provisional.length};
+}
+function renderDataHealth(monthKey){
+  const card=$('#dataHealthCard');if(!card)return;
+  const health=monthKey?monthDataHealth(monthKey):null;
+  if(!health){card.classList.add('hidden');return}
+  card.classList.remove('hidden');
+  $('#dataHealthScore').textContent=String(health.score);
+  $('#dataHealthGrade').textContent=health.grade;
+  $('#dataHealthCompleteness').textContent=`${fmt.format(health.completeness*100)} %`;
+  $('#dataHealthUsability').textContent=`${fmt.format(health.usability*100)} %`;
+  $('#dataHealthFreshness').textContent=health.freshness>=.99?'aktuální':health.ageHours<999?`${fmt.format(health.ageHours)} h`:'—';
+  $('#dataHealthDetail').textContent=health.missingClosed
+    ?`Chybí ${health.missingClosed} uzavřených intervalů · použito ${health.usable.toLocaleString('cs-CZ')}/${health.raw.toLocaleString('cs-CZ')}`
+    :`Uzavřená data bez mezer · použito ${health.usable.toLocaleString('cs-CZ')}/${health.raw.toLocaleString('cs-CZ')}`;
+  card.dataset.grade=health.grade;
+}
 function calendarFractionForSelected(monthKey,selected){
   if(!selected.length)return 0;
   const dates=[...new Set(selected.map(r=>r.dateKey))],total=totalExpectedIntervals(monthKey);if(!total)return 0;
@@ -1441,6 +1474,7 @@ function renderOverview(){
     $$('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
   }
   $('#heroPeriod').textContent=selectedPeriodLabel();
+  renderDataHealth(state.period==='month'?expectedCurrentMonthKeys()[0]:null);
 
   if(!rs.length){
     const expected=expectedCurrentMonthKeys(),disabled=expected.length&&keysContainDisabled(expected);
