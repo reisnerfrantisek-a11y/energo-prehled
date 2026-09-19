@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.4.4'"),'App version must be 1.4.4');
+assert.ok(app.includes("APP_VERSION = '1.4.5'"),'App version must be 1.4.5');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -80,8 +80,8 @@ assert.ok(app.includes('async function forceUpdateApp'),'Safe force-update funct
 assert.ok(app.includes("k.startsWith('energo-prehled-beta-')"),'Force update must target beta cache only');
 assert.ok(!app.includes('indexedDB.deleteDatabase'),'Force update must not delete IndexedDB');
 assert.ok(!app.includes('localStorage.clear()'),'Force update must not clear localStorage');
-assert.ok(index.includes('app.js?v=1.4.4'),'App script must be cache-busted');
-assert.ok(index.includes('styles.css?v=1.4.4'),'Stylesheet must be cache-busted');
+assert.ok(index.includes('app.js?v=1.4.5'),'App script must be cache-busted');
+assert.ok(index.includes('styles.css?v=1.4.5'),'Stylesheet must be cache-busted');
 const refresh=fs.readFileSync('refresh.html','utf8');
 assert.ok(refresh.includes("energo-prehled-beta-"),'Recovery page must clear beta cache');
 assert.ok(!refresh.includes('indexedDB.deleteDatabase'),'Recovery page must preserve IndexedDB');
@@ -177,6 +177,7 @@ const syntheticModel=periodTest.weightedCostModel([
 assert.ok(Math.abs(syntheticModel.fixed-500)<1e-9,'Dynamic model must recover the fixed monthly component');
 assert.ok(Math.abs(syntheticModel.variableRate-4)<1e-9,'Dynamic model must recover the variable Kč/kWh component');
 assert.ok(syntheticModel.confidence>.99,'Well-separated exact data should have high model confidence');
+assert.equal(syntheticModel.blend,1,'High-confidence cost models must not be diluted by fallback pricing');
 const lowUseRate=periodTest.modeledRateAtEnergy(syntheticModel,100);
 const highUseRate=periodTest.modeledRateAtEnergy(syntheticModel,500);
 assert.ok(highUseRate<lowUseRate,'Effective Kč/kWh must decline as consumption rises');
@@ -202,4 +203,4 @@ assert.equal(periodTest.currentRange().length,3);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.4.4 smoke tests OK');
+console.log('Energo Přehled Beta 1.4.5 smoke tests OK');
