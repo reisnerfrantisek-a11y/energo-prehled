@@ -20,7 +20,7 @@ assert.ok(index.includes('data-daypart-mode="average"'),'Daypart average mode mi
 assert.ok(app.includes('async function handleFiles'),'Batch import handler missing');
 assert.ok(app.includes("addEventListener('touchstart'"),'Swipe touchstart handler missing');
 assert.ok(app.includes("addEventListener('touchend'"),'Swipe touchend handler missing');
-assert.ok(app.includes("APP_VERSION = '1.4.1'"),'App version must be 1.4.1');
+assert.ok(app.includes("APP_VERSION = '1.4.2'"),'App version must be 1.4.2');
 
 const start=app.indexOf('function parseCzTimestamp');
 const end=app.indexOf('function strictNumber',start);
@@ -80,8 +80,8 @@ assert.ok(app.includes('async function forceUpdateApp'),'Safe force-update funct
 assert.ok(app.includes("k.startsWith('energo-prehled-beta-')"),'Force update must target beta cache only');
 assert.ok(!app.includes('indexedDB.deleteDatabase'),'Force update must not delete IndexedDB');
 assert.ok(!app.includes('localStorage.clear()'),'Force update must not clear localStorage');
-assert.ok(index.includes('app.js?v=1.4.1'),'App script must be cache-busted');
-assert.ok(index.includes('styles.css?v=1.4.1'),'Stylesheet must be cache-busted');
+assert.ok(index.includes('app.js?v=1.4.2'),'App script must be cache-busted');
+assert.ok(index.includes('styles.css?v=1.4.2'),'Stylesheet must be cache-busted');
 const refresh=fs.readFileSync('refresh.html','utf8');
 assert.ok(refresh.includes("energo-prehled-beta-"),'Recovery page must clear beta cache');
 assert.ok(!refresh.includes('indexedDB.deleteDatabase'),'Recovery page must preserve IndexedDB');
@@ -102,6 +102,9 @@ assert.ok(index.includes('Proxy URL'),'Vercel proxy URL UI missing');
 assert.ok(app.includes('async function egdProxyPost'),'Proxy transport missing');
 assert.ok(app.includes("action==='diagnostics'")||app.includes("egdProxyPost('diagnostics'"),'Proxy diagnostics flow missing');
 assert.ok(app.includes("egdProxyPost('spotreby'"),'Proxy consumption flow missing');
+assert.ok(app.includes("if(type==='B')"),'Type B profile selection guard missing');
+assert.ok(app.includes("toUpperCase()==='ICC1'"),'Type B must prefer ICC1');
+assert.ok(app.includes('lastClosedDayEnd=todayStart-15*60000'),'Current month must stop at previous closed day');
 
 const proxy=fs.readFileSync('vercel-egd-proxy/api/egd.js','utf8');
 new Function(proxy.replace('export default async function handler','async function handler'));
@@ -113,6 +116,8 @@ assert.ok(proxy.includes("pageSize:3000"),'Proxy page size must be limited to 30
 assert.ok(!proxy.includes('process.env.EGD_CLIENT_SECRET'),'Proxy should not persist EG.D secret in server env');
 assert.ok(!proxy.includes('http://'),'Proxy must not use insecure upstream URLs');
 assert.ok(!proxy.includes('targetUrl'),'Proxy must not be a generic arbitrary-target relay');
+assert.ok(proxy.includes("EG.D ${path} failed (HTTP ${resp.status})"),'Proxy must return upstream HTTP status');
+assert.ok(proxy.includes('body?.message||body?.error_description||body?.error'),'Proxy must surface safe upstream details');
 
 const analyticsStart=app.indexOf('const val = r =>');
 const analyticsEnd=app.indexOf('// ---------- SVG charts ----------',analyticsStart);
@@ -160,4 +165,4 @@ assert.equal(periodTest.currentRange().length,2);
 periodTest.state.months.forEach(m=>m.enabled=false);
 assert.equal(periodTest.currentRange().length,0);
 
-console.log('Energo Přehled Beta 1.4.1 smoke tests OK');
+console.log('Energo Přehled Beta 1.4.2 smoke tests OK');
