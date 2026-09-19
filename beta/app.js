@@ -105,7 +105,7 @@ function parseMoneyInput(raw){
 }
 async function setMonthInvoice(monthKey,rawValue){
   const month=state.months.find(m=>m.monthKey===monthKey);if(!month)return;
-  const invoiceTotal=parseMoneyInput(rawValue),finance=normalizeFinance(month.finance);finance.invoiceTotal=invoiceTotal;
+  const invoiceTotal=parseMoneyInput(rawValue),finance=normalizeFinance(month.finance);finance.invoiceTotal=invoiceTotal;finance.source='manual';finance.invoiceMeta.extractionStatus=invoiceTotal===null?'none':'manual';finance.invoiceMeta.extractionConfidence=invoiceTotal===null?null:1;
   await new Promise((resolve,reject)=>{
     const tx=db.transaction('months','readwrite'),store=tx.objectStore('months');
     store.put({...month,finance});
@@ -850,7 +850,7 @@ function forecastEnergyDailySeries(monthKey){
 function previousMonthEnergySeries(monthKey,targetLength){
   const idx=monthIndex(monthKey);if(idx===null)return null;
   const prevKey=monthKeyFromIndex(idx-1),meta=monthMeta(prevKey);
-  if(!meta||meta.enabled===false)return null;
+  if(!meta||meta.enabled===false||!monthIsComplete(prevKey))return null;
   const rs=state.records.filter(r=>r.monthKey===prevKey&&recordUsable(r)),daily=new Map();
   for(const r of rs)daily.set(r.dateKey,(daily.get(r.dateKey)||0)+billingEnergy(r));
   const dates=monthDateKeys(prevKey),values=dates.map(d=>daily.has(d)?daily.get(d):null);
