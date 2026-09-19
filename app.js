@@ -36,7 +36,7 @@ let state = {
   customTo: localStorage.getItem(CUSTOM_TO_KEY) || '',
   daypartMode: localStorage.getItem(DAYPART_KEY)==='average'?'average':'percent',
   dashboardMode: localStorage.getItem(DASHBOARD_MODE_KEY)==='cost'?'cost':'energy',
-  egd: {clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null},
+  egd: {clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,autoSync:false},
   pendingImport: null,
   resetExportRange: false
 };
@@ -220,7 +220,7 @@ async function parseReport(file){
 
 // ---------- EG.D OpenAPI ----------
 function egdConnectionConfig(){
-  return {clientId:state.egd.clientId,clientSecret:state.egd.clientSecret,proxyUrl:state.egd.proxyUrl||'',ean:state.egd.ean,profile:state.egd.profile,lastSync:state.egd.lastSync||null};
+  return {clientId:state.egd.clientId,clientSecret:state.egd.clientSecret,proxyUrl:state.egd.proxyUrl||'',ean:state.egd.ean,profile:state.egd.profile,lastSync:state.egd.lastSync||null,autoSync:state.egd.autoSync===true};
 }
 async function saveEgdConfig(){await setSetting('egd-config',egdConnectionConfig())}
 function egdNetworkError(e){
@@ -319,7 +319,7 @@ function setEgdUiState(kind,label,message){
 async function disconnectEgd(){
   if(!confirm('Odpojit EG.D OpenAPI z tohoto zařízení? Naměřená data už uložená v aplikaci zůstanou zachovaná.'))return;
   await deleteSetting('egd-config');
-  state.egd={clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,verified:false};
+  state.egd={clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,autoSync:false,verified:false};
   renderEgdPanel();showToast('EG.D připojení bylo odstraněno');
 }
 async function saveEgdSelections(){
