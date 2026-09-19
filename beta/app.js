@@ -769,6 +769,24 @@ function historicalEnergyPoints(monthKey,limit=6){
 }
 function weightedCostModel(points){return CORE.weightedCostModel(points)}
 function modeledRateAtEnergy(model,energy){return CORE.modeledRateAtEnergy(model,energy)}
+function latestValidatedTariff(monthKey){
+  const idx=monthIndex(monthKey);if(idx===null)return null;
+  const targetEans=new Set(state.records.filter(r=>r.monthKey===monthKey).map(r=>String(r.ean||'')).filter(Boolean));
+  const candidates=state.months.filter(m=>{
+    const mi=monthIndex(m.monthKey);if(mi===null||mi>=idx||m.enabled===false)return false;
+    const finance=normalizeFinance(m.finance);if(!INVOICE.hasValidatedTariff(finance))return false;
+    if(targetEans.size&&finance.metering.ean&&!targetEans.has(finance.metering.ean))return false;
+    return true;
+  }).sort((a,b)=>b.monthKey.localeCompare(a.monthKey));
+  if(!candidates.length)return null;
+  const m=candidates[0],finance=normalizeFinance(m.finance),t=finance.tariff;
+  return {
+    sourceMonthKey:m.monthKey,finance,
+    fixed:Number(t.fixedGrossPerMonth),
+    variableRate:Number(t.variableGrossPerKwh),
+    confidence:Number(finance.invoiceMeta.extractionConfidence)||1
+  };
+}
 function weekdayFromDateKey(key){return CORE.weekdayFromDateKey(key)}
 function monthDateKeys(monthKey){return CORE.monthDateKeys(monthKey)}
 const EXPECTED_DAY_INTERVAL_CACHE=new Map();
@@ -849,11 +867,21 @@ function predictMonthEnergy(monthKey,points=historicalEnergyPoints(monthKey)){
   return {actualEnergy,predictedEnergy,remainingEnergy,paceEnergy,baselineProjection,lowEnergy,highEnergy,gapEnergy,remainderToday,futureEnergy,scale,uncertainty,observedDays:observedDates.length,completeObservedDays:completeObserved.length,totalDays:allDates.length,expectedSlots,observedSlots,incompleteClosedDays:countIncompleteClosedDays(state.records.filter(r=>r.monthKey===monthKey),monthKey),missingClosedIntervals:countMissingClosedIntervals(state.records.filter(r=>r.monthKey===monthKey),monthKey)};
 }
 function estimateRateForMonth(monthKey){
-  const costPoints=historicalCostPoints(monthKey),energyPoints=historicalEnergyPoints(monthKey),model=weightedCostModel(costPoints),forecast=predictMonthEnergy(monthKey,energyPoints);
-  const rate=forecast.predictedEnergy>0?modeledRateAtEnergy(model,forecast.predictedEnergy):model.fallbackRate,projectedCost=Number.isFinite(rate)?forecast.predictedEnergy*rate:null;
+  const costPoints=historicalCostPoints(monthKey),energyPoints=historicalEnergyPoints(monthKey),forecast=predictMonthEnergy(monthKey,energyPoints),tariff=latestValidatedTariff(monthKey);
+  if(tariff){
+    const fixed=tariff.fixed,variableRate=tariff.variableRate,projectedCost=fixed+variableRate*forecast.predictedEnergy;
+    const lowProjectedCost=fixed+variableRate*forecast.lowEnergy,highProjectedCost=fixed+variableRate*forecast.highEnergy;
+    const rate=forecast.predictedEnergy>0?projectedCost/forecast.predictedEnergy:variableRate;
+    return {
+      fixed,variableRate,fallbackRate:variableRate,blend:1,r2:1,spreadRatio:1,confidence:tariff.confidence,count:1,totalCost:0,totalEnergy:0,weightedCost:0,weightedEnergy:0,
+      ...forecast,rate,projectedCost,lowProjectedCost,highProjectedCost,months:[tariff.sourceMonthKey],energyMonths:energyPoints.map(p=>p.key),requested:3,
+      modelType:'tariff',tariffSourceMonth:tariff.sourceMonthKey,tariffFinance:tariff.finance
+    };
+  }
+  const model=weightedCostModel(costPoints),rate=forecast.predictedEnergy>0?modeledRateAtEnergy(model,forecast.predictedEnergy):model.fallbackRate,projectedCost=Number.isFinite(rate)?forecast.predictedEnergy*rate:null;
   const lowRate=modeledRateAtEnergy(model,forecast.lowEnergy),highRate=modeledRateAtEnergy(model,forecast.highEnergy);
   const lowProjectedCost=Number.isFinite(lowRate)?forecast.lowEnergy*lowRate:null,highProjectedCost=Number.isFinite(highRate)?forecast.highEnergy*highRate:null;
-  return {...model,...forecast,rate,projectedCost,lowProjectedCost,highProjectedCost,months:costPoints.map(p=>p.key),energyMonths:energyPoints.map(p=>p.key),requested:3};
+  return {...model,...forecast,rate,projectedCost,lowProjectedCost,highProjectedCost,months:costPoints.map(p=>p.key),energyMonths:energyPoints.map(p=>p.key),requested:3,modelType:'regression'};
 }
 function estimatedMonthCost(monthKey,rs=null){
   const meta=monthMeta(monthKey);if(!meta||!monthIsLivePartial(monthKey))return null;
