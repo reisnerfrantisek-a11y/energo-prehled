@@ -566,7 +566,7 @@ function predictMonthEnergy(monthKey,points=historicalEnergyPoints(monthKey)){
   const completeObserved=observedDates.filter(k=>(monthKey<currentMonth||k<todayKey)&&(currentCounts.get(k)||0)===expectedIntervalsForDate(k));
   let ratioSum=0,ratioWeight=0;
   completeObserved.forEach((k,i)=>{const base=baseline[weekdayFromDateKey(k)]||overall,actual=currentDaily.get(k)||0;if(base<=0)return;const age=completeObserved.length-1-i,w=Math.pow(.86,age);ratioSum+=w*(actual/base);ratioWeight+=w});
-  const rawScale=ratioWeight>0?ratioSum/ratioWeight:1,reliability=clamp(completeObserved.length/7,0,1),scale=1+(clamp(rawScale,.45,1.8)-1)*reliability;
+  const rawScale=ratioWeight>0?ratioSum/ratioWeight:1,reliability=clamp(completeObserved.length/14,0,1),scale=1+(clamp(rawScale,.55,1.6)-1)*reliability;
   let gapEnergy=0,remainderToday=0,futureEnergy=0;
   for(const k of allDates){
     const expectedDay=(baseline[weekdayFromDateKey(k)]||overall)*scale,actualDay=currentDaily.get(k)||0,count=currentCounts.get(k)||0;
@@ -578,7 +578,7 @@ function predictMonthEnergy(monthKey,points=historicalEnergyPoints(monthKey)){
   }
   const baselineProjection=actualEnergy+gapEnergy+remainderToday+futureEnergy,observedSlots=current.length;
   const rawPace=observedSlots>0&&expectedSlots>0?actualEnergy*(expectedSlots/observedSlots):baselineProjection,paceEnergy=clamp(rawPace,baselineProjection*.55,baselineProjection*1.8);
-  const paceWeight=clamp(completeObserved.length/14,0,.35),predictedEnergy=baselineProjection*(1-paceWeight)+paceEnergy*paceWeight,remainingEnergy=Math.max(0,predictedEnergy-actualEnergy);
+  const paceWeight=.25*clamp(completeObserved.length/14,0,1),predictedEnergy=baselineProjection*(1-paceWeight)+paceEnergy*paceWeight,remainingEnergy=Math.max(0,predictedEnergy-actualEnergy);
   const ratios=[];for(const d of daily.values()){const base=baseline[d.weekday]||overall;if(base>0)ratios.push(d.energy/base)}
   const mad=median(ratios.map(r=>Math.abs(r-1)))||0,variability=clamp(1.4826*mad,0,.7),coverage=expectedSlots>0?clamp(observedSlots/expectedSlots,0,1):0;
   let uncertainty=clamp(.10+variability*.35+(1-coverage)*.18,.10,.42);
