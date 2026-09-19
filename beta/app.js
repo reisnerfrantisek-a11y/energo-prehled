@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.6.2';
+const APP_VERSION = '1.6.3';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -139,20 +139,26 @@ function loadPdfJs(){
   }).catch(e=>{pdfJsPromise=null;throw e});
   return pdfJsPromise;
 }
-async function extractPdfText(file){
+async function extractPdfTextCandidates(file){
   if(!file||!/\.pdf$/i.test(file.name||'')&&file.type!=='application/pdf')throw new Error('Vyber PDF fakturu.');
   if(file.size>20*1024*1024)throw new Error('PDF je větší než 20 MB.');
   const pdfjs=await loadPdfJs(),data=new Uint8Array(await file.arrayBuffer());
   const doc=await pdfjs.getDocument({data}).promise;if(doc.numPages>30)throw new Error('PDF má více než 30 stran.');
-  const pages=[];
+  const layout=[],hybrid=[],native=[];
   for(let p=1;p<=doc.numPages;p++){
-    const page=await doc.getPage(p),content=await page.getTextContent();
-    pages.push(INVOICE_PARSER.pdfItemsToLayoutText(content.items));
+    const page=await doc.getPage(p),content=await page.getTextContent(),items=content.items||[];
+    layout.push(INVOICE_PARSER.pdfItemsToLayoutText(items));
+    hybrid.push(p===1?INVOICE_PARSER.pdfItemsToColumnFlowText(items):INVOICE_PARSER.pdfItemsToLayoutText(items));
+    native.push(items.map(x=>String(x.str||'')).join(' '));
   }
   try{await doc.destroy()}catch{}
-  const text=pages.join('\n');
-  if(text.trim().length<80)throw new Error('PDF neobsahuje čitelnou textovou vrstvu. Naskenované faktury zatím nejsou podporované.');
-  return text;
+  const candidates=[
+    {name:'layout-rows',text:layout.join('\n')},
+    {name:'page1-columns',text:hybrid.join('\n')},
+    {name:'pdf-native-order',text:native.join('\n')}
+  ].filter(c=>c.text.trim().length>=80);
+  if(!candidates.length)throw new Error('PDF neobsahuje čitelnou textovou vrstvu. Naskenované faktury zatím nejsou podporované.');
+  return {candidates,pages:doc.numPages};
 }
 function invoiceComponentRows(finance){
   const f=normalizeFinance(finance),c=f.components;
@@ -180,8 +186,9 @@ function renderInvoiceReview(){
   ].map(([k,v])=>`<div><span>${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></div>`).join('');
   components.innerHTML=invoiceComponentRows(f).map(([k,v])=>`<div><span>${escapeHtml(k)}</span><strong>${fmt.format(v)} Kč</strong></div>`).join('');
   const model=t.validated?`Tarifní model: ${fmt.format(t.fixedGrossPerMonth)} Kč/měs. + ${fmt3.format(t.variableGrossPerKwh)} Kč/kWh vč. DPH`:'Tarifní model nebyl ověřen.';
+  const parserInfo=`Parser ${escapeHtml(r.parser||INVOICE_PARSER.PARSER_VERSION)} · ${escapeHtml(r.extractionStrategy||'standard')} · ${Number(r.extractionPages||0)||'—'} str.`;
   const items=[...(r.fatal||[]),...(r.warnings||[])];
-  warnings.innerHTML=`<strong>${escapeHtml(model)}</strong>${items.length?items.map(x=>`<span>${escapeHtml(x)}</span>`).join(''):'<span>Kontroly součtů a cenových složek prošly bez výhrad.</span>'}`;
+  warnings.innerHTML=`<strong>${escapeHtml(model)}</strong><span>${parserInfo}</span>${items.length?items.map(x=>`<span>${escapeHtml(x)}</span>`).join(''):'<span>Kontroly součtů a cenových složek prošly bez výhrad.</span>'}`;
   warnings.classList.toggle('has-warning',items.length>0);
 }
 function showStoredInvoiceDetail(monthKey){
@@ -194,7 +201,8 @@ async function handleInvoicePdfFile(file){
   const pending=state.pendingInvoicePdf;if(!pending?.monthKey)return;
   try{
     showToast('Čtu PDF fakturu lokálně…');
-    const text=await extractPdfText(file),result=INVOICE_PARSER.parseEonInvoiceText(text,{fileName:file.name,importedAt:new Date().toISOString()}),target=pending.monthKey;
+    const extracted=await extractPdfTextCandidates(file),result=INVOICE_PARSER.parseEonInvoiceCandidates(extracted.candidates,{fileName:file.name,importedAt:new Date().toISOString()}),target=pending.monthKey;
+    result.extractionPages=extracted.pages;
     if(result.invoiceMonthKey&&result.invoiceMonthKey!==target)result.fatal.push(`Faktura patří do ${monthLabel(result.invoiceMonthKey)}, ale byla vybrána u ${monthLabel(target)}.`);
     const localEans=[...new Set(state.records.filter(r=>r.monthKey===target).map(r=>String(r.ean||'')).filter(Boolean))];
     if(result.validation.ean&&localEans.length&& !localEans.includes(result.validation.ean))result.fatal.push('EAN na faktuře neodpovídá energetickým datům zvoleného měsíce.');
@@ -1694,7 +1702,8 @@ async function forceUpdateApp(){
     const base=new URL('./',location.href).href;
     if('serviceWorker' in navigator){
       const regs=await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.filter(r=>r.scope===base).map(r=>r.unregister()));
+      const betaPath=new URL('./',location.href).pathname;
+      await Promise.all(regs.filter(r=>{try{return new URL(r.scope).pathname.startsWith(betaPath)}catch{return false}}).map(r=>r.unregister()));
     }
     if('caches' in window){
       const keys=await caches.keys();

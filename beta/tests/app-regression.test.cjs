@@ -27,20 +27,20 @@ return {
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.6.2 files are version-aligned and syntactically valid',()=>{
+test('beta 1.6.3 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.6\.2'/);
-  assert.match(html,/BETA 1\.6\.2/);
-  assert.match(sw,/v1\.6\.2/);
-  assert.match(html,/core\/model\.js\?v=1\.6\.2/);
-  assert.match(html,/core\/time\.js\?v=1\.6\.2/);
-  assert.match(html,/core\/forecast\.js\?v=1\.6\.2/);
-  assert.match(html,/core\/invoice\.js\?v=1\.6\.2/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.6\.2/);
-  assert.match(sw,/core\/model\.js\?v=1\.6\.2/);
-  assert.match(sw,/core\/time\.js\?v=1\.6\.2/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.6\.2/);
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.6\.2/);
+  assert.match(app,/APP_VERSION = '1\.6\.3'/);
+  assert.match(html,/BETA 1\.6\.3/);
+  assert.match(sw,/v1\.6\.3/);
+  assert.match(html,/core\/model\.js\?v=1\.6\.3/);
+  assert.match(html,/core\/time\.js\?v=1\.6\.3/);
+  assert.match(html,/core\/forecast\.js\?v=1\.6\.3/);
+  assert.match(html,/core\/invoice\.js\?v=1\.6\.3/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.6\.3/);
+  assert.match(sw,/core\/model\.js\?v=1\.6\.3/);
+  assert.match(sw,/core\/time\.js\?v=1\.6\.3/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.6\.3/);
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.6\.3/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
