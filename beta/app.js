@@ -422,6 +422,11 @@ async function persistEgdMonth(payload){
   const previous=state.months.find(m=>m.monthKey===payload.month.monthKey);
   if(previous?.complete&&previous.source!=='egd-api')return {saved:false,reason:'kept-xlsx'};
   if(previous?.complete&&payload.month.complete!==true)return {saved:false,reason:'kept-complete'};
+  if(previous?.source==='egd-api'&&previous.complete!==true&&payload.month.complete!==true){
+    const oldUsable=Number(previous.usableCount??state.records.filter(r=>r.monthKey===previous.monthKey&&recordUsable(r)).length),newUsable=Number(payload.month.usableCount||0);
+    const oldLast=Date.parse(previous.lastAvailableAt||''),newLast=Date.parse(payload.month.lastAvailableAt||'');
+    if(newUsable<oldUsable&&(!Number.isFinite(newLast)||!Number.isFinite(oldLast)||newLast<=oldLast))return {saved:false,reason:'kept-better-partial'};
+  }
   await persistImport(payload,!!previous);return {saved:true,reason:payload.month.complete?'complete':'partial'};
 }
 function currentAndPreviousMonthKeys(){
@@ -600,7 +605,8 @@ function estimatedMonthCost(monthKey,rs=null){
 function median(values){
   const a=values.filter(Number.isFinite).slice().sort((x,y)=>x-y);if(!a.length)return null;const m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2;
 }
-function forecastHistoryForMonth(month){return Array.isArray(month?.forecastHistory)?month.forecastHistory.filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x.asOfDate||'')&&(Number.isFinite(Number(x.projectedCost))||Number.isFinite(Number(x.predictedEnergy)))):[]}
+function storedNumber(v){return v===null||v===undefined||v===''?null:(Number.isFinite(Number(v))?Number(v):null)}
+function forecastHistoryForMonth(month){return Array.isArray(month?.forecastHistory)?month.forecastHistory.filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x.asOfDate||'')&&(storedNumber(x.projectedCost)!==null||storedNumber(x.predictedEnergy)!==null)):[]}
 function evaluationForecast(monthKey,history){
   const dates=monthDateKeys(monthKey),days=dates.length;if(!history.length||!days)return null;
   const rows=history.map(x=>{const day=Number(String(x.asOfDate).slice(8,10));return {...x,daysRemaining:Math.max(0,days-day)}}).sort((a,b)=>a.asOfDate.localeCompare(b.asOfDate));
@@ -611,8 +617,8 @@ function historicalEnergyForecastMape(monthKey){
   const idx=monthIndex(monthKey);if(idx===null)return null;const errors=[];
   for(const m of state.months){
     const mi=monthIndex(m.monthKey);if(mi===null||mi>=idx||!monthIsComplete(m.monthKey))continue;
-    const actual=monthBillingEnergy(m.monthKey),snap=evaluationForecast(m.monthKey,forecastHistoryForMonth(m)),pred=Number(snap?.predictedEnergy);
-    if(actual>0&&Number.isFinite(pred))errors.push(Math.abs(pred-actual)/actual*100);
+    const actual=monthBillingEnergy(m.monthKey),snap=evaluationForecast(m.monthKey,forecastHistoryForMonth(m)),pred=storedNumber(snap?.predictedEnergy);
+    if(actual>0&&pred!==null)errors.push(Math.abs(pred-actual)/actual*100);
   }
   return errors.length>=2?median(errors):null;
 }
@@ -622,9 +628,9 @@ function forecastAccuracyRows(){
     if(!monthIsComplete(m.monthKey))continue;
     const history=forecastHistoryForMonth(m);if(!history.length)continue;
     const snap=evaluationForecast(m.monthKey,history);if(!snap)continue;
-    const actualEnergy=monthBillingEnergy(m.monthKey),predictedEnergy=Number(snap.predictedEnergy),energyErrorPct=actualEnergy>0&&Number.isFinite(predictedEnergy)?(predictedEnergy-actualEnergy)/actualEnergy*100:null;
-    const invoice=monthInvoice(m.monthKey),predicted=Number(snap.projectedCost),hasCost=invoice!==null&&Number.isFinite(predicted),error=hasCost?predicted-invoice:null,errorPct=hasCost&&invoice>0?error/invoice*100:null;
-    const low=Number(snap.lowProjectedCost),high=Number(snap.highProjectedCost),inside=hasCost&&Number.isFinite(low)&&Number.isFinite(high)?invoice>=low&&invoice<=high:null;
+    const actualEnergy=monthBillingEnergy(m.monthKey),predictedEnergy=storedNumber(snap.predictedEnergy),energyErrorPct=actualEnergy>0&&predictedEnergy!==null?(predictedEnergy-actualEnergy)/actualEnergy*100:null;
+    const invoice=monthInvoice(m.monthKey),predicted=storedNumber(snap.projectedCost),hasCost=invoice!==null&&predicted!==null,error=hasCost?predicted-invoice:null,errorPct=hasCost&&invoice>0?error/invoice*100:null;
+    const low=storedNumber(snap.lowProjectedCost),high=storedNumber(snap.highProjectedCost),inside=hasCost&&low!==null&&high!==null?invoice>=low&&invoice<=high:null;
     if(energyErrorPct===null&&!hasCost)continue;
     rows.push({monthKey:m.monthKey,invoice,predicted,error,errorPct,inside,actualEnergy,predictedEnergy,energyErrorPct,daysRemaining:snap.daysRemaining,asOfDate:snap.asOfDate,low,high});
   }
@@ -1103,7 +1109,9 @@ async function renderMonths(){
     if(partial){
       estimateHtml=estimate&&Number.isFinite(estimate.cost)
         ?`<div class="month-estimate"><strong>Odhad dosud: ≈ ${fmt.format(estimate.cost)} Kč</strong><span class="estimate-rate">Predikce faktury: ≈ <strong>${fmt.format(estimate.projectedCost)} Kč</strong> · scénářové rozpětí <strong>${fmt.format(estimate.lowProjectedCost)}–${fmt.format(estimate.highProjectedCost)} Kč</strong></span><span class="estimate-rate">Spotřeba měsíce ≈ ${fmt3.format(estimate.predictedEnergy)} kWh · tempo ${fmt3.format(estimate.paceEnergy)} kWh · chybějící uzavřené dny ${estimate.incompleteClosedDays||0}</span><span class="estimate-rate">Cena: fixní část ≈ ${fmt.format(estimate.fixed)} Kč/měs. + ${fmt.format(estimate.variableRate)} Kč/kWh · stabilita ${Math.round(estimate.confidence*100)} % · cenový základ ${estimate.count}/3 měsíců${estimate.months.length?' ('+estimate.months.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span><span class="estimate-rate">Spotřební základ: ${estimate.energyMonths?.length||0} měsíců${estimate.energyMonths?.length?' ('+estimate.energyMonths.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}</span></div>`
-        :`<div class="month-estimate"><strong>Odhad nákladů zatím nelze určit</strong><span class="estimate-rate">Je potřeba alespoň jedna kompletní faktura se spotřebou v předchozích třech měsících.</span></div>`;
+        :estimate&&Number.isFinite(estimate.predictedEnergy)&&estimate.energyMonths?.length
+          ?`<div class="month-estimate"><strong>Predikce spotřeby: ≈ ${fmt3.format(estimate.predictedEnergy)} kWh</strong><span class="estimate-rate">Scénářové rozpětí ${fmt3.format(estimate.lowEnergy)}–${fmt3.format(estimate.highEnergy)} kWh · tempo ${fmt3.format(estimate.paceEnergy)} kWh · chybějící uzavřené dny ${estimate.incompleteClosedDays||0}</span><span class="estimate-rate">Spotřební základ: ${estimate.energyMonths.length} měsíců${estimate.energyMonths.length?' ('+estimate.energyMonths.map(k=>k.slice(5,7)+'/'+k.slice(2,4)).join(', ')+')':''}. Náklady zatím nelze odhadnout, protože chybí použitelná historie faktur.</span></div>`
+          :`<div class="month-estimate"><strong>Predikci zatím nelze určit</strong><span class="estimate-rate">Je potřeba alespoň jeden kompletní předchozí měsíc spotřeby; pro odhad nákladů navíc historie faktur.</span></div>`;
     }
     return `<div class="month-row ${enabled?'':'month-disabled'}">
       <div class="month-main">
@@ -1115,7 +1123,7 @@ async function renderMonths(){
           <span class="effective-price">${effective===null?(invoice!==null&&kwh===0?'0 kWh · cenu/kWh nelze určit':'Cena/kWh —'):`Efektivně <strong>${fmt.format(effective)} Kč/kWh</strong>`}</span>
         </div>
         ${estimateHtml}
-        <div class="finance-note">${partial?'Fakturu doplníš po uzavření měsíce. Odhad používá dynamický model fixní + variabilní složky a predikci konečné spotřeby; nikam se neukládá a průběžně se přepočítává.':'Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.'}</div>
+        <div class="finance-note">${partial?'Fakturu doplníš po uzavření měsíce. Predikce spotřeby je nezávislá na fakturách; denní snapshot forecastu se ukládá pouze lokálně pro následné vyhodnocení přesnosti.':'Celková částka faktury. Efektivní cena = faktura ÷ spotřeba DCC1.'}</div>
       </div>
       <div class="month-actions">
         <label class="month-toggle" title="${enabled?'Vypnout měsíc':'Zapnout měsíc'}">
