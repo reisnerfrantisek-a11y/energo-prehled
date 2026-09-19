@@ -327,11 +327,20 @@ async function saveEgdSelections(){
   state.egd.profile=$('#egdProfileSelect').value||state.egd.profile;
   await saveEgdConfig();
 }
+function latestEgdAvailability(){
+  const dates=state.months.filter(m=>m.source==='egd-api'&&m.lastAvailableAt).map(m=>m.lastAvailableAt).sort();
+  return dates.at(-1)||null;
+}
+function pragueDayKeyFromMs(ms){
+  if(!Number.isFinite(ms))return '';
+  const p=pragueParts(ms);return `${p.year}-${String(p.month).padStart(2,'0')}-${String(p.day).padStart(2,'0')}`;
+}
 function renderEgdPanel(){
-  const hasCreds=!!(state.egd.clientId&&state.egd.clientSecret),hasSelection=!!(state.egd.ean&&state.egd.profile);
+  const hasCreds=!!(state.egd.clientId&&state.egd.clientSecret),hasSelection=!!(state.egd.ean&&state.egd.profile),hasProxy=!!state.egd.proxyUrl;
   $('#egdClientId').value=state.egd.clientId||'';
   $('#egdClientSecret').value=state.egd.clientSecret||'';
   $('#egdProxyUrl').value=state.egd.proxyUrl||'';
+  $('#egdAutoSync').checked=state.egd.autoSync===true;
   $('#egdConfig').classList.toggle('hidden',!state.egd.oms.length);
   $('#egdSyncBtn').classList.toggle('hidden',!(hasCreds&&hasSelection));
   $('#egdDisconnectBtn').classList.toggle('hidden',!hasCreds);
@@ -341,9 +350,14 @@ function renderEgdPanel(){
     const electric=state.egd.profiles.filter(p=>String(p.komodita||'').toUpperCase()==='ELEKTRINA');
     profSel.innerHTML=electric.map(p=>`<option value="${escapeHtml(p.kod)}" ${p.kod===state.egd.profile?'selected':''}>${escapeHtml(p.nazev||p.kod)} · ${escapeHtml(p.kod)}</option>`).join('');
   }
-  if(state.egd.verified)setEgdUiState('ok','Připojeno',state.egd.lastSync?`Poslední synchronizace: ${new Date(state.egd.lastSync).toLocaleString('cs-CZ')}`:'Připojení ověřeno. Data lze synchronizovat.');
+  const lastAvailable=latestEgdAvailability(),lastSync=state.egd.lastSync;
+  if(lastSync){
+    const bits=[`Poslední synchronizace: ${new Date(lastSync).toLocaleString('cs-CZ')}`];
+    if(lastAvailable)bits.push(`data do: ${new Date(lastAvailable).toLocaleString('cs-CZ')}`);
+    setEgdUiState('ok','Připojeno',bits.join(' · '));
+  }else if(state.egd.verified)setEgdUiState('ok','Připojeno','Připojení ověřeno. Data lze synchronizovat.');
   else if(state.egd.lastError)setEgdUiState('error','Chyba připojení',state.egd.lastError);
-  else if(hasCreds)setEgdUiState('warn','Připraveno',state.egd.proxyUrl?'Proxy je nastavena. Ověř připojení nebo spusť synchronizaci.':'Chybí Proxy URL. Přímé spojení může prohlížeč zablokovat kvůli CORS.');
+  else if(hasCreds)setEgdUiState('warn','Připraveno',hasProxy?'Proxy je nastavena. Ověř připojení nebo spusť synchronizaci.':'Chybí Proxy URL. Přímé spojení může prohlížeč zablokovat kvůli CORS.');
   else setEgdUiState('','Nepřipojeno','Po ověření připojení aplikace načte dostupná odběrná místa a profily.');
 }
 function apiValueToKw(value,units,intervalMinutes=15){
@@ -398,7 +412,7 @@ function currentAndPreviousMonthKeys(){
   const p=pragueParts(Date.now()),idx=monthIndex(`${p.year}-${String(p.month).padStart(2,'0')}`);
   return [monthKeyFromIndex(idx-1),monthKeyFromIndex(idx)];
 }
-async function syncEgdData(){
+async function syncEgdData({silent=false}={}){
   await saveEgdSelections();
   if(!state.egd.clientId||!state.egd.clientSecret||!state.egd.ean||!state.egd.profile)throw new Error('Nejdřív ověř EG.D připojení a vyber odběrné místo a profil.');
   const localEans=[...new Set(state.records.map(r=>r.ean).filter(Boolean))];
@@ -407,15 +421,22 @@ async function syncEgdData(){
   try{
     const token=state.egd.proxyUrl?null:await egdToken(),results=[];
     for(const key of currentAndPreviousMonthKeys()){
-      showToast(`EG.D: načítám ${monthLabel(key)}…`);
+      if(!silent)showToast(`EG.D: načítám ${monthLabel(key)}…`);
       const payload=await fetchEgdMonth(token,key),saved=await persistEgdMonth(payload);results.push({key,payload,saved});
     }
     state.egd.lastSync=new Date().toISOString();state.egd.verified=true;state.egd.lastError=null;await saveEgdConfig();
     state.resetExportRange=true;await reload();
     const saved=results.filter(x=>x.saved.saved).length,noData=results.filter(x=>!x.payload).length,last=results.map(x=>x.payload?.month?.lastAvailableAt).filter(Boolean).sort().at(-1);
     setEgdUiState('ok','Připojeno',`Synchronizováno ${saved} měsíců${noData?' · bez dat: '+noData:''}${last?' · poslední hodnota '+new Date(last).toLocaleString('cs-CZ'):''}`);
-    showToast('EG.D data byla synchronizována');
+    if(!silent)showToast('EG.D data byla synchronizována');
   }catch(e){state.egd.lastError=e.message;setEgdUiState('error','Chyba synchronizace',e.message);throw e}
+}
+async function maybeAutoSyncEgd(){
+  if(state.egd.autoSync!==true||!state.egd.clientId||!state.egd.clientSecret||!state.egd.proxyUrl||!state.egd.ean||!state.egd.profile)return;
+  if(typeof navigator!=='undefined'&&navigator.onLine===false)return;
+  const today=pragueDayKeyFromMs(Date.now()),last=state.egd.lastSync?pragueDayKeyFromMs(Date.parse(state.egd.lastSync)):'';
+  if(last&&last===today)return;
+  try{await syncEgdData({silent:true})}catch(e){console.error('Automatická EG.D synchronizace selhala',e)}
 }
 
 // ---------- Analytics ----------
@@ -969,6 +990,7 @@ function bind(){
     await saveEgdConfig();renderEgdPanel();
   };
   $('#egdProfileSelect').onchange=()=>saveEgdSelections().catch(console.error);
+  $('#egdAutoSync').onchange=async e=>{state.egd.autoSync=e.target.checked;await saveEgdConfig();showToast(state.egd.autoSync?'Automatická synchronizace zapnuta':'Automatická synchronizace vypnuta')};
   $('#forceUpdateBtn').onclick=forceUpdateApp;
   $('#appVersionText').textContent=APP_VERSION;
   $('#backupDataBtn').onclick=()=>backupLocalData().catch(e=>alert('Zálohu se nepodařilo vytvořit: '+e.message));
@@ -985,5 +1007,5 @@ function bind(){
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
   }
-  try{db=await openDB();await loadEgdSettings();bind();await reload()}catch(e){console.error(e);alert('Aplikaci se nepodařilo inicializovat: '+e.message)}
+  try{db=await openDB();await loadEgdSettings();bind();await reload();await maybeAutoSyncEgd()}catch(e){console.error(e);alert('Aplikaci se nepodařilo inicializovat: '+e.message)}
 })();
