@@ -107,7 +107,7 @@ test('candidate parser picks the complete layout over a broken extraction',()=>{
     {name:'broken',text:broken},
     {name:'layout-rows',text:sample}
   ],{fileName:'invoice.pdf'});
-  assert.equal(r.extractionStrategy,'layout-rows');
+  assert.equal(r.extractionStrategy,'composite');
   assert.equal(r.canSave,true);
   assert.equal(r.invoiceMonthKey,'2026-08');
   assert.equal(r.finance.metering.consumptionKwh,12);
