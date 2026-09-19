@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.1';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -750,6 +750,21 @@ function chartValue(v,unit=''){
   if(unit==='kWh')return `${fmt3.format(v)} kWh`;
   return fmt.format(v);
 }
+function attachChartTooltip(el,data,{w=700,left=64,right=14,htmlForPoint=null}={}){
+  if(!el||!Array.isArray(data)||!data.length)return;
+  const svg=el.querySelector('svg');if(!svg)return;
+  const tip=document.createElement('div');tip.className='chart-tooltip';el.appendChild(tip);
+  const show=ev=>{
+    if(!Number.isFinite(ev.clientX))return;
+    const rect=svg.getBoundingClientRect(),local=((ev.clientX-rect.left)/Math.max(1,rect.width))*w,ratio=clamp((local-left)/Math.max(1,w-left-right),0,1);
+    const i=clamp(Math.round(ratio*(data.length-1)),0,data.length-1),d=data[i],host=el.getBoundingClientRect();
+    tip.innerHTML=htmlForPoint?htmlForPoint(d,i):`<strong>${escapeHtml(d.label||'')}</strong><span>${escapeHtml(String(d.value??''))}</span>`;
+    tip.style.left=`${clamp(ev.clientX-host.left,54,Math.max(54,host.width-54))}px`;tip.classList.add('show');
+  };
+  svg.addEventListener('pointerdown',show);
+  svg.addEventListener('pointermove',ev=>{if(ev.pointerType==='mouse'||tip.classList.contains('show'))show(ev)});
+  svg.addEventListener('pointerleave',ev=>{if(ev.pointerType==='mouse')tip.classList.remove('show')});
+}
 function lineChart(el,data,{hero=false,unit='kWh'}={}){
   if(!data.length){el.innerHTML='<div class="chart-empty">Zatím nejsou data</div>';return}
   const w=700,h=hero?200:230,p={l:64,r:14,t:30,b:38},vals=data.map(d=>Number(d.value)||0),axisMax=niceAxisMax(Math.max(...vals,0.001)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4);
@@ -767,6 +782,7 @@ function lineChart(el,data,{hero=false,unit='kWh'}={}){
     ${[...labelIdx].filter(i=>i>=0).map(i=>`<circle cx="${x(i)}" cy="${y(vals[i])}" r="3.5" fill="${hero?'#fff':'var(--accent)'}"><title>${escapeHtml(data[i].label)}: ${escapeHtml(chartValue(vals[i],unit))}</title></circle><text class="chart-value-label" x="${x(i)}" y="${Math.max(11,y(vals[i])-8)}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" fill="${text}">${escapeHtml(chartValue(vals[i],unit).replace(' '+unit,''))}</text>`).join('')}
     ${xlabels.map(d=>{const i=data.indexOf(d);return `<text class="chart-x-label" x="${x(i)}" y="${h-8}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" fill="${text}">${escapeHtml(d.label)}</text>`}).join('')}
   </svg>`;
+  attachChartTooltip(el,data,{w,left:p.l,right:p.r,htmlForPoint:d=>`<strong>${escapeHtml(d.label)}</strong><span>${escapeHtml(chartValue(Number(d.value)||0,unit))}</span>`});
 }
 function forecastBandChart(el,data){
   if(!data?.length){el.innerHTML='<div class="chart-empty">Forecast zatím není k dispozici</div>';return}
@@ -787,6 +803,9 @@ function forecastBandChart(el,data){
     ${labels.map(d=>{const i=data.indexOf(d);return `<text class="chart-x-label" x="${x(i)}" y="${h-10}" text-anchor="${i===0?'start':i===data.length-1?'end':'middle'}" fill="var(--muted)">${escapeHtml(d.label)}</text>`}).join('')}
     <circle cx="${x(data.length-1)}" cy="${y(data.at(-1).central)}" r="4" fill="var(--accent)"><title>Střední predikce: ${escapeHtml(fmt.format(data.at(-1).central))} Kč</title></circle>
   </svg>`;
+  attachChartTooltip(el,data,{w,left:p.l,right:p.r,htmlForPoint:d=>Number.isFinite(d.actual)
+    ?`<strong>${escapeHtml(d.label)}</strong><span>Skutečnost ${escapeHtml(fmt.format(d.actual))} Kč</span>`
+    :`<strong>${escapeHtml(d.label)}</strong><span>Střední ${escapeHtml(fmt.format(d.central))} Kč</span><span>Rozpětí ${escapeHtml(fmt.format(d.low))}–${escapeHtml(fmt.format(d.high))} Kč</span>`});
 }
 function barChart(el,data,{unit='kWh',showValues=true}={}){
   if(!data.length){el.innerHTML='<div class="chart-empty">Zatím nejsou data</div>';return}
@@ -796,6 +815,7 @@ function barChart(el,data,{unit='kWh',showValues=true}={}){
     ${ticks.map(t=>`<line x1="${p.l}" x2="${w-p.r}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-width="1"/><text class="chart-y-label" x="${p.l-7}" y="${y(t)+3}" text-anchor="end" fill="var(--muted)">${escapeHtml(chartValue(t,unit).replace(' '+unit,''))}</text>`).join('')}
     ${data.map((d,i)=>{const v=vals[i],bh=(v/axisMax)*(h-p.t-p.b),x=p.l+i*slot+(slot-bw)/2,yy=h-p.b-bh,label=showValues&&data.length<=12?`<text class="chart-value-label" x="${x+bw/2}" y="${Math.max(11,yy-6)}" text-anchor="middle" fill="var(--muted)">${escapeHtml(chartValue(v,unit).replace(' '+unit,''))}</text>`:'';return `<rect x="${x}" y="${yy}" width="${bw}" height="${Math.max(1,bh)}" rx="5" fill="var(--accent)" opacity="${.55+.4*(v/axisMax)}"><title>${escapeHtml(d.label)}: ${escapeHtml(chartValue(v,unit))}</title></rect>${label}<text class="chart-x-label" x="${x+bw/2}" y="${h-14}" text-anchor="middle" fill="var(--muted)">${escapeHtml(d.short||d.label)}</text>`}).join('')}
   </svg>`;
+  attachChartTooltip(el,data,{w,left:p.l,right:p.r,htmlForPoint:d=>`<strong>${escapeHtml(d.label)}</strong><span>${escapeHtml(chartValue(Number(d.value)||0,unit))}</span>`});
 }
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 
@@ -806,7 +826,7 @@ function renderForecastPanel(rs){
   const key=keys.at(-1),series=forecastCostSeries(key);if(!series){panel.classList.add('hidden');return}
   panel.classList.remove('hidden');$('#forecastTitle').textContent=`Predikce · ${monthLabel(key)}`;
   const e=series.estimate,rangeWidth=e.highProjectedCost-e.lowProjectedCost;
-  meta.innerHTML=`<span><strong>${fmt.format(e.projectedCost)} Kč</strong> střední odhad</span><span><strong>${fmt.format(e.lowProjectedCost)}–${fmt.format(e.highProjectedCost)} Kč</strong> scénářové rozpětí</span><span>Důvěra cenového modelu <strong>${Math.round(e.confidence*100)} %</strong>${Number.isFinite(rangeWidth)?` · šířka pásma ${fmt.format(rangeWidth)} Kč`:''}</span>`;
+  meta.innerHTML=`<span><strong>${fmt.format(e.cost)} Kč</strong> odhad nákladů dosud</span><span class="scenario-mid"><strong>${fmt.format(e.projectedCost)} Kč</strong> střední scénář</span><span class="scenario-low"><strong>${fmt.format(e.lowProjectedCost)} Kč</strong> nižší scénář</span><span class="scenario-high"><strong>${fmt.format(e.highProjectedCost)} Kč</strong> vyšší scénář</span><span class="forecast-model">Model ceny: <strong>${fmt.format(e.fixed)} Kč/měs. + ${fmt.format(e.variableRate)} Kč/kWh</strong> · důvěra <strong>${Math.round(e.confidence*100)} %</strong>${Number.isFinite(rangeWidth)?` · pásmo ${fmt.format(rangeWidth)} Kč`:''}</span>`;
   forecastBandChart(chart,series.data);
 }
 function renderForecastAccuracy(){
