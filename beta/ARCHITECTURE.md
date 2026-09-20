@@ -10,6 +10,7 @@ Verze 1.7 navazuje na modularizaci 1.6 a zahajuje Akční plán. Výpočetní lo
 - `core/time.js` – Europe/Prague, převod lokálního času na UTC kandidáty a DST 92/96/100 intervalů.
 - `core/forecast.js` – Forecast 2.0 ensemble, kalibrace nejistoty z backtestů, rozdělení měsíční predikce do dní a kumulativní transformace.
 - `core/power.js` – čistá analýza 15minutového DCC1 výkonu, percentilů, výkonových pásem a orientační reference hlavního jističe.
+- `core/report.js` – čistá agregace uzavřeného měsíce pro automatický report a vyhodnocení historického forecast snapshotu.
 - `core/invoice.js` – zpětně kompatibilní finanční schéma, detailní cenové složky a ověřený tarif.
 - `core/invoice-parser.js` – lokální textový parser podporovaných PDF faktur a validační pravidla.
 - `app.js` – orchestrace IndexedDB, EG.D, UI a vykreslování. Čisté výpočty deleguje do core modulů.
@@ -97,3 +98,12 @@ Cíl je pouze vizualizační a vyhodnocovací reference. Nevstupuje do Forecastu
 Analýza v UI používá vždy DCC1 a pouze použitelné intervaly. Počítá maximum, P95, P99, poměr maxima k referenčnímu výkonu a dobu v pásmech 0–25 %, 25–50 %, 50–75 %, 75–90 %, 90–100 % a nad 100 %. Hodnota nad 100 % není interpretována jako důkaz vybavení jističe: EG.D data představují 15minutové průměry činného výkonu a neobsahují okamžitý proud jednotlivých fází, nesymetrii, účiník ani krátkodobé rozběhové proudy.
 
 Nastavení jističe se ukládá do IndexedDB pod klíčem `power-config` a je součástí uživatelské JSON zálohy. Citlivá konfigurace EG.D zůstává od zálohy oddělená.
+
+
+## Automatický měsíční report (1.11.0)
+
+`core/report.js` dostává normalizované použitelné intervaly DCC1, uloženou fakturu, případný měsíční cíl a již existující forecast snapshot. Z těchto vstupů čistě dopočítá skutečnou energii, maximum výkonu, nejsilnější den, efektivní cenu a odchylky forecastu.
+
+Historický forecast se nikdy negeneruje zpětně. `app.js` předává modulu snapshot vybraný funkcí `evaluationForecast()`, tedy přednostně zhruba sedm dní před koncem měsíce. Pokud snapshot neexistuje, report tuto část označí jako nedostupnou. Tím se zachovává auditovatelnost backtestu.
+
+Report je odvozený pohled nad existujícími daty a nevytváří nový persistentní zdroj pravdy. Kopírovaný text se generuje až v UI z aktuálního reportového objektu.
