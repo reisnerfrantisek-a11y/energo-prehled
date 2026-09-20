@@ -52,6 +52,7 @@ test('beta 1.12.0 files are version-aligned and syntactically valid',()=>{
   assert.match(sw,/core\/report\.js\?v=1\.12\.0/);
   assert.match(html,/core\/finance-analytics\.js\?v=1\.12\.0/);
   assert.match(sw,/core\/finance-analytics\.js\?v=1\.12\.0/);
+  assert.ok(html.indexOf('core/invoice.js?v=1.12.0')<html.indexOf('core/finance-analytics.js?v=1.12.0'),'invoice core must load before finance analytics');
   assert.match(sw,/core\/invoice-parser\.js\?v=1\.12\.0/);
 });
 
@@ -539,4 +540,21 @@ test('finance tariff age metadata is carried into live cost estimate without alt
   assert.match(app,/tariffAgeMonths:tariff\.ageMonths/);
   assert.match(app,/tariffStale:tariff\.stale/);
   assert.match(app,/forecastModel:estimate\.forecastModel\|\|'legacy'/);
+});
+
+
+test('finance analytics exposes fixed share and tariff source age in UI',()=>{
+  assert.match(app,/v referenční faktuře fix/);
+  assert.match(app,/tariffAgeMonths/);
+  assert.match(app,/tariffStale/);
+  assert.match(app,/starší tarif/);
+});
+
+test('manual invoice remains effective-price data only, not detailed tariff structure',()=>{
+  const row=FinanceAnalytics.invoiceEconomics({monthKey:'2026-08',energyKwh:100,finance:{invoiceTotal:800,source:'manual'}});
+  assert.equal(row.effectivePrice,8);
+  assert.equal(row.tariffValid,false);
+  assert.equal(row.fixedGross,null);
+  assert.equal(row.variableRate,null);
+  assert.deepEqual(FinanceAnalytics.componentBreakdown({invoiceTotal:800,source:'manual'}),[]);
 });
