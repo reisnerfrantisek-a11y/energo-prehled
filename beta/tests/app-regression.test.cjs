@@ -629,7 +629,7 @@ test('audit 1.13.1 forecasts a month even without historical months',()=>{
   const y=2026,m=9;
   for(let d=1;d<=10;d++)for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){
     const dateKey=`2026-09-${String(d).padStart(2,'0')}`,wd0=new Date(Date.UTC(y,m-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;
-    api.state.records.push({id:`n-${d}-${h}-${mi}`,monthKey:'2026-09',dateKey,sortKey:Date.UTC(y,m-1,d,h,mi),year:y,month:m,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:1/24/4,source:'egd-api',apiStatus:'W'});
+    api.state.records.push({id:`n-${d}-${h}-${mi}`,monthKey:'2026-09',dateKey,sortKey:Date.UTC(y,m-1,d,h,mi),year:y,month:m,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:1/24,source:'egd-api',apiStatus:'W'});
   }
   const e=api.predictMonthEnergy('2026-09',[]);
   assert.equal(e.historyAvailable,false);
