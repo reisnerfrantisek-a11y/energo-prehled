@@ -9,7 +9,7 @@ Společný desetibodový **Akční plán** je aktivní od verze 1.7.0. Jednotliv
 5. **Další kumulativní pohledy a cílové trajektorie spotřeby — nasazeno v 1.9.0.** Uživatel může pro konkrétní měsíc zadat cíl v kWh. Denní i kumulativní graf zobrazují samostatnou cílovou trajektorii a stav proti cíli; cíl nijak nemění Forecast 2.0.
 6. **Datový health score — nasazeno v 1.7.0.** Měsíční přehled hodnotí kompletnost uzavřených intervalů, použitelnost dat a aktuálnost zdroje.
 7. **Detailní finanční model z reálných tarifních složek a PDF faktur — rozšířeno ve 1.12.0 a 1.13.0.** Finance Analytics 2.0 odděluje efektivní cenu, fixní/variabilní tarif a příčiny změny faktury; Finance Forecast 2.0 navíc kalibruje cenovou nejistotu podle stáří/quality tarifního zdroje a ukládá původ cenového forecastu pro budoucí backtest.
-8. **Automatická detekce změny režimu spotřeby a adaptace forecastu — nasazeno v 1.8.0.** Model porovnává posledních 7 dní s robustní historickou základnou, vyžaduje konzistentní změnu napříč dny a při potvrzeném posunu upravuje váhy Forecastu 2.0 směrem k posledním 7/14 dnům.
+8. **Automatická detekce změny režimu spotřeby a adaptace forecastu — nasazeno v 1.8.0, zpřesněno v 1.13.1.** Sedmidenní změna nejprve vzniká jako kandidát; váhy Forecastu 2.0 se mění až po potvrzení delším oknem.
 9. **Analýza výkonových maxim, výkonových pásem a vztahu k hlavnímu jističi — nasazeno v 1.10.0.** Analýza DCC1 počítá maximum, P95/P99, čas v pásmech relativně k nastavenému jističi a orientační výkonovou rezervu.
 10. **Automatický měsíční report — nasazeno v 1.11.0.** Pro každý kompletní aktivní měsíc se skládá report ze skutečné spotřeby, skutečně uloženého historického forecastu, odchylky, faktury, maxima DCC1 a nejsilnějšího dne.
 
@@ -118,3 +118,18 @@ Body 5, 8, 9 a 10 budou pokračovat v následujících verzích, aby se do jedno
 - měsíční cíl spotřeby se v nákladovém forecastu převádí na modelovaný finanční dopad; fixní část tarifu se tím nesprávně nepovažuje za úsporu,
 - do denních forecast snapshotů se ukládá typ cenového modelu, confidence, cenová nejistota, zdrojový tarif a jeho stáří,
 - měsíční report zpětně ukazuje, z jakého finančního modelu tehdejší nákladový forecast vznikl.
+
+
+## Verze 1.13.1 — Model Audit Fixes
+
+- Forecast bez historických měsíců už neinterpretuje dosavadní spotřebu jako odhad celého měsíce; používá aktuální tempo a kompletní dny, pokud jsou k dispozici,
+- chybějící/null komponenta ensemble se nepřevádí na nulovou predikci,
+- dopočet chybějícího intervalu v uzavřeném dni zůstává kladný i tehdy, když naměřená část dne už překročila historický denní baseline,
+- kalibrace predikčního pásma používá pouze srovnatelné Forecast 2.0 snapshoty z horizontu 5–9 dní před koncem měsíce a omezenou poslední historii,
+- běžný měsíční report může nadále zobrazit nejlepší dostupný historický snapshot; tato fallback logika se ale nepoužívá pro kalibraci,
+- denní analytika, části dne a denní anomálie používají pouze kompletní uzavřené dny; nekompletní den se nevydává za skutečnou nulu v chybějící části,
+- režimová změna má nově stav kandidát → potvrzená změna; samotný sedmidenní posun nemění váhy forecastu,
+- u historických PDF faktur se fixní část nákladu alokuje podle času, variabilní podle kWh a případný reziduální rozdíl faktury také podle času,
+- cenová nejistota tarifu počítá stáří tarifu a kvalitu PDF extrakce odděleně, takže věk není penalizován dvakrát,
+- cenová regrese s nulovou confidence má nulovou dynamickou váhu; centrální predikci pak neurčuje model, kterému aplikace současně nevěří,
+- regresní sada obsahuje cílené scénáře pro všechny výše uvedené případy.
