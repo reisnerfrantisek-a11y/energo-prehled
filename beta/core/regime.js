@@ -93,18 +93,19 @@
 
     const minShortMatches=Math.ceil(short.days*.70),directional=short.direction!=='stable'&&short.matching>=minShortMatches;
     const absoluteShift=Math.abs(short.actual-short.expected),meaningful=Number.isFinite(short.changePct)&&Math.abs(short.changePct)>=thresholdPct&&absoluteShift>=absoluteMin*short.days;
-    let status=directional&&meaningful?'changed':'stable';
+    const candidate=directional&&meaningful;
     const longSupports=!!(long&&long.direction===short.direction&&Math.abs(long.changePct||0)>=thresholdPct*.70&&long.consistency>=.60);
+    let status=candidate?(longSupports?'changed':'candidate'):'stable';
 
     const magnitude=Number.isFinite(short.changePct)?clamp((Math.abs(short.changePct)-thresholdPct)/(Math.max(.12,thresholdPct))+0.45,0,1):0;
     const history=clamp(baseline.length/42,0,1),consistency=clamp(short.consistency,0,1),confirmation=longSupports?1:.35;
-    const confidenceScore=status==='changed'?clamp(.30*history+.35*consistency+.20*magnitude+.15*confirmation,0,1):clamp(.50*history+.50*(1-Math.abs(short.changePct||0)/Math.max(thresholdPct,1e-9)),0,1);
+    const confidenceScore=(status==='changed'||status==='candidate')?clamp(.30*history+.35*consistency+.20*magnitude+.15*confirmation,0,1):clamp(.50*history+.50*(1-Math.abs(short.changePct||0)/Math.max(thresholdPct,1e-9)),0,1);
     const confidence=confidenceScore>=.78?'high':confidenceScore>=.55?'medium':'low';
     const strength=status==='changed'?clamp((confidenceScore-.35)/.65,0,1):0;
 
     const dominantPart=partShift(baseline,recent7);
     return {
-      status,direction:status==='changed'?short.direction:'stable',confidence,confidenceScore,strength,
+      status,direction:(status==='changed'||status==='candidate')?short.direction:'stable',confidence,confidenceScore,strength,
       recent:{from:recent7[0]?.dateKey||'',to:recent7.at(-1)?.dateKey||'',days:short.days,changePct:short.changePct,actual:short.actual,expected:short.expected,matchingDays:short.matching,neutralDays:short.neutral,oppositeDays:short.opposite},
       confirmation:long?{from:recent14[0]?.dateKey||'',to:recent14.at(-1)?.dateKey||'',days:long.days,changePct:long.changePct,matchingDays:long.matching,supports:longSupports}:null,
       baseline:{from:baseline[0]?.dateKey||'',to:baseline.at(-1)?.dateKey||'',days:baseline.length,noisePct:noise,thresholdPct},
