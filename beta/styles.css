@@ -200,3 +200,17 @@
 .regime-part strong{font-size:11px;color:var(--text);text-align:right}
 .regime-forecast-impact{margin-top:10px;padding:9px 11px;border-radius:11px;background:color-mix(in srgb,var(--accent) 7%,var(--surface));color:var(--muted);font-size:9px;line-height:1.5}
 .regime-card[data-status="changed"] .regime-forecast-impact{background:color-mix(in srgb,#f0a23a 10%,var(--surface))}
+
+
+/* Energy target trajectory · 1.9.0 */
+.energy-target-row{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:8px;margin-top:10px;padding:9px 10px;border:1px solid rgba(100,211,162,.24);border-radius:12px;background:rgba(100,211,162,.07)}
+.energy-target-field{display:flex;align-items:center;gap:6px;padding:5px 7px;border:1px solid rgba(255,255,255,.12);border-radius:9px;background:rgba(255,255,255,.06)}
+.energy-target-field span{font-size:10px;font-weight:800;color:#c6d2e2;white-space:nowrap}
+.energy-target-field input{width:68px;border:0;outline:0;background:transparent;color:#fff;font-size:12px;font-weight:800;text-align:right}
+.energy-target-field b{font-size:10px;color:#afbdd0}
+.energy-target-clear{border:0;background:transparent;color:#afbdd0;padding:6px 7px;border-radius:8px;font-size:10px;font-weight:800}
+.energy-target-clear:disabled{opacity:.35}
+.energy-target-status{min-width:0;font-size:9px;line-height:1.4;color:#b9c6d6;text-align:right}
+.energy-target-status.target-under{color:#8de0bc}.energy-target-status.target-over{color:#f4bd75}
+.energy-chart-legend i.target{height:2px}
+@media(max-width:520px){.energy-target-row{grid-template-columns:1fr auto}.energy-target-status{grid-column:1/-1;text-align:left}.energy-target-field{justify-content:space-between}.energy-target-field input{flex:1;max-width:90px}}

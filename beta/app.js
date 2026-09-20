@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.8.1';
+const APP_VERSION = '1.9.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -254,7 +254,7 @@ function cancelInvoicePdf(){state.pendingInvoicePdf=null;$('#invoiceReviewModal'
 
 async function persistImport(payload, replace=false){
   const previous=replace?state.months.find(m=>m.monthKey===payload.month.monthKey):null;
-  const monthToSave={...payload.month,enabled:previous?previous.enabled!==false:payload.month.enabled!==false,finance:previous?normalizeFinance(previous.finance):normalizeFinance(payload.month.finance),forecastHistory:Array.isArray(previous?.forecastHistory)?previous.forecastHistory:(Array.isArray(payload.month.forecastHistory)?payload.month.forecastHistory:[])};
+  const monthToSave={...payload.month,enabled:previous?previous.enabled!==false:payload.month.enabled!==false,finance:previous?normalizeFinance(previous.finance):normalizeFinance(payload.month.finance),forecastHistory:Array.isArray(previous?.forecastHistory)?previous.forecastHistory:(Array.isArray(payload.month.forecastHistory)?payload.month.forecastHistory:[]),energyTargetKwh:previous?.energyTargetKwh??payload.month.energyTargetKwh??null};
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'), s=tx.objectStore('intervals'), months=tx.objectStore('months');
     const write=()=>{payload.records.forEach(r=>s.put(r));months.put(monthToSave)};
@@ -1128,11 +1128,13 @@ function prepareEnergyChartSeries(monthKey){
     data=dates.map(d=>{const value=daily.get(d);return {date:d,label:`${d.slice(8,10)}.${d.slice(5,7)}.`,value:Number.isFinite(value)?value:null,actualValue:Number.isFinite(value)?value:null,forecastValue:0,low:Number.isFinite(value)?value:null,high:Number.isFinite(value)?value:null,kind:Number.isFinite(value)?'actual':'missing'}});
   }
   const prev=state.compareMode!=='none'?comparisonMonthEnergySeries(monthKey,data.length,state.compareMode):null;
-  if(state.chartMode==='cumulative'){
+  const cumulative=state.chartMode==='cumulative';
+  if(cumulative){
     data=cumulativeForecastData(data);
     if(prev)prev.values=FORECAST.cumulativeNullable(prev.values);
   }
-  return {data,comparison:prev,live,estimate:forecast?.estimate||null};
+  const target=monthTargetSeries(monthKey,cumulative);
+  return {data,comparison:prev,target,live,estimate:forecast?.estimate||null};
 }
 
 function forecastCostSeries(monthKey){
@@ -1305,6 +1307,54 @@ function dailyCostData(rs){
   return out;
 }
 function monthLabel(k){const [y,m]=String(k).split('-').map(Number);return y&&m?`${MONTH_NAMES[m-1]} ${y}`:'—'}
+
+function parseEnergyTargetInput(raw){
+  const text=String(raw??'').replace(/[\s\u00a0]/g,'').replace(',','.').trim();
+  if(!text)return null;
+  const n=Number(text);
+  if(!Number.isFinite(n)||n<=0||n>1000000)throw new Error('Měsíční cíl musí být kladné číslo v kWh.');
+  return Math.round(n*1000)/1000;
+}
+function monthEnergyTarget(monthKey){
+  const n=Number(monthMeta(monthKey)?.energyTargetKwh);
+  return Number.isFinite(n)&&n>0?n:null;
+}
+async function setMonthEnergyTarget(monthKey,rawValue){
+  const month=monthMeta(monthKey);if(!month)return;
+  const energyTargetKwh=parseEnergyTargetInput(rawValue);
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction('months','readwrite'),store=tx.objectStore('months');
+    store.put({...month,energyTargetKwh});
+    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+  });
+  await reload();
+  showToast(energyTargetKwh===null?`${monthLabel(monthKey)}: cíl odstraněn`:`${monthLabel(monthKey)}: cíl ${fmt3.format(energyTargetKwh)} kWh`);
+}
+function monthTargetSeries(monthKey,cumulative=false){
+  const total=monthEnergyTarget(monthKey);if(total===null)return null;
+  const dates=monthDateKeys(monthKey),weights=dates.map(expectedIntervalsForDate),values=FORECAST.targetTrajectory(total,weights,cumulative);
+  return {monthKey,total,label:`Cíl ${fmt3.format(total)} kWh`,values};
+}
+function targetDeltaLabel(delta){
+  if(!Number.isFinite(delta))return '—';
+  return `${delta>=0?'+':''}${fmt3.format(delta)} kWh`;
+}
+function renderEnergyTargetControl(monthKey,costMode=false){
+  const row=$('#energyTargetRow'),input=$('#energyTargetInput'),clear=$('#energyTargetClear'),status=$('#energyTargetStatus');
+  if(!row||!input||!clear||!status)return;
+  const visible=!costMode&&state.period==='month'&&state.metric==='dcc1'&&!!monthKey&&!!monthMeta(monthKey)&&monthEnabled(monthKey);
+  row.classList.toggle('hidden',!visible);if(!visible)return;
+  const target=monthEnergyTarget(monthKey);input.dataset.monthKey=monthKey;input.value=target===null?'':String(target).replace('.',',');clear.disabled=target===null;
+  if(target===null){status.className='energy-target-status';status.textContent='Nastav měsíční cíl. V grafu se zobrazí referenční trajektorie, která nemění výpočet forecastu.';return}
+  const rs=state.records.filter(r=>r.monthKey===monthKey&&recordUsable(r)),actual=rs.reduce((sum,r)=>sum+billingEnergy(r),0),fraction=calendarFractionForSelected(monthKey,rs),targetToDate=target*fraction,currentDelta=fraction>0?actual-targetToDate:null;
+  const live=monthIsLivePartial(monthKey),estimate=live?predictMonthEnergy(monthKey):null,finalValue=live&&Number.isFinite(estimate?.predictedEnergy)?estimate.predictedEnergy:(monthIsComplete(monthKey)?actual:null),finalDelta=Number.isFinite(finalValue)?finalValue-target:null;
+  const bits=[`Cíl ${fmt3.format(target)} kWh`];
+  if(Number.isFinite(currentDelta)&&live)bits.push(`dosud ${targetDeltaLabel(currentDelta)} proti trajektorii`);
+  if(Number.isFinite(finalDelta))bits.push(`${live?'forecast':'skutečnost'} ${targetDeltaLabel(finalDelta)} proti cíli`);
+  status.className='energy-target-status '+(Number.isFinite(finalDelta)?(finalDelta>0?'target-over':'target-under'):'');
+  status.textContent=bits.join(' · ');
+}
+
 function monthIndex(k){const [y,m]=String(k).split('-').map(Number);return Number.isFinite(y)&&Number.isFinite(m)?y*12+(m-1):null}
 function monthKeyFromIndex(idx){const y=Math.floor(idx/12),m=((idx%12)+12)%12+1;return `${y}-${String(m).padStart(2,'0')}`}
 function latestMonthKey(){return state.months.length?[...state.months].sort((a,b)=>a.monthKey.localeCompare(b.monthKey)).at(-1).monthKey:(state.records.length?sortedRecords().at(-1).monthKey:'')}
@@ -1482,10 +1532,10 @@ function lineChart(el,data,{hero=false,unit='kWh'}={}){
   </svg>`;
   attachChartTooltip(el,data,{w,left:p.l,right:p.r,htmlForPoint:d=>`<strong>${escapeHtml(d.label)}</strong><span>${escapeHtml(chartValue(Number(d.value)||0,unit))}</span>`});
 }
-function energyForecastLineChart(el,data,{comparison=null,cumulative=false,unit='kWh'}={}){
+function energyForecastLineChart(el,data,{comparison=null,target=null,cumulative=false,unit='kWh'}={}){
   if(!data?.length){el.innerHTML='<div class="chart-empty">Zatím nejsou data</div>';return}
-  const w=700,h=210,p={l:64,r:14,t:42,b:38},orange='#f0a23a',blue='#8fc1ff',gray='#8d99aa',text='#afbdd0',grid='rgba(255,255,255,.13)';
-  const mainVals=data.flatMap(d=>[d.value,d.actualValue,d.low,d.high]).filter(Number.isFinite),compareVals=comparison?.values?.filter(Number.isFinite)||[],axisMax=niceAxisMax(Math.max(...mainVals,...compareVals,.001)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4);
+  const w=700,h=210,p={l:64,r:14,t:42,b:38},orange='#f0a23a',blue='#8fc1ff',gray='#8d99aa',targetColor='#64d3a2',text='#afbdd0',grid='rgba(255,255,255,.13)';
+  const mainVals=data.flatMap(d=>[d.value,d.actualValue,d.low,d.high]).filter(Number.isFinite),compareVals=comparison?.values?.filter(Number.isFinite)||[],targetVals=target?.values?.filter(Number.isFinite)||[],axisMax=niceAxisMax(Math.max(...mainVals,...compareVals,...targetVals,.001)),ticks=Array.from({length:5},(_,i)=>axisMax*i/4);
   const x=i=>p.l+(i/(Math.max(1,data.length-1)))*(w-p.l-p.r),y=v=>p.t+(1-v/axisMax)*(h-p.t-p.b);
   const actualValue=d=>Number.isFinite(Number(d?.actualValue))?Number(d.actualValue):(d?.kind==='actual'&&Number.isFinite(Number(d?.value))?Number(d.value):null);
   const predictedValue=d=>Math.max(0,Number(d?.forecastValue)||0);
@@ -1503,11 +1553,13 @@ function energyForecastLineChart(el,data,{comparison=null,cumulative=false,unit=
     bandPolygon=`<polygon points="${upper} ${lower}" fill="${orange}" opacity=".13"/>`;
   }
   const comparisonPts=comparison?.values?.map((v,i)=>Number.isFinite(v)?`${x(i)},${y(v)}`:null).filter(Boolean).join(' ')||'';
+  const targetPts=target?.values?.map((v,i)=>Number.isFinite(v)?`${x(i)},${y(v)}`:null).filter(Boolean).join(' ')||'';
   const xlabels=data.filter((_,i)=>i===0||i===data.length-1||i%Math.ceil(data.length/5)===0);
   const legend=[
     `<span><i style="background:${blue}"></i>skutečnost</span>`,
     forecastStart>=0?`<span><i style="background:${orange}"></i>predikce / dopočet</span>`:'',
     forecastStart>=0?`<span><i class="band" style="background:${orange}"></i>pásmo</span>`:'',
+    targetPts?`<span><i class="dash target" style="background:${targetColor}"></i>${escapeHtml(target.label||'cíl')}</span>`:'',
     comparisonPts?`<span><i class="dash" style="background:${gray}"></i>${escapeHtml(comparison.label)}</span>`:''
   ].filter(Boolean).join('');
   const subject=unit==='Kč'?'náklady':'spotřeba';
@@ -1516,6 +1568,7 @@ function energyForecastLineChart(el,data,{comparison=null,cumulative=false,unit=
     ${ticks.map(t=>`<line x1="${p.l}" x2="${w-p.r}" y1="${y(t)}" y2="${y(t)}" stroke="${grid}" stroke-width="1"/><text class="chart-y-label" x="${p.l-7}" y="${y(t)+3}" text-anchor="end" fill="${text}">${escapeHtml(chartValue(t,unit).replace(' '+unit,''))}</text>`).join('')}
     ${bandPolygon}
     ${comparisonPts?`<polyline points="${comparisonPts}" fill="none" stroke="${gray}" stroke-width="2" opacity=".8" vector-effect="non-scaling-stroke" stroke-dasharray="6 5" stroke-linecap="round" stroke-linejoin="round"/>`:''}
+    ${targetPts?`<polyline points="${targetPts}" fill="none" stroke="${targetColor}" stroke-width="2.2" opacity=".95" vector-effect="non-scaling-stroke" stroke-dasharray="3 4" stroke-linecap="round" stroke-linejoin="round"/>`:''}
     ${actualPts?`<polyline points="${actualPts}" fill="none" stroke="${blue}" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>`:''}
     ${forecastPts?`<polyline points="${forecastPts}" fill="none" stroke="${orange}" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>`:''}
     ${mixedSegments}
@@ -1531,6 +1584,7 @@ function energyForecastLineChart(el,data,{comparison=null,cumulative=false,unit=
       else lines.push(`<span>Predikce ${escapeHtml(chartValue(d.value,unit))}</span>`);
     }else if(!Number.isFinite(a)&&Number.isFinite(d.value))lines.push(`<span>${escapeHtml(chartValue(d.value,unit))}</span>`);
     if(f>1e-9&&Number.isFinite(d.low)&&Number.isFinite(d.high))lines.push(`<span>Pásmo ${escapeHtml(chartValue(d.low,unit))}–${escapeHtml(chartValue(d.high,unit))}</span>`);
+    const tv=target?.values?.[i];if(Number.isFinite(tv))lines.push(`<span>${cumulative?'Cílová trajektorie':'Denní cíl'} ${escapeHtml(chartValue(tv,unit))}</span>`);
     const pv=comparison?.values?.[i];if(Number.isFinite(pv))lines.push(`<span>${escapeHtml(comparison.label)} ${escapeHtml(chartValue(pv,unit))}</span>`);
     return lines.join('');
   }});
@@ -1651,6 +1705,8 @@ function renderOverview(){
   $$('.chart-mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.chartMode===state.chartMode));
   const compareSelect=$('#compareMode');if(compareSelect)compareSelect.value=state.compareMode;
   $$('.metric-btn').forEach(b=>b.classList.toggle('active',b.dataset.metric===state.metric));
+  const overviewMonthKey=state.period==='month'?expectedCurrentMonthKeys()[0]:null;
+  renderEnergyTargetControl(overviewMonthKey,costMode);
 
   const activeMonths=state.months.filter(m=>m.enabled!==false).sort((a,b)=>a.monthKey.localeCompare(b.monthKey));
   if(costMode){
@@ -1758,7 +1814,7 @@ function renderOverview(){
   }
   const daily=group(rs,r=>r.dateKey),dailyData=[...daily].sort().map(([k,v])=>({label:k.slice(8,10)+'.'+k.slice(5,7)+'.',value:v}));
   const monthKey=state.period==='month'?expectedCurrentMonthKeys()[0]:null,monthSeries=monthKey?prepareEnergyChartSeries(monthKey):null;
-  if(monthSeries)energyForecastLineChart($('#mainChart'),monthSeries.data,{comparison:monthSeries.comparison,cumulative:state.chartMode==='cumulative',unit:'kWh'});
+  if(monthSeries)energyForecastLineChart($('#mainChart'),monthSeries.data,{comparison:monthSeries.comparison,target:monthSeries.target,cumulative:state.chartMode==='cumulative',unit:'kWh'});
   else lineChart($('#mainChart'),dailyData,{hero:true,unit:'kWh'});
   $('#avgDayLabel').textContent='Denní průměr';$('#avgDay').textContent=fmt3.format(total/Math.max(1,daily.size));$('#avgDayUnit').textContent='kWh / den';
   const peak=rs.reduce((a,b)=>val(b)>val(a)?b:a,rs[0]);$('#maxPowerLabel').textContent='Maximum';$('#maxPower').textContent=fmt.format(val(peak));$('#maxPowerSub').textContent=`kW · ${peak.displayTimestamp}`;
@@ -1991,6 +2047,7 @@ async function restoreLocalData(file){
   if(payload.records.some(r=>!r||typeof r.id!=='string'||typeof r.monthKey!=='string'||typeof r.dateKey!=='string'||!Number.isFinite(Number(r.dcc0))||!Number.isFinite(Number(r.dcc1))))throw new Error('Záloha obsahuje neplatné intervalové záznamy.');
   if(payload.months.some(m=>!m||typeof m.monthKey!=='string'||!Number.isFinite(Number(m.count))))throw new Error('Záloha obsahuje neplatná metadata měsíců.');
   if(payload.months.some(m=>{const v=m?.finance?.invoiceTotal;return v!==undefined&&v!==null&&(!Number.isFinite(Number(v))||Number(v)<0)}))throw new Error('Záloha obsahuje neplatnou cenu faktury.');
+  if(payload.months.some(m=>{const v=m?.energyTargetKwh;return v!==undefined&&v!==null&&(!Number.isFinite(Number(v))||Number(v)<=0)}))throw new Error('Záloha obsahuje neplatný měsíční cíl spotřeby.');
   if(!confirm(`Obnovit zálohu z ${payload.createdAt?new Date(payload.createdAt).toLocaleString('cs-CZ'):'neznámého data'}? Současná lokální data budou nahrazena.`))return;
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'),s=tx.objectStore('intervals'),m=tx.objectStore('months');
@@ -2055,6 +2112,8 @@ function bind(){
   $$('.dashboard-mode-btn').forEach(b=>b.onclick=()=>{state.dashboardMode=b.dataset.dashboardMode;localStorage.setItem(DASHBOARD_MODE_KEY,state.dashboardMode);renderOverview()});
   $$('.chart-mode-btn').forEach(b=>b.onclick=()=>{state.chartMode=b.dataset.chartMode==='cumulative'?'cumulative':'daily';localStorage.setItem(CHART_MODE_KEY,state.chartMode);renderOverview()});
   $('#compareMode').onchange=e=>{state.compareMode=['previous','yearAgo'].includes(e.target.value)?e.target.value:'none';localStorage.setItem(COMPARE_MODE_KEY,state.compareMode);localStorage.setItem(COMPARE_PREVIOUS_KEY,state.compareMode==='previous'?'1':'0');renderOverview()};
+  $('#energyTargetInput').onchange=e=>{const key=e.target.dataset.monthKey;if(key)setMonthEnergyTarget(key,e.target.value).catch(err=>{console.error(err);alert('Cíl se nepodařilo uložit: '+err.message);renderOverview()})};
+  $('#energyTargetClear').onclick=()=>{const key=$('#energyTargetInput').dataset.monthKey;if(key)setMonthEnergyTarget(key,'').catch(err=>alert('Cíl se nepodařilo odstranit: '+err.message))};
   $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});
   $('#dayTypeSelect').onchange=renderAnalysis;
   $$('[data-analysis-mode]').forEach(b=>b.onclick=()=>{state.analysisMode=b.dataset.analysisMode==='raw'?'raw':'robust';localStorage.setItem(ANALYSIS_MODE_KEY,state.analysisMode);renderAnalysis()});

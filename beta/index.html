@@ -7,16 +7,16 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Energo Beta" />
-  <title>Energo Přehled Beta 1.8.1</title>
+  <title>Energo Přehled Beta 1.9.0</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="../icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=1.8.1" />
+  <link rel="stylesheet" href="styles.css?v=1.9.0" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
       <div>
-        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.8.1</div>
+        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.9.0</div>
         <h1 id="screenTitle">Přehled</h1>
       </div>
       <button class="icon-btn" id="importBtn" aria-label="Importovat report">＋</button>
@@ -89,6 +89,11 @@
                   <option value="yearAgo">stejný měsíc loni</option>
                 </select>
               </label>
+            </div>
+            <div class="energy-target-row hidden" id="energyTargetRow">
+              <label class="energy-target-field"><span>Cíl měsíce</span><input id="energyTargetInput" inputmode="decimal" aria-label="Měsíční cíl spotřeby" placeholder="např. 45" /><b>kWh</b></label>
+              <button class="energy-target-clear" id="energyTargetClear" type="button">Odstranit</button>
+              <div class="energy-target-status" id="energyTargetStatus">Nastav měsíční cíl.</div>
             </div>
             <div id="mainChart" class="chart-box"></div>
           </section>
@@ -327,12 +332,12 @@
       </div>
     </div>
   </div>
-  <script src="core/model.js?v=1.8.1" defer></script>
-  <script src="core/time.js?v=1.8.1" defer></script>
-  <script src="core/forecast.js?v=1.8.1" defer></script>
-  <script src="core/regime.js?v=1.8.1" defer></script>
-  <script src="core/invoice.js?v=1.8.1" defer></script>
-  <script src="core/invoice-parser.js?v=1.8.1" defer></script>
-  <script src="app.js?v=1.8.1" defer></script>
+  <script src="core/model.js?v=1.9.0" defer></script>
+  <script src="core/time.js?v=1.9.0" defer></script>
+  <script src="core/forecast.js?v=1.9.0" defer></script>
+  <script src="core/regime.js?v=1.9.0" defer></script>
+  <script src="core/invoice.js?v=1.9.0" defer></script>
+  <script src="core/invoice-parser.js?v=1.9.0" defer></script>
+  <script src="app.js?v=1.9.0" defer></script>
 </body>
 </html>

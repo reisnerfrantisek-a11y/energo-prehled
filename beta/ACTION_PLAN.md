@@ -6,7 +6,7 @@ Společný desetibodový **Akční plán** je aktivní od verze 1.7.0. Jednotliv
 2. **Predikční model spotřeby 2.0 — nasazeno v 1.7.0.** Ensemble kombinuje historii stejného dne v týdnu, posledních 7 dní, posledních 14 dní a průběžné tempo. Váhy se mění podle množství dostupných dat.
 3. **Kalibrované predikční pásmo — nasazeno v 1.7.0.** Dokud není dost backtestů, používá se konzervativní heuristika. Od dvou historických chyb se pásmo začne kalibrovat; s dalšími měsíci roste váha empirické chyby.
 4. **Rozšířený srovnávací režim — nasazeno v 1.7.0, rozšířeno v 1.7.1.** Hlavní měsíční graf umí bez srovnání, minulý měsíc a stejný měsíc předchozího roku; od 1.7.1 stejné možnosti fungují i v nákladové části včetně oranžové predikce.
-5. **Další kumulativní pohledy a cílové trajektorie spotřeby — částečně.** Denní/kumulativní režim je hotový; uživatelský cíl a trajektorie k cíli budou další etapa.
+5. **Další kumulativní pohledy a cílové trajektorie spotřeby — nasazeno v 1.9.0.** Uživatel může pro konkrétní měsíc zadat cíl v kWh. Denní i kumulativní graf zobrazují samostatnou cílovou trajektorii a stav proti cíli; cíl nijak nemění Forecast 2.0.
 6. **Datový health score — nasazeno v 1.7.0.** Měsíční přehled hodnotí kompletnost uzavřených intervalů, použitelnost dat a aktuálnost zdroje.
 7. **Detailní finanční model z reálných tarifních složek a PDF faktur — probíhá od 1.6.1.** Lokální E.ON PDF parser, rozpad ceny a ověřený tarif mají přednost před regresí.
 8. **Automatická detekce změny režimu spotřeby a adaptace forecastu — nasazeno v 1.8.0.** Model porovnává posledních 7 dní s robustní historickou základnou, vyžaduje konzistentní změnu napříč dny a při potvrzeném posunu upravuje váhy Forecastu 2.0 směrem k posledním 7/14 dnům.
@@ -59,3 +59,13 @@ Body 5, 8, 9 a 10 budou pokračovat v následujících verzích, aby se do jedno
 - smíšený den odděluje skutečně naměřenou a dopočtenou část pro korektní modro/oranžové vykreslení,
 - hranice posledních dostupných EG.D dat se určuje pouze z použitelných stavů; nepoužitelný pozdější záznam již neposouvá aktuálnost ani forecast,
 - regresní testy pokrývají chybějící interval v uzavřeném dni i nepoužitelný EG.D záznam za poslední validní hodnotou.
+
+
+## Verze 1.9.0 — měsíční cíl spotřeby
+
+- pro každý měsíc lze nastavit samostatný cíl spotřeby v kWh,
+- cíl je součástí metadat měsíce, takže přežije EG.D synchronizaci, nahrazení importu i JSON zálohu,
+- denní graf zobrazuje cílové denní tempo; rozdělení respektuje délku dne včetně DST 92/96/100 intervalů,
+- kumulativní graf zobrazuje cílovou trajektorii končící přesně na zadané hodnotě,
+- stav cíle ukazuje průběžnou odchylku vůči trajektorii a u živého měsíce také odchylku Forecastu 2.0 od cíle,
+- cílová hodnota je pouze referenční; není vstupem predikčního modelu a neovlivňuje predikci.

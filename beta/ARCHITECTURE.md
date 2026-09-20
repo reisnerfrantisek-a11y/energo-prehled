@@ -78,3 +78,12 @@ Forecast 2.0 nepřebírá detekovaný poměr mechanicky. Síla změny pouze pře
 Forecast denního průběhu pracuje odděleně s naměřenou a predikovanou složkou. Zbývající měsíční predikce se rozděluje nejen do budoucích dnů, ale i do konkrétních chybějících částí uzavřených dnů a případného neuzavřeného dne. Součet denních hodnot proto zůstává přesně svázaný s centrálním měsíčním forecastem, zatímco graf může skutečnost vykreslit modře a dopočet oranžově.
 
 `lastAvailableAt` reprezentuje poslední použitelnou EG.D hodnotu, nikoliv pouze nejnovější raw záznam. Nepoužitelné kvalitativní stavy tak neovlivňují freshness, snapshot boundary ani začátek nákladové predikce.
+
+
+## Měsíční cíl a cílová trajektorie (1.9.0)
+
+Měsíční cíl spotřeby se ukládá jako `energyTargetKwh` přímo v metadatech konkrétního měsíce. Při opakovaném importu nebo EG.D synchronizaci se hodnota zachová stejně jako finanční data a historie forecastu. Proto je automaticky součástí běžné JSON zálohy, aniž by bylo nutné zálohovat citlivé EG.D přihlašovací údaje.
+
+Čistá funkce `Forecast.targetTrajectory(total, weights, cumulative)` rozděluje cíl podle očekávaného počtu 15minutových intervalů jednotlivých dnů. Běžný den má váhu 96, jarní DST den 92 a podzimní 100. Denní trajektorie tak respektuje skutečnou délku dne a kumulativní varianta vždy končí přesně na měsíčním cíli.
+
+Cíl je pouze vizualizační a vyhodnocovací reference. Nevstupuje do Forecastu 2.0, nemění ensemble váhy ani predikční pásmo.
