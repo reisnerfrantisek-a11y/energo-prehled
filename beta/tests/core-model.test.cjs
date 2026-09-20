@@ -126,3 +126,15 @@ test('target trajectory preserves total and cumulative monotonicity',()=>{
   assert.ok(cumulative.every((v,i,a)=>i===0||v>=a[i-1]));
   assert.deepEqual(Forecast.targetTrajectory(null,weights),[]);
 });
+
+
+test('Forecast ensemble ignores null components instead of converting them to zero',()=>{
+  const r=Forecast.ensembleMonthForecast({
+    weekdayProjection:null,recent7Projection:30,recent14Projection:null,paceProjection:32,
+    observedDays:7,historyMonths:0,fallback:31
+  });
+  assert.equal(r.model,'ensemble-v2');
+  assert.equal(Object.hasOwn(r.weights,'weekday'),false);
+  assert.equal(Object.hasOwn(r.weights,'recent14'),false);
+  assert.ok(r.value>=30&&r.value<=32);
+});
