@@ -1814,7 +1814,17 @@ function renderForecastAccuracy(){
   if(!data.count){summary.innerHTML='<strong>Zatím bez vyhodnoceného měsíce.</strong><span>Od verze 1.5.2 ukládáme predikci spotřeby nezávisle na fakturách. Po uzavření měsíce se zde automaticky vyhodnotí rolling backtest.</span>';list.innerHTML='';return}
   const bits=[];if(Number.isFinite(data.energyMape))bits.push(`spotřeba MAPE ${fmt.format(data.energyMape)} %`);if(Number.isFinite(data.mape))bits.push(`náklady MAPE ${fmt.format(data.mape)} %`);if(Number.isFinite(data.rangeHit))bits.push(`skutečnost v cenovém pásmu ${fmt.format(data.rangeHit)} %`);
   summary.innerHTML=`<strong>${escapeHtml(bits.join(' · ')||'Vyhodnocené predikce')}</strong><span>${data.count} ${data.count===1?'vyhodnocený měsíc':'vyhodnocené měsíce'} · používá se predikce uložená přibližně 7 dní před koncem, pokud existuje</span>`;
-  list.innerHTML=data.rows.map(r=>{const energy=Number.isFinite(r.energyErrorPct)?`<small class="${r.energyErrorPct>0?'accuracy-over':'accuracy-under'}">spotřeba ${fmt3.format(r.predictedEnergy)} → ${fmt3.format(r.actualEnergy)} kWh · ${r.energyErrorPct>=0?'+':''}${fmt.format(r.energyErrorPct)} %</small>`:'';const cost=Number.isFinite(r.errorPct)?`<small class="${r.errorPct>0?'accuracy-over':'accuracy-under'}">náklady ${fmt.format(r.predicted)} → ${fmt.format(r.invoice)} Kč · ${r.errorPct>=0?'+':''}${fmt.format(r.errorPct)} %${r.inside===null?'':r.inside?' · v pásmu':' · mimo pásmo'}</small>`:'';return `<div class="accuracy-row"><div><strong>${escapeHtml(monthLabel(r.monthKey))}</strong><small>predikce z ${escapeHtml(formatDateKey(r.asOfDate))} · ${r.daysRemaining} d do konce</small></div><div class="accuracy-values">${energy}${cost}</div></div>`}).join('');
+  list.innerHTML=data.rows.map(r=>{
+    const energy=Number.isFinite(r.energyErrorPct)?`<small class="${r.energyErrorPct>0?'accuracy-over':'accuracy-under'}">spotřeba ${fmt3.format(r.predictedEnergy)} → ${fmt3.format(r.actualEnergy)} kWh · ${r.energyErrorPct>=0?'+':''}${fmt.format(r.energyErrorPct)} %</small>`:'';
+    const cost=Number.isFinite(r.errorPct)?`<small class="${r.errorPct>0?'accuracy-over':'accuracy-under'}">náklady ${fmt.format(r.predicted)} → ${fmt.format(r.invoice)} Kč · ${r.errorPct>=0?'+':''}${fmt.format(r.errorPct)} %${r.inside===null?'':r.inside?' · v pásmu':' · mimo pásmo'}</small>`:'';
+    let provenance='';
+    if(r.costModelType){
+      const source=r.costModelType==='tariff'?(r.tariffSourceMonth?`tarif ${monthLabel(r.tariffSourceMonth)}`:'ověřený tarif'):r.costModelType==='regression'?'statistická regrese':r.costModelType;
+      const age=Number.isFinite(r.tariffAgeMonths)?` · stáří ${r.tariffAgeMonths} měs.`:'',unc=Number.isFinite(r.priceUncertainty)?` · cenová nejistota ±${fmt.format(r.priceUncertainty*100)} %`:'';
+      provenance=`<small class="accuracy-model">cenový model: ${escapeHtml(source+age+unc)}</small>`;
+    }
+    return `<div class="accuracy-row"><div><strong>${escapeHtml(monthLabel(r.monthKey))}</strong><small>predikce z ${escapeHtml(formatDateKey(r.asOfDate))} · ${r.daysRemaining} d do konce</small></div><div class="accuracy-values">${energy}${cost}${provenance}</div></div>`;
+  }).join('');
 }
 function renderAnomalies(rs){
   const summary=$('#anomalySummary'),list=$('#anomalyList');if(!summary||!list)return;
