@@ -1097,7 +1097,6 @@ function forecastEnergyDailySeries(monthKey){
   });
   return {data,estimate,lastObserved};
 }
-function comparisonMonthEnergySeries
 function comparisonMonthEnergySeries(monthKey,targetLength,mode='previous'){
   const idx=monthIndex(monthKey);if(idx===null)return null;
   const shift=mode==='yearAgo'?12:1,targetKey=monthKeyFromIndex(idx-shift),meta=monthMeta(targetKey);
@@ -1167,7 +1166,6 @@ function forecastCostSeries(monthKey){
   }
   return {data,estimate,lastObserved,actualCost};
 }
-function comparisonMonthCostSeries
 function comparisonMonthCostSeries(monthKey,targetLength,mode='previous'){
   const idx=monthIndex(monthKey);if(idx===null)return null;
   const shift=mode==='yearAgo'?12:1,targetKey=monthKeyFromIndex(idx-shift),meta=monthMeta(targetKey),invoice=monthInvoice(targetKey);
