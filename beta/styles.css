@@ -191,6 +191,7 @@
 .regime-card{position:relative;overflow:hidden}
 .regime-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--border)}
 .regime-card[data-status="changed"]::before{background:#f0a23a}
+.regime-card[data-status="candidate"]::before{background:#d8b34a}
 .regime-card[data-status="stable"]::before{background:#2fb36d}
 .regime-card[data-status="insufficient"]::before{background:var(--muted)}
 .regime-detail{margin:9px 0 0;color:var(--muted);font-size:10px;line-height:1.5}

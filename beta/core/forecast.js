@@ -48,8 +48,10 @@
     return cumulative?cumulativeNullable(values):values;
   }
 
+  function optionalNumber(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null}
+
   function weightedMean(items){
-    const rows=(Array.isArray(items)?items:[]).filter(x=>Number.isFinite(Number(x?.value))&&Number(x?.weight)>0);
+    const rows=(Array.isArray(items)?items:[]).map(x=>({...x,value:optionalNumber(x?.value)})).filter(x=>x.value!==null&&Number(x?.weight)>0);
     const w=rows.reduce((a,x)=>a+Number(x.weight),0);if(!(w>0))return null;
     return rows.reduce((a,x)=>a+Number(x.value)*Number(x.weight),0)/w;
   }
@@ -57,11 +59,11 @@
   function ensembleMonthForecast(input={}){
     const observedDays=Math.max(0,Number(input.observedDays)||0),historyMonths=Math.max(0,Number(input.historyMonths)||0);
     const components=[
-      {key:'weekday',label:'historie dnů v týdnu',value:Number(input.weekdayProjection),weight:.40*Math.min(1,historyMonths/3)},
-      {key:'recent7',label:'posledních 7 dní',value:Number(input.recent7Projection),weight:.25*Math.min(1,observedDays/7)},
-      {key:'recent14',label:'posledních 14 dní',value:Number(input.recent14Projection),weight:.20*Math.min(1,observedDays/14)},
-      {key:'pace',label:'průběžné tempo',value:Number(input.paceProjection),weight:.15*Math.min(1,observedDays/5)}
-    ].filter(x=>Number.isFinite(x.value)&&x.value>=0&&x.weight>0);
+      {key:'weekday',label:'historie dnů v týdnu',value:optionalNumber(input.weekdayProjection),weight:.40*Math.min(1,historyMonths/3)},
+      {key:'recent7',label:'posledních 7 dní',value:optionalNumber(input.recent7Projection),weight:.25*Math.min(1,observedDays/7)},
+      {key:'recent14',label:'posledních 14 dní',value:optionalNumber(input.recent14Projection),weight:.20*Math.min(1,observedDays/14)},
+      {key:'pace',label:'průběžné tempo',value:optionalNumber(input.paceProjection),weight:.15*Math.min(1,observedDays/5)}
+    ].filter(x=>x.value!==null&&x.value>=0&&x.weight>0);
     if(!components.length){
       const fallback=Number(input.fallback);
       return {value:Number.isFinite(fallback)?Math.max(0,fallback):0,components:[],weights:{},model:'fallback'};

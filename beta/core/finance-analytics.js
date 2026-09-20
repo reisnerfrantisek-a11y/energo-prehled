@@ -82,7 +82,7 @@
   }
 
   function priceUncertainty(input={}){
-    const modelType=String(input.modelType||'regression'),age=finite(input.ageMonths),confidence=finite(input.confidence);
+    const modelType=String(input.modelType||'regression'),age=finite(input.ageMonths),confidence=finite(input.extractionConfidence??input.confidence);
     if(modelType==='tariff'){
       const agePart=age===null||age<=1?0:age===2?.015:age===3?.03:age<=6?.05:.08;
       const qualityPart=confidence===null?0:Math.max(0,Math.min(.08,(1-Math.max(0,Math.min(1,confidence)))*.08));
