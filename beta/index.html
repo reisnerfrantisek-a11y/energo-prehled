@@ -7,16 +7,16 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Energo Beta" />
-  <title>Energo Přehled Beta 1.10.0</title>
+  <title>Energo Přehled Beta 1.11.0</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="../icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=1.10.0" />
+  <link rel="stylesheet" href="styles.css?v=1.11.0" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
       <div>
-        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.10.0</div>
+        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.11.0</div>
         <h1 id="screenTitle">Přehled</h1>
       </div>
       <button class="icon-btn" id="importBtn" aria-label="Importovat report">＋</button>
@@ -208,6 +208,18 @@
           <div id="anomalyList" class="insight-list"></div>
         </section>
 
+        <section class="panel monthly-report-card" id="monthlyReportCard">
+          <div class="panel-head between">
+            <div><h2>Měsíční report</h2><p>Automatický souhrn uzavřeného měsíce včetně historického forecastu</p></div>
+            <div class="analysis-panel-controls">
+              <select id="monthlyReportMonth" class="select" aria-label="Měsíc reportu"></select>
+              <button id="monthlyReportCopy" class="secondary-btn compact-btn" type="button">Kopírovat</button>
+            </div>
+          </div>
+          <div id="monthlyReportGrid" class="monthly-report-grid"></div>
+          <div id="monthlyReportForecast" class="monthly-report-forecast"></div>
+        </section>
+
         <section class="panel intelligence-panel">
           <div class="panel-head"><div><h2>Přesnost predikcí</h2><p>Skutečná faktura proti forecastu, který byl uložen ještě před uzavřením měsíce</p></div></div>
           <div id="forecastAccuracySummary" class="insight-summary"></div>
@@ -352,13 +364,14 @@
       </div>
     </div>
   </div>
-  <script src="core/model.js?v=1.10.0" defer></script>
-  <script src="core/time.js?v=1.10.0" defer></script>
-  <script src="core/forecast.js?v=1.10.0" defer></script>
-  <script src="core/regime.js?v=1.10.0" defer></script>
-  <script src="core/power.js?v=1.10.0" defer></script>
-  <script src="core/invoice.js?v=1.10.0" defer></script>
-  <script src="core/invoice-parser.js?v=1.10.0" defer></script>
-  <script src="app.js?v=1.10.0" defer></script>
+  <script src="core/model.js?v=1.11.0" defer></script>
+  <script src="core/time.js?v=1.11.0" defer></script>
+  <script src="core/forecast.js?v=1.11.0" defer></script>
+  <script src="core/regime.js?v=1.11.0" defer></script>
+  <script src="core/power.js?v=1.11.0" defer></script>
+  <script src="core/report.js?v=1.11.0" defer></script>
+  <script src="core/invoice.js?v=1.11.0" defer></script>
+  <script src="core/invoice-parser.js?v=1.11.0" defer></script>
+  <script src="app.js?v=1.11.0" defer></script>
 </body>
 </html>
