@@ -9,6 +9,7 @@ const Forecast=require('../core/forecast.js');
 const Regime=require('../core/regime.js');
 const Power=require('../core/power.js');
 const Report=require('../core/report.js');
+const FinanceAnalytics=require('../core/finance-analytics.js');
 const InvoiceParser=require('../core/invoice-parser.js');
 
 const root=path.resolve(__dirname,'..');
@@ -22,34 +23,36 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput,monthlyReportForMonth,completeReportMonthKeys
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput,monthlyReportForMonth,completeReportMonthKeys,latestValidatedTariff,financeAnalyticsInputs
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
-  const window={EnergoCore:Core,EnergoInvoice:Invoice,EnergoTime:Time,EnergoForecast:Forecast,EnergoRegime:Regime,EnergoPower:Power,EnergoReport:Report,EnergoInvoiceParser:InvoiceParser,scrollTo:()=>{}};
+  const window={EnergoCore:Core,EnergoInvoice:Invoice,EnergoTime:Time,EnergoForecast:Forecast,EnergoRegime:Regime,EnergoPower:Power,EnergoReport:Report,EnergoFinanceAnalytics:FinanceAnalytics,EnergoInvoiceParser:InvoiceParser,scrollTo:()=>{}};
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.11.0 files are version-aligned and syntactically valid',()=>{
+test('beta 1.12.0 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.11\.0'/);
-  assert.match(html,/BETA 1\.11\.0/);
-  assert.match(sw,/v1\.11\.0/);
-  assert.match(html,/core\/model\.js\?v=1\.11\.0/);
-  assert.match(html,/core\/time\.js\?v=1\.11\.0/);
-  assert.match(html,/core\/forecast\.js\?v=1\.11\.0/);
-  assert.match(html,/core\/regime\.js\?v=1\.11\.0/);
-  assert.match(html,/core\/invoice\.js\?v=1\.11\.0/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.11\.0/);
-  assert.match(sw,/core\/model\.js\?v=1\.11\.0/);
-  assert.match(sw,/core\/time\.js\?v=1\.11\.0/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.11\.0/);
-  assert.match(sw,/core\/regime\.js\?v=1\.11\.0/);
-  assert.match(html,/core\/power\.js\?v=1\.11\.0/);
-  assert.match(sw,/core\/power\.js\?v=1\.11\.0/);
-  assert.match(html,/core\/report\.js\?v=1\.11\.0/);
-  assert.match(sw,/core\/report\.js\?v=1\.11\.0/);
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.11\.0/);
+  assert.match(app,/APP_VERSION = '1\.12\.0'/);
+  assert.match(html,/BETA 1\.12\.0/);
+  assert.match(sw,/v1\.12\.0/);
+  assert.match(html,/core\/model\.js\?v=1\.12\.0/);
+  assert.match(html,/core\/time\.js\?v=1\.12\.0/);
+  assert.match(html,/core\/forecast\.js\?v=1\.12\.0/);
+  assert.match(html,/core\/regime\.js\?v=1\.12\.0/);
+  assert.match(html,/core\/invoice\.js\?v=1\.12\.0/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.12\.0/);
+  assert.match(sw,/core\/model\.js\?v=1\.12\.0/);
+  assert.match(sw,/core\/time\.js\?v=1\.12\.0/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.12\.0/);
+  assert.match(sw,/core\/regime\.js\?v=1\.12\.0/);
+  assert.match(html,/core\/power\.js\?v=1\.12\.0/);
+  assert.match(sw,/core\/power\.js\?v=1\.12\.0/);
+  assert.match(html,/core\/report\.js\?v=1\.12\.0/);
+  assert.match(sw,/core\/report\.js\?v=1\.12\.0/);
+  assert.match(html,/core\/finance-analytics\.js\?v=1\.12\.0/);
+  assert.match(sw,/core\/finance-analytics\.js\?v=1\.12\.0/);
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.12\.0/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -485,4 +488,55 @@ test('monthly report is available for complete enabled months and keeps old snap
   assert.equal(report.invoiceTotal,100);
   assert.equal(report.peakKw,4);
   assert.equal(api.state.months[0].forecastHistory[0].predictedEnergy,12);
+});
+
+
+test('Finance Analytics 2.0 panel is wired and uses only complete invoiced months',()=>{
+  assert.match(html,/id="financeAnalyticsCard"/);
+  assert.match(html,/id="financeAnalyticsSummary"/);
+  assert.match(html,/id="financeTariffStatus"/);
+  assert.match(html,/id="financeBreakdown"/);
+  assert.match(html,/id="financeBridge"/);
+  assert.match(app,/FINANCE_ANALYTICS\.financeSummary/);
+  assert.match(app,/FINANCE_ANALYTICS\.componentBreakdown/);
+  const api=loadApp();
+  api.state.months=[
+    {monthKey:'2026-07',enabled:true,complete:true,finance:{invoiceTotal:500}},
+    {monthKey:'2026-08',enabled:true,complete:false,finance:{invoiceTotal:600}},
+    {monthKey:'2026-09',enabled:false,complete:true,finance:{invoiceTotal:700}}
+  ];
+  api.state.records=[
+    {monthKey:'2026-07',dateKey:'2026-07-01',dcc1:4,intervalMinutes:15},
+    {monthKey:'2026-08',dateKey:'2026-08-01',dcc1:4,intervalMinutes:15},
+    {monthKey:'2026-09',dateKey:'2026-09-01',dcc1:4,intervalMinutes:15}
+  ];
+  const rows=api.financeAnalyticsInputs();
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].monthKey,'2026-07');
+});
+
+test('validated PDF tariff freshness decays confidence but manual invoices never become tariffs',()=>{
+  const api=loadApp();
+  api.state.months=[
+    {monthKey:'2026-05',enabled:true,complete:true,finance:{invoiceTotal:500,source:'manual'}},
+    {monthKey:'2026-06',enabled:true,complete:true,finance:{
+      invoiceTotal:600,source:'pdf',
+      metering:{ean:'859000000000000001'},
+      tariff:{validated:true,fixedGrossPerMonth:300,variableGrossPerKwh:6,sourceMonthKey:'2026-06'},
+      invoiceMeta:{extractionConfidence:1}
+    }}
+  ];
+  api.state.records=[{monthKey:'2026-09',ean:'859000000000000001',dateKey:'2026-09-01',dcc1:1,intervalMinutes:15}];
+  const tariff=api.latestValidatedTariff('2026-09');
+  assert.equal(tariff.sourceMonthKey,'2026-06');
+  assert.equal(tariff.ageMonths,3);
+  assert.equal(tariff.stale,true);
+  assert.ok(Math.abs(tariff.confidence-.75)<1e-12);
+});
+
+test('finance tariff age metadata is carried into live cost estimate without altering energy forecast model',()=>{
+  const api=loadApp();
+  assert.match(app,/tariffAgeMonths:tariff\.ageMonths/);
+  assert.match(app,/tariffStale:tariff\.stale/);
+  assert.match(app,/forecastModel:estimate\.forecastModel\|\|'legacy'/);
 });
