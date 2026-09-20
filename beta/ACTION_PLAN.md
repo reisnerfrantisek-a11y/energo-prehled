@@ -50,3 +50,12 @@ Body 5, 8, 9 a 10 budou pokračovat v následujících verzích, aby se do jedno
 - jednorázová špička sama o sobě režim nemění,
 - při potvrzené změně Forecast 2.0 automaticky snižuje váhu starší historie a zvyšuje váhu posledních 7/14 dní a aktuálního tempa,
 - informace o adaptaci režimu se ukládá i do denních snapshotů forecastu.
+
+
+## Verze 1.8.1 — audit výpočtů
+
+- denní forecast rozděluje chybějící energii zpět do konkrétních uzavřených dnů s mezerami místo jejího přesunu do budoucích dnů,
+- stejná oprava platí pro denní nákladový forecast,
+- smíšený den odděluje skutečně naměřenou a dopočtenou část pro korektní modro/oranžové vykreslení,
+- hranice posledních dostupných EG.D dat se určuje pouze z použitelných stavů; nepoužitelný pozdější záznam již neposouvá aktuálnost ani forecast,
+- regresní testy pokrývají chybějící interval v uzavřeném dni i nepoužitelný EG.D záznam za poslední validní hodnotou.

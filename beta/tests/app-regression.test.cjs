@@ -20,7 +20,7 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
@@ -28,22 +28,22 @@ return {
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.8.0 files are version-aligned and syntactically valid',()=>{
+test('beta 1.8.1 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.8\.0'/);
-  assert.match(html,/BETA 1\.8\.0/);
-  assert.match(sw,/v1\.8\.0/);
-  assert.match(html,/core\/model\.js\?v=1\.8\.0/);
-  assert.match(html,/core\/time\.js\?v=1\.8\.0/);
-  assert.match(html,/core\/forecast\.js\?v=1\.8\.0/);
-  assert.match(html,/core\/regime\.js\?v=1\.8\.0/);
-  assert.match(html,/core\/invoice\.js\?v=1\.8\.0/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.8\.0/);
-  assert.match(sw,/core\/model\.js\?v=1\.8\.0/);
-  assert.match(sw,/core\/time\.js\?v=1\.8\.0/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.8\.0/);
-  assert.match(sw,/core\/regime\.js\?v=1\.8\.0/);
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.8\.0/);
+  assert.match(app,/APP_VERSION = '1\.8\.1'/);
+  assert.match(html,/BETA 1\.8\.1/);
+  assert.match(sw,/v1\.8\.1/);
+  assert.match(html,/core\/model\.js\?v=1\.8\.1/);
+  assert.match(html,/core\/time\.js\?v=1\.8\.1/);
+  assert.match(html,/core\/forecast\.js\?v=1\.8\.1/);
+  assert.match(html,/core\/regime\.js\?v=1\.8\.1/);
+  assert.match(html,/core\/invoice\.js\?v=1\.8\.1/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.8\.1/);
+  assert.match(sw,/core\/model\.js\?v=1\.8\.1/);
+  assert.match(sw,/core\/time\.js\?v=1\.8\.1/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.8\.1/);
+  assert.match(sw,/core\/regime\.js\?v=1\.8\.1/);
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.8\.1/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -360,4 +360,47 @@ test('persistent recent shift changes Forecast 2.0 weighting',()=>{
   assert.equal(regime.status,'changed');
   assert.equal(regime.direction,'higher');
   assert.ok(regime.strength>0);
+});
+
+
+test('audit 1.8.1 keeps closed-day gap prediction on the affected day',()=>{
+  const api=loadApp();api.state.months=[];api.state.records=[];
+  function addMonth(key,complete,source,days,dayKwh,invoice){
+    const [y,m]=key.split('-').map(Number);
+    api.state.months.push({monthKey:key,enabled:true,complete,source,lastAvailableAt:source==='egd-api'?'2026-09-18T21:45:00Z':null,finance:{invoiceTotal:invoice}});
+    for(let d=1;d<=days;d++)for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){
+      const dateKey=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`,wd0=new Date(Date.UTC(y,m-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;
+      api.state.records.push({id:`${key}-${d}-${h}-${mi}`,ean:'859000000000000001',monthKey:key,dateKey,sortKey:Date.UTC(y,m-1,d,h,mi),year:y,month:m,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:dayKwh/6,source,apiStatus:source==='egd-api'?'W':undefined});
+    }
+  }
+  addMonth('2026-03',true,'xlsx',31,.5,330);addMonth('2026-04',true,'xlsx',30,.6,335);addMonth('2026-05',true,'xlsx',31,.7,340);
+  addMonth('2026-06',true,'xlsx',30,.8,350);addMonth('2026-07',true,'xlsx',31,.9,365);addMonth('2026-08',true,'xlsx',31,1.0,380);
+  addMonth('2026-09',false,'egd-api',18,1.1,null);
+  api.state.records=api.state.records.filter(r=>r.id!=='2026-09-10-12-0');
+  api.state.compareMode='none';api.state.chartMode='daily';
+  const energy=api.prepareEnergyChartSeries('2026-09'),gap=energy.data.find(d=>d.date==='2026-09-10');
+  assert.equal(gap.kind,'mixed');assert.ok(gap.forecastValue>0);assert.ok(gap.actualValue<gap.value);
+  assert.ok(Math.abs(energy.data.reduce((s,d)=>s+(Number(d.value)||0),0)-energy.estimate.predictedEnergy)<1e-8);
+  const cost=api.prepareCostChartSeries('2026-09'),costGap=cost.data.find(d=>d.date==='2026-09-10');
+  assert.equal(costGap.kind,'mixed');assert.ok(costGap.forecastValue>0);assert.ok(costGap.actualValue<costGap.value);
+  assert.ok(Math.abs(cost.data.reduce((s,d)=>s+(Number(d.value)||0),0)-cost.estimate.projectedCost)<1e-6);
+});
+
+test('audit 1.8.1 ignores unusable EG.D tail for availability and cost forecast boundary',()=>{
+  const api=loadApp();api.state.months=[];api.state.records=[];
+  const key='2026-09',y=2026,m=9;
+  for(const hist of ['2026-07','2026-08']){
+    const [hy,hm]=hist.split('-').map(Number);api.state.months.push({monthKey:hist,enabled:true,complete:true,source:'xlsx',finance:{invoiceTotal:380}});
+    for(let d=1;d<=31;d++)for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){const dateKey=`${hy}-${String(hm).padStart(2,'0')}-${String(d).padStart(2,'0')}`,wd0=new Date(Date.UTC(hy,hm-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;api.state.records.push({id:`${hist}-${d}-${h}-${mi}`,monthKey:hist,dateKey,sortKey:Date.UTC(hy,hm-1,d,h,mi),year:hy,month:hm,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:1/6,source:'xlsx'})}
+  }
+  api.state.months.push({monthKey:key,enabled:true,complete:false,source:'egd-api',finance:{invoiceTotal:null}});
+  for(let d=1;d<=18;d++)for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){const dateKey=`2026-09-${String(d).padStart(2,'0')}`,wd0=new Date(Date.UTC(y,m-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;api.state.records.push({id:`live-${d}-${h}-${mi}`,monthKey:key,dateKey,sortKey:Date.UTC(y,m-1,d,h,mi),year:y,month:m,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:1.2/6,source:'egd-api',apiStatus:'W'})}
+  const invalidMs=Date.UTC(2026,8,19,8,0),invalid={id:'invalid-tail',monthKey:key,dateKey:'2026-09-19',sourceTimestamp:'19.09.2026 10:00:00',sortKey:invalidMs,year:2026,month:9,day:19,hour:10,minute:0,weekday:5,intervalMinutes:15,dcc1:99,source:'egd-api',apiStatus:'IU014',apiUnits:'kWh'};
+  api.state.records.push(invalid);
+  const live=api.state.records.filter(r=>r.monthKey===key),payload=api.buildEgdMonthPayload(key,live);
+  const lastUsable=Math.max(...live.filter(r=>api.egdStatusInfo(r.apiStatus).usable).map(r=>r.sortKey));
+  assert.equal(payload.month.lastAvailableAt,new Date(lastUsable).toISOString());
+  api.state.compareMode='none';api.state.chartMode='daily';
+  const cost=api.prepareCostChartSeries(key);
+  assert.equal(cost.data.find(d=>d.date==='2026-09-19').kind,'forecast');
 });

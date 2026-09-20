@@ -71,3 +71,10 @@ Robustní výpočet pouze omezuje vliv odlehlých hodnot ve výsledném průměr
 - vrátí sílu adaptace 0–1.
 
 Forecast 2.0 nepřebírá detekovaný poměr mechanicky. Síla změny pouze převažuje existující ensemble: starší weekday baseline dostává nižší váhu a recent 7/14 dní vyšší. Tím se předchází tomu, aby jediný extrém okamžitě přepsal měsíční predikci.
+
+
+## Forecast gap allocation (1.8.1)
+
+Forecast denního průběhu pracuje odděleně s naměřenou a predikovanou složkou. Zbývající měsíční predikce se rozděluje nejen do budoucích dnů, ale i do konkrétních chybějících částí uzavřených dnů a případného neuzavřeného dne. Součet denních hodnot proto zůstává přesně svázaný s centrálním měsíčním forecastem, zatímco graf může skutečnost vykreslit modře a dopočet oranžově.
+
+`lastAvailableAt` reprezentuje poslední použitelnou EG.D hodnotu, nikoliv pouze nejnovější raw záznam. Nepoužitelné kvalitativní stavy tak neovlivňují freshness, snapshot boundary ani začátek nákladové predikce.
