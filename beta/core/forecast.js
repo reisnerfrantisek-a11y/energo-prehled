@@ -41,6 +41,13 @@
     });
   }
 
+  function targetTrajectory(total,weights,cumulative=false){
+    const target=Number(total),ws=(Array.isArray(weights)?weights:[]).map(v=>Math.max(0,Number(v)||0));
+    if(!Number.isFinite(target)||target<=0||!ws.length)return [];
+    const values=Core.distributeTotal(target,ws);
+    return cumulative?cumulativeNullable(values):values;
+  }
+
   function weightedMean(items){
     const rows=(Array.isArray(items)?items:[]).filter(x=>Number.isFinite(Number(x?.value))&&Number(x?.weight)>0);
     const w=rows.reduce((a,x)=>a+Number(x.weight),0);if(!(w>0))return null;
@@ -91,5 +98,5 @@
     };
   }
 
-  return {allocateRemaining,toCumulative,cumulativeNullable,weightedMean,ensembleMonthForecast,quantile,calibrateUncertainty,forecastBandTotals};
+  return {allocateRemaining,toCumulative,cumulativeNullable,targetTrajectory,weightedMean,ensembleMonthForecast,quantile,calibrateUncertainty,forecastBandTotals};
 });
