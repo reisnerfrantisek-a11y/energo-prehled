@@ -9,6 +9,7 @@ Verze 1.7 navazuje na modularizaci 1.6 a zahajuje Akční plán. Výpočetní lo
 - `core/model.js` – čisté matematické funkce, převody kW/kWh, kalendářní pomocné funkce a cenová regrese.
 - `core/time.js` – Europe/Prague, převod lokálního času na UTC kandidáty a DST 92/96/100 intervalů.
 - `core/forecast.js` – Forecast 2.0 ensemble, kalibrace nejistoty z backtestů, rozdělení měsíční predikce do dní a kumulativní transformace.
+- `core/power.js` – čistá analýza 15minutového DCC1 výkonu, percentilů, výkonových pásem a orientační reference hlavního jističe.
 - `core/invoice.js` – zpětně kompatibilní finanční schéma, detailní cenové složky a ověřený tarif.
 - `core/invoice-parser.js` – lokální textový parser podporovaných PDF faktur a validační pravidla.
 - `app.js` – orchestrace IndexedDB, EG.D, UI a vykreslování. Čisté výpočty deleguje do core modulů.
@@ -87,3 +88,12 @@ Měsíční cíl spotřeby se ukládá jako `energyTargetKwh` přímo v metadate
 Čistá funkce `Forecast.targetTrajectory(total, weights, cumulative)` rozděluje cíl podle očekávaného počtu 15minutových intervalů jednotlivých dnů. Běžný den má váhu 96, jarní DST den 92 a podzimní 100. Denní trajektorie tak respektuje skutečnou délku dne a kumulativní varianta vždy končí přesně na měsíčním cíli.
 
 Cíl je pouze vizualizační a vyhodnocovací reference. Nevstupuje do Forecastu 2.0, nemění ensemble váhy ani predikční pásmo.
+
+
+## Výkonová analýza a hlavní jistič (1.10.0)
+
+`core/power.js` zůstává čistý a nezávislý na DOM. Pro zadaný počet fází a jmenovitý proud vypočítá orientační referenční činný výkon: pro jednofázovou soustavu `230 × I`, pro třífázovou `√3 × 400 × I`. Jde o referenci při přibližně jednotkovém účiníku a u třífázové varianty za předpokladu rozumně vyváženého zatížení.
+
+Analýza v UI používá vždy DCC1 a pouze použitelné intervaly. Počítá maximum, P95, P99, poměr maxima k referenčnímu výkonu a dobu v pásmech 0–25 %, 25–50 %, 50–75 %, 75–90 %, 90–100 % a nad 100 %. Hodnota nad 100 % není interpretována jako důkaz vybavení jističe: EG.D data představují 15minutové průměry činného výkonu a neobsahují okamžitý proud jednotlivých fází, nesymetrii, účiník ani krátkodobé rozběhové proudy.
+
+Nastavení jističe se ukládá do IndexedDB pod klíčem `power-config` a je součástí uživatelské JSON zálohy. Citlivá konfigurace EG.D zůstává od zálohy oddělená.

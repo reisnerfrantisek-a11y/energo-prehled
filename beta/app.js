@@ -1,7 +1,7 @@
 'use strict';
 
-const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice,TIME=window.EnergoTime,FORECAST=window.EnergoForecast,REGIME=window.EnergoRegime,INVOICE_PARSER=window.EnergoInvoiceParser;
-if(!CORE||!INVOICE||!TIME||!FORECAST||!REGIME||!INVOICE_PARSER)throw new Error('Chybí core moduly Energo aplikace.');
+const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice,TIME=window.EnergoTime,FORECAST=window.EnergoForecast,REGIME=window.EnergoRegime,POWER=window.EnergoPower,INVOICE_PARSER=window.EnergoInvoiceParser;
+if(!CORE||!INVOICE||!TIME||!FORECAST||!REGIME||!POWER||!INVOICE_PARSER)throw new Error('Chybí core moduly Energo aplikace.');
 
 const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.10.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -46,6 +46,7 @@ let state = {
   dashboardMode: localStorage.getItem(DASHBOARD_MODE_KEY)==='cost'?'cost':'energy',
   chartMode: localStorage.getItem(CHART_MODE_KEY)==='cumulative'?'cumulative':'daily',
   compareMode: ['none','previous','yearAgo'].includes(savedCompareMode)?savedCompareMode:(localStorage.getItem(COMPARE_PREVIOUS_KEY)==='1'?'previous':'none'),
+  power: {phases:3,amperes:null},
   egd: {clientId:'',clientSecret:'',proxyUrl:'',ean:'',profile:'',oms:[],profiles:[],statuses:[],lastSync:null,lastError:null,autoSync:false},
   pendingImport: null,
   pendingInvoicePdf: null,
@@ -80,6 +81,21 @@ async function deleteSetting(key){return new Promise((res,rej)=>{const tx=db.tra
 async function loadEgdSettings(){
   const cfg=await getSetting('egd-config');
   if(cfg&&typeof cfg==='object')state.egd={...state.egd,...cfg,oms:[],profiles:[],statuses:[],lastError:null};
+}
+async function loadPowerSettings(){
+  const cfg=await getSetting('power-config');
+  state.power=POWER.normalizeBreakerConfig(cfg||state.power);
+}
+async function savePowerSettings(){
+  const phases=Number($('#breakerPhases')?.value)===1?1:3,amperes=$('#breakerAmperes')?.value;
+  state.power=POWER.normalizeBreakerConfig({phases,amperes});
+  await setSetting('power-config',state.power);renderPowerSettings();renderAnalysis();showToast('Nastavení hlavního jističe uloženo');
+}
+function renderPowerSettings(){
+  const phases=$('#breakerPhases'),amps=$('#breakerAmperes'),preview=$('#breakerCapacityPreview');if(!phases||!amps||!preview)return;
+  phases.value=String(state.power.phases||3);amps.value=state.power.amperes??'';
+  const capacity=POWER.breakerReferenceKw(state.power);
+  preview.innerHTML=capacity?`<strong>${state.power.phases}×${fmt.format(state.power.amperes)} A</strong><span>orientační referenční výkon ≈ ${fmt.format(capacity)} kW při vyvážených fázích a cos φ ≈ 1</span>`:'<strong>Jistič není nastaven</strong><span>Zadej počet fází a jmenovitý proud, aby šlo vyhodnotit využití výkonu.</span>';
 }
 async function deleteMonth(monthKey){
   await new Promise((resolve,reject)=>{
@@ -1672,7 +1688,7 @@ async function reload(){state.records=await getAll('intervals');state.months=awa
 function renderAll(){
   const has=state.records.length>0;
   $('#emptyState').classList.toggle('hidden',has);$('#overviewContent').classList.toggle('hidden',!has);
-  renderPeriodControls();renderOverview();renderAnalysis();renderMonths();renderExportDefaults();renderEgdPanel();renderDataSourceCard();
+  renderPeriodControls();renderOverview();renderAnalysis();renderMonths();renderExportDefaults();renderEgdPanel();renderPowerSettings();renderDataSourceCard();
 }
 function renderPeriodControls(){
   $$('.period-chip').forEach(b=>b.classList.toggle('active',b.dataset.period===state.period));
@@ -1829,6 +1845,7 @@ function renderAnalysis(){
     ['weekdaySubtitle','hourlySubtitle','heatmapSubtitle','daypartSubtitle'].forEach(id=>{const el=$('#'+id);if(el)el.textContent=message});
     const anomalySummary=$('#anomalySummary'),anomalyList=$('#anomalyList');if(anomalySummary)anomalySummary.innerHTML=`<strong>Bez dat pro analýzu.</strong><span>${escapeHtml(message)}</span>`;if(anomalyList)anomalyList.innerHTML='';
     const regimeSummary=$('#regimeSummary'),regimeDetail=$('#regimeDetail');if(regimeSummary)regimeSummary.innerHTML=`<strong>Bez dat pro změnu režimu.</strong><span>${escapeHtml(message)}</span>`;if(regimeDetail)regimeDetail.textContent='';
+    const breakerSummary=$('#breakerAnalysisSummary'),breakerBands=$('#breakerBands'),breakerNote=$('#breakerAnalysisNote');if(breakerSummary)breakerSummary.innerHTML=`<strong>Bez dat pro výkonovou analýzu.</strong><span>${escapeHtml(message)}</span>`;if(breakerBands)breakerBands.innerHTML='';if(breakerNote)breakerNote.textContent='';
     return;
   }
 
@@ -1849,7 +1866,7 @@ function renderAnalysis(){
     ?`Typický 24hodinový profil · omezen vliv ${hourlyAffected} extrémních intervalů`
     :'24hodinový profil · aritmetický průměr všech intervalů';
 
-  renderHeatmap(rs);renderDayparts(rs);renderRegimeShift(rs);renderPeaks(rs);renderAnomalies(rs);
+  renderHeatmap(rs);renderDayparts(rs);renderRegimeShift(rs);renderBreakerAnalysis(rs);renderPeaks(rs);renderAnomalies(rs);
 }
 function renderHeatmap(rs){
   const stats=groupedAnalysisStats(rs,r=>`${r.weekday}|${r.hour}`,val),avg=new Map([...stats].map(([k,v])=>[k,v.value||0])),affected=[...stats.values()].reduce((n,x)=>n+x.affected,0),max=Math.max(...avg.values(),.001);
@@ -1879,6 +1896,21 @@ function renderDayparts(rs){
     :`${average?'Průměrná energie za jeden den':'Podíl energie v částech dne'} · všechna data`;
   $$('.daypart-btn').forEach(b=>b.classList.toggle('active',b.dataset.daypartMode===state.daypartMode));
   $('#daypartList').innerHTML=data.map(d=>{const width=average?d.avg/maxAvg*100:d.pct,value=average?`${fmt3.format(d.avg)} kWh/den`:`${fmt.format(d.pct)} %`;return `<div class="daypart-row"><div><strong>${d.name}</strong><div class="kpi-unit">${d.time}</div></div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(0,Math.min(100,width))}%"></div></div><div class="daypart-value">${value}</div></div>`}).join('');
+}
+function renderBreakerAnalysis(rs){
+  const summary=$('#breakerAnalysisSummary'),bands=$('#breakerBands'),note=$('#breakerAnalysisNote');if(!summary||!bands||!note)return;
+  const usable=(Array.isArray(rs)?rs:[]).filter(recordUsable).filter(r=>Number.isFinite(Number(r.dcc1))&&Number(r.dcc1)>=0);
+  const analysis=POWER.analyzePower(usable.map(r=>({kw:Number(r.dcc1),minutes:Number(r.intervalMinutes)||15})),state.power);
+  if(!usable.length){summary.innerHTML='<strong>Bez použitelných DCC1 dat.</strong><span>Pro zvolené období nelze výkon vyhodnotit.</span>';bands.innerHTML='';note.textContent='';return}
+  const peak=usable.reduce((a,b)=>Number(b.dcc1)>Number(a.dcc1)?b:a,usable[0]);
+  if(!(analysis.capacityKw>0)){
+    summary.innerHTML=`<strong>Maximum ${fmt.format(analysis.maxKw)} kW</strong><span>P95 ${fmt.format(analysis.p95Kw)} kW · P99 ${fmt.format(analysis.p99Kw)} kW · pro vztah k jističi doplň jeho hodnotu v Nastavení.</span>`;
+    bands.innerHTML='';note.textContent='Analýza vždy používá DCC1 bez ohledu na právě zvolenou metriku dashboardu.';return;
+  }
+  const usage=analysis.maxUsagePct,headroom=analysis.headroomKw,headroomText=headroom>=0?`rezerva ${fmt.format(headroom)} kW`:`o ${fmt.format(Math.abs(headroom))} kW nad referencí`;
+  summary.innerHTML=`<strong>Maximum ${fmt.format(analysis.maxKw)} kW · ${fmt.format(usage)} % reference jističe</strong><span>${escapeHtml(peak.displayTimestamp||peak.sourceTimestamp||'')} · P95 ${fmt.format(analysis.p95Kw)} kW · P99 ${fmt.format(analysis.p99Kw)} kW · ${headroomText}</span>`;
+  bands.innerHTML=analysis.bands.map(b=>`<div class="power-band-row"><div class="power-band-label"><strong>${escapeHtml(b.label)}</strong><span>${fmt.format(b.share*100)} % času · ${fmt.format(b.hours)} h</span></div><div class="power-band-track"><div class="power-band-fill" style="width:${Math.max(0,Math.min(100,b.share*100))}%"></div></div><b>${b.count.toLocaleString('cs-CZ')}×</b></div>`).join('');
+  note.textContent=`Reference ${state.power.phases}×${fmt.format(state.power.amperes)} A ≈ ${fmt.format(analysis.capacityKw)} kW. Nad 90 %: ${analysis.above90Count.toLocaleString('cs-CZ')} intervalů; nad 100 % reference: ${analysis.above100Count.toLocaleString('cs-CZ')} intervalů. Jde o 15min průměr činného výkonu — nikoli měření proudu jednotlivých fází ani důkaz, že by jistič vybavil.`;
 }
 function renderPeaks(rs){const peaks=[...rs].sort((a,b)=>val(b)-val(a)).slice(0,20);$('#peaksList').innerHTML=peaks.map((r,i)=>`<div class="peak-row"><div class="peak-main"><strong>${i+1}. ${r.displayTimestamp}</strong><div>${r.monthKey} · 15min interval</div></div><div class="peak-value">${fmt.format(val(r))} kW</div></div>`).join('')}
 async function renderMonths(){
@@ -2037,7 +2069,7 @@ function exportXLSX(rs,g){
 
 // ---------- Backup / restore ----------
 async function backupLocalData(){
-  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,ui:{period:state.period,anchorMonth:state.anchorMonth,customFrom:state.customFrom,customTo:state.customTo,daypartMode:state.daypartMode,analysisMode:state.analysisMode,dashboardMode:state.dashboardMode,chartMode:state.chartMode,compareMode:state.compareMode,comparePrevious:state.compareMode==='previous'},records:await getAll('intervals'),months:await getAll('months')};
+  const payload={format:'energo-prehled-backup',version:1,appVersion:APP_VERSION,createdAt:new Date().toISOString(),metric:state.metric,powerConfig:state.power,ui:{period:state.period,anchorMonth:state.anchorMonth,customFrom:state.customFrom,customTo:state.customTo,daypartMode:state.daypartMode,analysisMode:state.analysisMode,dashboardMode:state.dashboardMode,chartMode:state.chartMode,compareMode:state.compareMode,comparePrevious:state.compareMode==='previous'},records:await getAll('intervals'),months:await getAll('months')};
   downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}),`energo_prehled_zaloha_${new Date().toISOString().slice(0,10)}.json`);
   showToast('Záloha dat byla vytvořena');
 }
@@ -2048,6 +2080,7 @@ async function restoreLocalData(file){
   if(payload.months.some(m=>!m||typeof m.monthKey!=='string'||!Number.isFinite(Number(m.count))))throw new Error('Záloha obsahuje neplatná metadata měsíců.');
   if(payload.months.some(m=>{const v=m?.finance?.invoiceTotal;return v!==undefined&&v!==null&&(!Number.isFinite(Number(v))||Number(v)<0)}))throw new Error('Záloha obsahuje neplatnou cenu faktury.');
   if(payload.months.some(m=>{const v=m?.energyTargetKwh;return v!==undefined&&v!==null&&(!Number.isFinite(Number(v))||Number(v)<=0)}))throw new Error('Záloha obsahuje neplatný měsíční cíl spotřeby.');
+  if(payload.powerConfig!==undefined&&payload.powerConfig!==null){const p=POWER.normalizeBreakerConfig(payload.powerConfig);if(payload.powerConfig.amperes!==null&&payload.powerConfig.amperes!==undefined&&p.amperes===null)throw new Error('Záloha obsahuje neplatné nastavení hlavního jističe.');}
   if(!confirm(`Obnovit zálohu z ${payload.createdAt?new Date(payload.createdAt).toLocaleString('cs-CZ'):'neznámého data'}? Současná lokální data budou nahrazena.`))return;
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(['intervals','months'],'readwrite'),s=tx.objectStore('intervals'),m=tx.objectStore('months');
@@ -2055,6 +2088,7 @@ async function restoreLocalData(file){
     tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
   });
   if(payload.metric==='dcc0'||payload.metric==='dcc1'){state.metric=payload.metric;localStorage.setItem(METRIC_KEY,state.metric)}
+  if(payload.powerConfig&&typeof payload.powerConfig==='object'){state.power=POWER.normalizeBreakerConfig(payload.powerConfig);await setSetting('power-config',state.power)}
   if(payload.ui&&typeof payload.ui==='object'){
     if(['month','3m','year','custom','all'].includes(payload.ui.period))state.period=payload.ui.period;
     if(/^\d{4}-\d{2}$/.test(payload.ui.anchorMonth||''))state.anchorMonth=payload.ui.anchorMonth;
@@ -2091,7 +2125,7 @@ async function forceUpdateApp(){
   }catch(e){console.error(e);alert('Aktualizaci se nepodařilo dokončit: '+e.message)}
 }
 function showToast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>t.classList.remove('show'),2600)}
-function nav(target){$$('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===target));$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.target===target));$('#screenTitle').textContent={overview:'Přehled',analysis:'Analýza',data:'Data',export:'Export',settings:'Nastavení'}[target];window.scrollTo({top:0,behavior:'smooth'});if(target==='analysis')renderAnalysis();if(target==='data'){renderMonths();renderDataSourceCard()}if(target==='settings')renderEgdPanel()}
+function nav(target){$$('.screen').forEach(s=>s.classList.toggle('active',s.dataset.screen===target));$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.target===target));$('#screenTitle').textContent={overview:'Přehled',analysis:'Analýza',data:'Data',export:'Export',settings:'Nastavení'}[target];window.scrollTo({top:0,behavior:'smooth'});if(target==='analysis')renderAnalysis();if(target==='data'){renderMonths();renderDataSourceCard()}if(target==='settings'){renderEgdPanel();renderPowerSettings()}}
 function bind(){
   const choose=()=>$('#fileInput').click();
   $('#importBtn').onclick=choose;$('#emptyImportBtn').onclick=choose;$('#dataImportBtn').onclick=choose;
@@ -2133,6 +2167,8 @@ function bind(){
   };
   $('#egdProfileSelect').onchange=()=>saveEgdSelections().catch(console.error);
   $('#egdAutoSync').onchange=async e=>{state.egd.autoSync=e.target.checked;await saveEgdConfig();showToast(state.egd.autoSync?'Automatická synchronizace zapnuta':'Automatická synchronizace vypnuta')};
+  $('#breakerPhases').onchange=()=>savePowerSettings().catch(e=>alert('Nastavení jističe se nepodařilo uložit: '+e.message));
+  $('#breakerAmperes').onchange=()=>savePowerSettings().catch(e=>alert('Nastavení jističe se nepodařilo uložit: '+e.message));
   $('#forceUpdateBtn').onclick=forceUpdateApp;
   $('#appVersionText').textContent=APP_VERSION;
   $('#backupDataBtn').onclick=()=>backupLocalData().catch(e=>alert('Zálohu se nepodařilo vytvořit: '+e.message));
@@ -2149,5 +2185,5 @@ function bind(){
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).then(reg=>reg.update()).catch(console.warn);
   }
-  try{db=await openDB();await loadEgdSettings();bind();await reload();await maybeAutoSyncEgd()}catch(e){console.error(e);alert('Aplikaci se nepodařilo inicializovat: '+e.message)}
+  try{db=await openDB();await loadEgdSettings();await loadPowerSettings();bind();await reload();await maybeAutoSyncEgd()}catch(e){console.error(e);alert('Aplikaci se nepodařilo inicializovat: '+e.message)}
 })();

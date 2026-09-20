@@ -7,6 +7,7 @@ const Invoice=require('../core/invoice.js');
 const Time=require('../core/time.js');
 const Forecast=require('../core/forecast.js');
 const Regime=require('../core/regime.js');
+const Power=require('../core/power.js');
 const InvoiceParser=require('../core/invoice-parser.js');
 
 const root=path.resolve(__dirname,'..');
@@ -24,26 +25,28 @@ return {
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
-  const window={EnergoCore:Core,EnergoInvoice:Invoice,EnergoTime:Time,EnergoForecast:Forecast,EnergoRegime:Regime,EnergoInvoiceParser:InvoiceParser,scrollTo:()=>{}};
+  const window={EnergoCore:Core,EnergoInvoice:Invoice,EnergoTime:Time,EnergoForecast:Forecast,EnergoRegime:Regime,EnergoPower:Power,EnergoInvoiceParser:InvoiceParser,scrollTo:()=>{}};
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.9.0 files are version-aligned and syntactically valid',()=>{
+test('beta 1.10.0 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.9\.0'/);
-  assert.match(html,/BETA 1\.9\.0/);
-  assert.match(sw,/v1\.9\.0/);
-  assert.match(html,/core\/model\.js\?v=1\.9\.0/);
-  assert.match(html,/core\/time\.js\?v=1\.9\.0/);
-  assert.match(html,/core\/forecast\.js\?v=1\.9\.0/);
-  assert.match(html,/core\/regime\.js\?v=1\.9\.0/);
-  assert.match(html,/core\/invoice\.js\?v=1\.9\.0/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.9\.0/);
-  assert.match(sw,/core\/model\.js\?v=1\.9\.0/);
-  assert.match(sw,/core\/time\.js\?v=1\.9\.0/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.9\.0/);
-  assert.match(sw,/core\/regime\.js\?v=1\.9\.0/);
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.9\.0/);
+  assert.match(app,/APP_VERSION = '1\.10\.0'/);
+  assert.match(html,/BETA 1\.10\.0/);
+  assert.match(sw,/v1\.10\.0/);
+  assert.match(html,/core\/model\.js\?v=1\.10\.0/);
+  assert.match(html,/core\/time\.js\?v=1\.10\.0/);
+  assert.match(html,/core\/forecast\.js\?v=1\.10\.0/);
+  assert.match(html,/core\/regime\.js\?v=1\.10\.0/);
+  assert.match(html,/core\/invoice\.js\?v=1\.10\.0/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.10\.0/);
+  assert.match(sw,/core\/model\.js\?v=1\.10\.0/);
+  assert.match(sw,/core\/time\.js\?v=1\.10\.0/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.10\.0/);
+  assert.match(sw,/core\/regime\.js\?v=1\.10\.0/);
+  assert.match(html,/core\/power\.js\?v=1\.10\.0/);
+  assert.match(sw,/core\/power\.js\?v=1\.10\.0/);
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.10\.0/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -427,4 +430,25 @@ test('energy target input validation and persistence guards are wired',()=>{
   assert.match(html,/id="energyTargetInput"/);
   assert.match(html,/id="energyTargetStatus"/);
   assert.match(app,/target:monthSeries\.target/);
+});
+
+
+test('breaker analysis UI and local configuration are wired without EG.D secrets in backup',()=>{
+  assert.match(html,/id="breakerSettings"/);
+  assert.match(html,/id="breakerPhases"/);
+  assert.match(html,/id="breakerAmperes"/);
+  assert.match(html,/id="breakerCapacityPreview"/);
+  assert.match(html,/id="breakerAnalysisSummary"/);
+  assert.match(html,/id="breakerBands"/);
+  assert.match(app,/POWER\.analyzePower/);
+  assert.match(app,/setSetting\('power-config',state\.power\)/);
+  assert.match(app,/powerConfig:state\.power/);
+  const backupFn=app.slice(app.indexOf('async function backupLocalData'),app.indexOf('async function restoreLocalData'));
+  assert.doesNotMatch(backupFn,/clientSecret|clientId|proxyUrl/);
+});
+
+test('breaker analysis explicitly uses DCC1 and documents 15-minute limitation',()=>{
+  assert.match(app,/kw:Number\(r\.dcc1\)/);
+  assert.match(html,/15minutový průměr činného výkonu/);
+  assert.match(html,/nelze určit okamžitý proud jednotlivých fází/);
 });

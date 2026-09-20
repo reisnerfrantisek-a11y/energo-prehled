@@ -7,16 +7,16 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Energo Beta" />
-  <title>Energo Přehled Beta 1.9.0</title>
+  <title>Energo Přehled Beta 1.10.0</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="../icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=1.9.0" />
+  <link rel="stylesheet" href="styles.css?v=1.10.0" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
       <div>
-        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.9.0</div>
+        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.10.0</div>
         <h1 id="screenTitle">Přehled</h1>
       </div>
       <button class="icon-btn" id="importBtn" aria-label="Importovat report">＋</button>
@@ -214,6 +214,16 @@
           <div id="forecastAccuracyList" class="insight-list"></div>
         </section>
 
+        <section class="panel breaker-analysis-card" id="breakerAnalysisCard">
+          <div class="panel-head between">
+            <div><h2>Výkon a hlavní jistič</h2><p>DCC1 · 15minutové průměry, percentily a zatížení vůči orientační referenci jističe</p></div>
+            <span class="analysis-mode-badge">DCC1</span>
+          </div>
+          <div id="breakerAnalysisSummary" class="insight-summary"></div>
+          <div id="breakerBands" class="power-bands"></div>
+          <p id="breakerAnalysisNote" class="breaker-analysis-note"></p>
+        </section>
+
         <section class="panel">
           <div class="panel-head"><div><h2>Výkonové špičky</h2><p>Původní neočištěná data · 20 nejvyšších 15minutových intervalů</p></div></div>
           <div id="peaksList" class="peaks-list"></div>
@@ -265,6 +275,16 @@
           </label>
           <div class="egd-result" id="egdResult">Po zadání Vercel proxy URL aplikace přes ni bezpečně načte dostupná odběrná místa a profily.</div>
           <p class="fineprint">Synchronizace přes Vercel proxy stahuje aktuální a předchozí kalendářní měsíc. EG.D OpenAPI umožňuje dotaz nejvýše do včerejšího dne; předběžné/odhadnuté hodnoty se v aplikaci zobrazují.</p>
+        </section>
+
+        <section class="panel breaker-settings" id="breakerSettings">
+          <div class="panel-head"><div><h2>Hlavní jistič</h2><p>Referenční nastavení pro výkonovou analýzu</p></div></div>
+          <div class="breaker-config-grid">
+            <label class="field"><span>Počet fází</span><select id="breakerPhases" class="select full"><option value="3">3 fáze</option><option value="1">1 fáze</option></select></label>
+            <label class="field"><span>Jmenovitý proud</span><input id="breakerAmperes" type="number" min="1" max="250" step="1" inputmode="numeric" placeholder="např. 25" /></label>
+          </div>
+          <div class="breaker-capacity-preview" id="breakerCapacityPreview"><strong>Jistič není nastaven</strong><span>Zadej jmenovitý proud.</span></div>
+          <p class="fineprint">Referenční výkon je pouze orientační výpočet z jmenovitého proudu (3f: √3 × 400 V × I, 1f: 230 V × I) při cos φ ≈ 1. EG.D poskytuje 15minutový průměr činného výkonu; z něj nelze určit okamžitý proud jednotlivých fází ani spolehlivě předpovědět vybavení jističe.</p>
         </section>
 
         <section class="panel">
@@ -332,12 +352,13 @@
       </div>
     </div>
   </div>
-  <script src="core/model.js?v=1.9.0" defer></script>
-  <script src="core/time.js?v=1.9.0" defer></script>
-  <script src="core/forecast.js?v=1.9.0" defer></script>
-  <script src="core/regime.js?v=1.9.0" defer></script>
-  <script src="core/invoice.js?v=1.9.0" defer></script>
-  <script src="core/invoice-parser.js?v=1.9.0" defer></script>
-  <script src="app.js?v=1.9.0" defer></script>
+  <script src="core/model.js?v=1.10.0" defer></script>
+  <script src="core/time.js?v=1.10.0" defer></script>
+  <script src="core/forecast.js?v=1.10.0" defer></script>
+  <script src="core/regime.js?v=1.10.0" defer></script>
+  <script src="core/power.js?v=1.10.0" defer></script>
+  <script src="core/invoice.js?v=1.10.0" defer></script>
+  <script src="core/invoice-parser.js?v=1.10.0" defer></script>
+  <script src="app.js?v=1.10.0" defer></script>
 </body>
 </html>
