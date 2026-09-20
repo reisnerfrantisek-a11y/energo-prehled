@@ -903,7 +903,7 @@ function latestValidatedTariff(monthKey){
   }).sort((a,b)=>b.monthKey.localeCompare(a.monthKey));
   if(!candidates.length)return null;
   const m=candidates[0],finance=normalizeFinance(m.finance),t=finance.tariff,ageMonths=FINANCE_ANALYTICS.tariffAgeMonths(monthKey,m.monthKey);
-  const extractionConfidence=Number(finance.invoiceMeta.extractionConfidence);
+  const rawConfidence=finance.invoiceMeta.extractionConfidence,extractionConfidence=rawConfidence===null||rawConfidence===undefined||rawConfidence===''?null:Number(rawConfidence);
   const parserConfidence=Number.isFinite(extractionConfidence)?clamp(extractionConfidence,0,1):1;
   const freshness=ageMonths===null?1:ageMonths<=1?1:ageMonths===2?.9:ageMonths<=3?.75:ageMonths<=6?.55:.35;
   return {
