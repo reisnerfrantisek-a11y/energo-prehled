@@ -80,6 +80,8 @@ function targetDaily(scenario,day,wd){
   if(scenario==='seasonal-growth')return base*(1.10+(day-1)*(0.15/29));
   if(scenario==='step-plus-40')return base*1.40;
   if(scenario==='vacation')return base*(day>=10&&day<=16?.20:1);
+  if(scenario==='isolated-spike')return base*(day===12?4:1);
+  if(scenario==='short-spike')return base*(day>=10&&day<=12?2:1);
   return base;
 }
 function missingPattern(day){
@@ -92,9 +94,9 @@ function truthTotal(scenario){
   for(let d=1;d<=daysInMonth(TARGET);d++)total+=targetDaily(scenario,d,weekday(dateKey(TARGET,d)));
   return total;
 }
-function setupScenario(scenario,asOf,{knownTariffChange=false,unknownTariffShock=false}={}){
+function setupScenario(scenario,asOf,{knownTariffChange=false,unknownTariffShock=false,noHistory=false,fullDayGap=false}={}){
   const api=loadApp(),history=[];
-  for(let n=6;n>=1;n--)history.push(monthBefore(TARGET,n));
+  if(!noHistory)for(let n=6;n>=1;n--)history.push(monthBefore(TARGET,n));
   api.state.records=[];api.state.months=[];
   history.forEach((month,i)=>{
     const mult=historicalMultiplier(scenario,i);
@@ -105,7 +107,7 @@ function setupScenario(scenario,asOf,{knownTariffChange=false,unknownTariffShock
     api.state.months.push({monthKey:month,enabled:true,complete:true,source:'xlsx',finance:financeFor(month,energy,tariff)});
   });
   const targetRecs=makeRecords(TARGET,d=>targetDaily(scenario,d,weekday(dateKey(TARGET,d))),{
-    source:'egd-api',throughDay:asOf,missingSlots:scenario==='missing-data'?missingPattern:()=>new Set()
+    source:'egd-api',throughDay:asOf,missingSlots:scenario==='missing-data'?(d=>fullDayGap&&d===14?new Set(Array.from({length:96},(_,i)=>i)):missingPattern(d)):()=>new Set()
   });
   api.state.records.push(...targetRecs);
   api.state.months.push({
@@ -117,7 +119,7 @@ function setupScenario(scenario,asOf,{knownTariffChange=false,unknownTariffShock
   const actualCost=currentTariff.fixed+currentTariff.variable*actualEnergy;
   return {api,targetRecs,actualEnergy,actualCost,currentTariff};
 }
-function pctError(pred,actual){return actual>0?(pred-actual)/actual*100:null}
+function pctError(pred,actual){return Number.isFinite(pred)&&Number.isFinite(actual)&&actual>0?(pred-actual)/actual*100:null}
 function absPctError(pred,actual){const p=pctError(pred,actual);return p===null?null:Math.abs(p)}
 function mean(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:null}
 function round(v,n=2){return Number.isFinite(v)?Number(v.toFixed(n)):v}
@@ -139,7 +141,7 @@ function runEnergyScenario(scenario,opts={}){
         low:round(e.lowEnergy,3),high:round(e.highEnergy,3),energyCovered:actualEnergy>=e.lowEnergy&&actualEnergy<=e.highEnergy,
         uncertaintyPct:round(e.uncertainty*100),regime:regime.status,adaptationPct:round((e.regimeAdaptation||0)*100),
         actualCost:round(actualCost),predictedCost:round(c.projectedCost),costApe:round(absPctError(c.projectedCost,actualCost)),
-        costLow:round(c.lowProjectedCost),costHigh:round(c.highProjectedCost),costCovered:actualCost>=c.lowProjectedCost&&actualCost<=c.highProjectedCost
+        costLow:round(c.lowProjectedCost),costHigh:round(c.highProjectedCost),costCovered:Number.isFinite(c.lowProjectedCost)&&Number.isFinite(c.highProjectedCost)?actualCost>=c.lowProjectedCost&&actualCost<=c.highProjectedCost:null
       });
     }finally{Date.now=saved}
   }
@@ -153,12 +155,16 @@ test('synthetic Forecast 2.0 stress benchmark',()=>{
     ['step-plus-40',{}],
     ['vacation',{}],
     ['missing-data',{}],
+    ['missing-full-day',{fullDayGap:true}],
+    ['isolated-spike',{}],
+    ['short-spike',{}],
+    ['first-month-no-history',{noHistory:true}],
     ['tariff-change-known',{knownTariffChange:true}],
     ['tariff-shock-unknown',{unknownTariffShock:true}]
   ];
   const all=[];
   for(const [scenario,opts] of scenarios){
-    const energyScenario=scenario.startsWith('tariff-')?'stable':scenario;
+    const energyScenario=scenario==='first-month-no-history'||scenario.startsWith('tariff-')?'stable':scenario==='missing-full-day'?'missing-data':scenario;
     const rows=runEnergyScenario(energyScenario,opts).map(r=>({...r,scenario}));
     all.push(...rows);
   }
@@ -169,9 +175,9 @@ test('synthetic Forecast 2.0 stress benchmark',()=>{
       energyMape:round(mean(rows.map(r=>r.ape))),
       maxEnergyApe:round(Math.max(...rows.map(r=>r.ape))),
       energyBandCoverage:round(rows.filter(r=>r.energyCovered).length/rows.length*100),
-      meanBias:round(mean(rows.map(r=>r.biasPct))),
-      costMape:round(mean(rows.map(r=>r.costApe))),
-      costBandCoverage:round(rows.filter(r=>r.costCovered).length/rows.length*100),
+      meanBias:round(mean(rows.map(r=>r.biasPct).filter(Number.isFinite))),
+      costMape:round(mean(rows.map(r=>r.costApe).filter(Number.isFinite))),
+      costBandCoverage:round(rows.filter(r=>r.costCovered!==null).length?rows.filter(r=>r.costCovered===true).length/rows.filter(r=>r.costCovered!==null).length*100:null),
       regimes:rows.map(r=>r.regime).join(' → ')
     };
   });
@@ -188,6 +194,10 @@ test('synthetic Forecast 2.0 stress benchmark',()=>{
   assert.ok(by['step-plus-40'].energyMape<18,'persistent step change should adapt');
   assert.ok(by.vacation.energyMape<25,'temporary vacation should not catastrophically distort forecast');
   assert.ok(by['missing-data'].energyMape<12,'closed gaps should be substantially recovered');
+  assert.ok(by['missing-full-day'].energyMape<15,'a whole missing day should be imputed from baseline');
+  assert.ok(by['isolated-spike'].energyMape<12,'one isolated spike should not destabilize the month');
+  assert.ok(by['short-spike'].energyMape<15,'a short spike should remain bounded');
+  assert.ok(by['first-month-no-history'].energyMape<12,'first month pace forecast should remain usable');
   assert.ok(by['tariff-change-known'].costMape<12,'latest validated tariff should follow a known tariff change');
   assert.ok(by['tariff-shock-unknown'].costMape>10,'unknown current tariff shock must remain visible as an information limitation');
 });
