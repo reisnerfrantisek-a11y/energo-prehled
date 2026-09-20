@@ -5,7 +5,7 @@
 })(typeof globalThis!=='undefined'?globalThis:this,function(){
   'use strict';
 
-  function finite(v){const n=Number(v);return Number.isFinite(n)?n:null}
+  function finite(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null}
   function pctDelta(predicted,actual){
     const p=finite(predicted),a=finite(actual);
     return p!==null&&a!==null&&a>0?(p-a)/a*100:null;
