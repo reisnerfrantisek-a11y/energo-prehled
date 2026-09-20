@@ -1336,8 +1336,8 @@ function monthTargetSeries(monthKey,cumulative=false){
   return {monthKey,total,label:`Cíl ${fmt3.format(total)} kWh`,values};
 }
 function targetDeltaLabel(delta){
-  if(!Number.isFinite(delta)||Math.abs(delta)<.005)return 'na cílové trajektorii';
-  return `${fmt3.format(Math.abs(delta))} kWh ${delta>0?'nad':'pod'}`;
+  if(!Number.isFinite(delta))return '—';
+  return `${delta>=0?'+':''}${fmt3.format(delta)} kWh`;
 }
 function renderEnergyTargetControl(monthKey,costMode=false){
   const row=$('#energyTargetRow'),input=$('#energyTargetInput'),clear=$('#energyTargetClear'),status=$('#energyTargetStatus');
@@ -1349,8 +1349,8 @@ function renderEnergyTargetControl(monthKey,costMode=false){
   const rs=state.records.filter(r=>r.monthKey===monthKey&&recordUsable(r)),actual=rs.reduce((sum,r)=>sum+billingEnergy(r),0),fraction=calendarFractionForSelected(monthKey,rs),targetToDate=target*fraction,currentDelta=fraction>0?actual-targetToDate:null;
   const live=monthIsLivePartial(monthKey),estimate=live?predictMonthEnergy(monthKey):null,finalValue=live&&Number.isFinite(estimate?.predictedEnergy)?estimate.predictedEnergy:(monthIsComplete(monthKey)?actual:null),finalDelta=Number.isFinite(finalValue)?finalValue-target:null;
   const bits=[`Cíl ${fmt3.format(target)} kWh`];
-  if(Number.isFinite(currentDelta)&&live)bits.push(`dosud ${targetDeltaLabel(currentDelta)} trajektorií`);
-  if(Number.isFinite(finalDelta))bits.push(`${live?'forecast':'skutečnost'} ${targetDeltaLabel(finalDelta)} cílem`);
+  if(Number.isFinite(currentDelta)&&live)bits.push(`dosud ${targetDeltaLabel(currentDelta)} proti trajektorii`);
+  if(Number.isFinite(finalDelta))bits.push(`${live?'forecast':'skutečnost'} ${targetDeltaLabel(finalDelta)} proti cíli`);
   status.className='energy-target-status '+(Number.isFinite(finalDelta)?(finalDelta>0?'target-over':'target-under'):'');
   status.textContent=bits.join(' · ');
 }
