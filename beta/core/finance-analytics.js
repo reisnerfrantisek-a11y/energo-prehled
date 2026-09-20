@@ -81,6 +81,40 @@
     };
   }
 
+  function priceUncertainty(input={}){
+    const modelType=String(input.modelType||'regression'),age=finite(input.ageMonths),confidence=finite(input.confidence);
+    if(modelType==='tariff'){
+      const agePart=age===null||age<=1?0:age===2?.015:age===3?.03:age<=6?.05:.08;
+      const qualityPart=confidence===null?0:Math.max(0,Math.min(.08,(1-Math.max(0,Math.min(1,confidence)))*.08));
+      return Math.max(0,Math.min(.18,agePart+qualityPart));
+    }
+    const q=confidence===null?0:Math.max(0,Math.min(1,confidence));
+    return Math.max(.05,Math.min(.22,.05+(1-q)*.17));
+  }
+
+  function expandCostBand(input={}){
+    const central=finite(input.central),low=finite(input.low),high=finite(input.high);
+    if(central===null||low===null||high===null)return {central,low,high,priceUncertainty:null};
+    const u=priceUncertainty(input),baseLow=Math.min(low,central),baseHigh=Math.max(high,central);
+    return {
+      central,
+      low:Math.max(0,Math.min(central,baseLow*(1-u))),
+      high:Math.max(central,baseHigh*(1+u)),
+      priceUncertainty:u
+    };
+  }
+
+  function targetCostScenario(input={}){
+    const targetEnergy=finite(input.targetEnergy),forecastEnergy=finite(input.forecastEnergy),fixed=finite(input.fixed),variableRate=finite(input.variableRate);
+    if(targetEnergy===null||targetEnergy<0||forecastEnergy===null||forecastEnergy<0||fixed===null||variableRate===null)return null;
+    const targetCost=fixed+variableRate*targetEnergy,forecastCost=fixed+variableRate*forecastEnergy;
+    return {
+      targetEnergy,forecastEnergy,targetCost,forecastCost,
+      difference:forecastCost-targetCost,
+      energyDifference:forecastEnergy-targetEnergy
+    };
+  }
+
   function financeSummary(inputs=[]){
     const rows=(Array.isArray(inputs)?inputs:[]).map(invoiceEconomics).filter(r=>r.invoiceTotal!==null&&r.energyKwh!==null&&r.energyKwh>0).sort((a,b)=>a.monthKey.localeCompare(b.monthKey));
     const totalInvoice=rows.reduce((s,r)=>s+r.invoiceTotal,0),totalEnergy=rows.reduce((s,r)=>s+r.energyKwh,0);
@@ -96,5 +130,5 @@
     };
   }
 
-  return {finite,monthIndex,tariffAgeMonths,invoiceEconomics,componentBreakdown,tariffBridge,financeSummary};
+  return {finite,monthIndex,tariffAgeMonths,invoiceEconomics,componentBreakdown,tariffBridge,priceUncertainty,expandCostBand,targetCostScenario,financeSummary};
 });

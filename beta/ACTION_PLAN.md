@@ -8,7 +8,7 @@ Společný desetibodový **Akční plán** je aktivní od verze 1.7.0. Jednotliv
 4. **Rozšířený srovnávací režim — nasazeno v 1.7.0, rozšířeno v 1.7.1.** Hlavní měsíční graf umí bez srovnání, minulý měsíc a stejný měsíc předchozího roku; od 1.7.1 stejné možnosti fungují i v nákladové části včetně oranžové predikce.
 5. **Další kumulativní pohledy a cílové trajektorie spotřeby — nasazeno v 1.9.0.** Uživatel může pro konkrétní měsíc zadat cíl v kWh. Denní i kumulativní graf zobrazují samostatnou cílovou trajektorii a stav proti cíli; cíl nijak nemění Forecast 2.0.
 6. **Datový health score — nasazeno v 1.7.0.** Měsíční přehled hodnotí kompletnost uzavřených intervalů, použitelnost dat a aktuálnost zdroje.
-7. **Detailní finanční model z reálných tarifních složek a PDF faktur — rozšířeno ve 1.12.0.** Lokální E.ON PDF parser, rozpad ceny a ověřený tarif mají přednost před regresí; Finance Analytics 2.0 nově odděluje skutečnou efektivní cenu, fixní/variabilní tarif, rozpad faktury a vysvětlení meziměsíční změny nákladů.
+7. **Detailní finanční model z reálných tarifních složek a PDF faktur — rozšířeno ve 1.12.0 a 1.13.0.** Finance Analytics 2.0 odděluje efektivní cenu, fixní/variabilní tarif a příčiny změny faktury; Finance Forecast 2.0 navíc kalibruje cenovou nejistotu podle stáří/quality tarifního zdroje a ukládá původ cenového forecastu pro budoucí backtest.
 8. **Automatická detekce změny režimu spotřeby a adaptace forecastu — nasazeno v 1.8.0.** Model porovnává posledních 7 dní s robustní historickou základnou, vyžaduje konzistentní změnu napříč dny a při potvrzeném posunu upravuje váhy Forecastu 2.0 směrem k posledním 7/14 dnům.
 9. **Analýza výkonových maxim, výkonových pásem a vztahu k hlavnímu jističi — nasazeno v 1.10.0.** Analýza DCC1 počítá maximum, P95/P99, čas v pásmech relativně k nastavenému jističi a orientační výkonovou rezervu.
 10. **Automatický měsíční report — nasazeno v 1.11.0.** Pro každý kompletní aktivní měsíc se skládá report ze skutečné spotřeby, skutečně uloženého historického forecastu, odchylky, faktury, maxima DCC1 a nejsilnějšího dne.
@@ -106,3 +106,15 @@ Body 5, 8, 9 a 10 budou pokračovat v následujících verzích, aby se do jedno
 - ručně zadaná faktura se používá pro efektivní cenu a trend, ale nikdy se nevydává za detailní tarif,
 - stáří PDF tarifu snižuje důvěru finanční predikce a je zobrazené v Analýze i u živého měsíce,
 - spotřební Forecast 2.0 se těmito změnami nemění.
+
+
+## Verze 1.13.0 — Finance Forecast 2.0
+
+- střední predikce faktury zůstává odvozena ze stejného spotřebního Forecastu 2.0 a cenového modelu jako dříve,
+- interval nákladů nově zahrnuje nejen nejistotu spotřeby, ale také nejistotu cenového modelu,
+- u čerstvého ověřeného PDF tarifu se cenové pásmo zbytečně nerozšiřuje,
+- se stářím tarifu a nižší důvěrou parseru se cenová nejistota postupně zvětšuje,
+- u statistického cenového modelu se šířka pásma odvíjí od kvality regresního fitu,
+- měsíční cíl spotřeby se v nákladovém forecastu převádí na modelovaný finanční dopad; fixní část tarifu se tím nesprávně nepovažuje za úsporu,
+- do denních forecast snapshotů se ukládá typ cenového modelu, confidence, cenová nejistota, zdrojový tarif a jeho stáří,
+- měsíční report zpětně ukazuje, z jakého finančního modelu tehdejší nákladový forecast vznikl.

@@ -40,3 +40,21 @@ test('monthly report keeps unavailable forecast and invoice explicitly null',()=
   assert.equal(r.energyErrorPct,null);
   assert.equal(r.costErrorPct,null);
 });
+
+
+test('monthly report preserves finance forecast provenance from historical snapshot',()=>{
+  const r=Report.buildMonthlyReport({
+    records:[{dateKey:'2026-08-01',kw:2,energy:10}],
+    invoiceTotal:100,
+    snapshot:{
+      asOfDate:'2026-08-24',daysRemaining:7,predictedEnergy:12,projectedCost:110,
+      lowProjectedCost:90,highProjectedCost:120,costModelType:'tariff',
+      tariffSourceMonth:'2026-07',tariffAgeMonths:1,priceUncertainty:.02,financeConfidence:.9
+    }
+  });
+  assert.equal(r.snapshot.costModelType,'tariff');
+  assert.equal(r.snapshot.tariffSourceMonth,'2026-07');
+  assert.equal(r.snapshot.tariffAgeMonths,1);
+  assert.equal(r.snapshot.priceUncertainty,.02);
+  assert.equal(r.snapshot.financeConfidence,.9);
+});

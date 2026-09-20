@@ -64,3 +64,33 @@ test('tariff age is calendar-month based',()=>{
   assert.equal(Finance.tariffAgeMonths('2027-01','2026-10'),3);
   assert.equal(Finance.tariffAgeMonths('bad','2026-10'),null);
 });
+
+
+test('price uncertainty grows with tariff age and weak regression confidence',()=>{
+  const fresh=Finance.priceUncertainty({modelType:'tariff',ageMonths:1,confidence:1});
+  const stale=Finance.priceUncertainty({modelType:'tariff',ageMonths:6,confidence:.55});
+  const regression=Finance.priceUncertainty({modelType:'regression',confidence:.2});
+  assert.equal(fresh,0);
+  assert.ok(stale>fresh);
+  assert.ok(regression>=.05&&regression<=.22);
+});
+
+test('expanded cost band preserves central estimate and widens uncertainty honestly',()=>{
+  const fresh=Finance.expandCostBand({central:1000,low:900,high:1100,modelType:'tariff',ageMonths:1,confidence:1});
+  assert.equal(fresh.central,1000);
+  assert.equal(fresh.low,900);
+  assert.equal(fresh.high,1100);
+  const stale=Finance.expandCostBand({central:1000,low:900,high:1100,modelType:'tariff',ageMonths:6,confidence:.55});
+  assert.equal(stale.central,1000);
+  assert.ok(stale.low<900);
+  assert.ok(stale.high>1100);
+  assert.ok(stale.priceUncertainty>0);
+});
+
+test('target cost scenario separates fixed cost from avoidable variable cost',()=>{
+  const s=Finance.targetCostScenario({targetEnergy:100,forecastEnergy:120,fixed:300,variableRate:6});
+  assert.equal(s.targetCost,900);
+  assert.equal(s.forecastCost,1020);
+  assert.equal(s.difference,120);
+  assert.equal(s.energyDifference,20);
+});

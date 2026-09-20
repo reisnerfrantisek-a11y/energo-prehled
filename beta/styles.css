@@ -271,3 +271,9 @@
 .finance-empty-detail strong{color:var(--text);font-size:10px}
 @media(max-width:700px){.finance-analytics-grid{grid-template-columns:1fr}.finance-bridge-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:420px){.finance-bridge-grid{grid-template-columns:1fr}.finance-component-row{grid-template-columns:1fr}.finance-component-track{margin-top:-2px}}
+
+
+/* Finance forecast 2.0 · 1.13.0 */
+.forecast-target-impact{display:block;padding:8px 10px;border-radius:10px;background:rgba(100,211,162,.08);border:1px solid rgba(100,211,162,.22);color:#bfe9d6!important;font-size:9px!important;line-height:1.45}
+
+.accuracy-model{color:var(--muted)!important;font-size:8px!important;opacity:.9}

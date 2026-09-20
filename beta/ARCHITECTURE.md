@@ -123,3 +123,14 @@ Pro dva po sobě použitelné validované tarify modul počítá aditivní tarif
 Součet těchto tří vlivů přesně odpovídá změně modelované faktury `F + V × E`. Rozdíl proti skutečné změně faktury zůstává explicitní jako reziduum a neskrývá se v žádné komponentě.
 
 Stáří zdrojového PDF tarifu se počítá v kalendářních měsících. Nemění spotřební Forecast 2.0 ani samotnou tarifní rovnici, ale snižuje zobrazovanou důvěru finančního odhadu: nejnovější tarif má plnou důvěru, starší tarif postupně menší. Zdrojový měsíc a stáří jsou viditelné v UI.
+
+
+## Finance Forecast 2.0 (1.13.0)
+
+Střední hodnota nákladového forecastu se nemění: u validovaného tarifu je stále `F + V × E`, kde `F` je měsíční fix, `V` variabilní sazba v Kč/kWh a `E` střední predikce spotřeby. U statistického modelu zůstává zdrojem omezená nezáporná regrese historických faktur.
+
+Nová funkce `FinanceAnalytics.expandCostBand()` přidává druhou osu nejistoty k již existujícímu spotřebnímu pásmu. U čerstvého validovaného tarifu může být cenová nejistota nulová; s rostoucím stářím tarifu a nižší confidence se pásmo symetricky rozšiřuje. U regresního modelu se používá konzervativnější minimum a šířka roste s klesající confidence. Střední predikce se touto operací neposouvá.
+
+Finanční dopad měsíčního cíle používá tentýž cenový model jako hlavní forecast. U validovaného tarifu se proto mění pouze variabilní část `V × E`; fixní složka `F` zůstává v obou scénářích. To zabraňuje nadhodnocování potenciální úspory při nižší spotřebě.
+
+Forecast snapshot od 1.13.0 navíc ukládá `costModelType`, `financeConfidence`, `priceUncertainty`, `tariffSourceMonth` a `tariffAgeMonths`. Tyto hodnoty jsou auditní metadata a neovlivňují zpětně starší snapshoty. Měsíční report je pouze čte a zobrazuje.

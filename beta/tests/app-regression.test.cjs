@@ -23,7 +23,7 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput,monthlyReportForMonth,completeReportMonthKeys,latestValidatedTariff,financeAnalyticsInputs
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput,monthlyReportForMonth,completeReportMonthKeys,latestValidatedTariff,financeAnalyticsInputs,financialTargetScenario
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
@@ -31,29 +31,29 @@ return {
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.12.0 files are version-aligned and syntactically valid',()=>{
+test('beta 1.13.0 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.12\.0'/);
-  assert.match(html,/BETA 1\.12\.0/);
-  assert.match(sw,/v1\.12\.0/);
-  assert.match(html,/core\/model\.js\?v=1\.12\.0/);
-  assert.match(html,/core\/time\.js\?v=1\.12\.0/);
-  assert.match(html,/core\/forecast\.js\?v=1\.12\.0/);
-  assert.match(html,/core\/regime\.js\?v=1\.12\.0/);
-  assert.match(html,/core\/invoice\.js\?v=1\.12\.0/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.12\.0/);
-  assert.match(sw,/core\/model\.js\?v=1\.12\.0/);
-  assert.match(sw,/core\/time\.js\?v=1\.12\.0/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.12\.0/);
-  assert.match(sw,/core\/regime\.js\?v=1\.12\.0/);
-  assert.match(html,/core\/power\.js\?v=1\.12\.0/);
-  assert.match(sw,/core\/power\.js\?v=1\.12\.0/);
-  assert.match(html,/core\/report\.js\?v=1\.12\.0/);
-  assert.match(sw,/core\/report\.js\?v=1\.12\.0/);
-  assert.match(html,/core\/finance-analytics\.js\?v=1\.12\.0/);
-  assert.match(sw,/core\/finance-analytics\.js\?v=1\.12\.0/);
-  assert.ok(html.indexOf('core/invoice.js?v=1.12.0')<html.indexOf('core/finance-analytics.js?v=1.12.0'),'invoice core must load before finance analytics');
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.12\.0/);
+  assert.match(app,/APP_VERSION = '1\.13\.0'/);
+  assert.match(html,/BETA 1\.13\.0/);
+  assert.match(sw,/v1\.13\.0/);
+  assert.match(html,/core\/model\.js\?v=1\.13\.0/);
+  assert.match(html,/core\/time\.js\?v=1\.13\.0/);
+  assert.match(html,/core\/forecast\.js\?v=1\.13\.0/);
+  assert.match(html,/core\/regime\.js\?v=1\.13\.0/);
+  assert.match(html,/core\/invoice\.js\?v=1\.13\.0/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.13\.0/);
+  assert.match(sw,/core\/model\.js\?v=1\.13\.0/);
+  assert.match(sw,/core\/time\.js\?v=1\.13\.0/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.13\.0/);
+  assert.match(sw,/core\/regime\.js\?v=1\.13\.0/);
+  assert.match(html,/core\/power\.js\?v=1\.13\.0/);
+  assert.match(sw,/core\/power\.js\?v=1\.13\.0/);
+  assert.match(html,/core\/report\.js\?v=1\.13\.0/);
+  assert.match(sw,/core\/report\.js\?v=1\.13\.0/);
+  assert.match(html,/core\/finance-analytics\.js\?v=1\.13\.0/);
+  assert.match(sw,/core\/finance-analytics\.js\?v=1\.13\.0/);
+  assert.ok(html.indexOf('core/invoice.js?v=1.13.0')<html.indexOf('core/finance-analytics.js?v=1.13.0'),'invoice core must load before finance analytics');
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.13\.0/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -557,4 +557,68 @@ test('manual invoice remains effective-price data only, not detailed tariff stru
   assert.equal(row.fixedGross,null);
   assert.equal(row.variableRate,null);
   assert.deepEqual(FinanceAnalytics.componentBreakdown({invoiceTotal:800,source:'manual'}),[]);
+});
+
+
+test('Finance Forecast 2.0 widens stale-tariff cost band but keeps central estimate unchanged',()=>{
+  const api=loadApp();api.state.months=[];api.state.records=[];
+  function addMonth(key,complete,source,days,dayKwh,finance){
+    const [y,m]=key.split('-').map(Number);
+    api.state.months.push({monthKey:key,enabled:true,complete,source,lastAvailableAt:source==='egd-api'?'2026-09-18T21:45:00Z':null,finance});
+    for(let d=1;d<=days;d++)for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){
+      const dateKey=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`,wd0=new Date(Date.UTC(y,m-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;
+      api.state.records.push({id:`${key}-${d}-${h}-${mi}`,ean:'859000000000000001',monthKey:key,dateKey,sortKey:Date.UTC(y,m-1,d,h,mi),year:y,month:m,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:dayKwh/6,source,apiStatus:source==='egd-api'?'W':undefined});
+    }
+  }
+  addMonth('2026-05',true,'xlsx',31,1,{
+    invoiceTotal:500,source:'pdf',metering:{ean:'859000000000000001'},
+    tariff:{validated:true,fixedGrossPerMonth:300,variableGrossPerKwh:6,sourceMonthKey:'2026-05'},
+    invoiceMeta:{extractionConfidence:1}
+  });
+  addMonth('2026-06',true,'xlsx',30,1.05,{invoiceTotal:510});
+  addMonth('2026-07',true,'xlsx',31,1.1,{invoiceTotal:520});
+  addMonth('2026-08',true,'xlsx',31,1.15,{invoiceTotal:530});
+  addMonth('2026-09',false,'egd-api',18,1.2,{invoiceTotal:null});
+  const e=api.estimateRateForMonth('2026-09');
+  const baseLow=e.fixed+e.variableRate*e.lowEnergy,baseHigh=e.fixed+e.variableRate*e.highEnergy;
+  assert.equal(e.modelType,'tariff');
+  assert.equal(e.tariffAgeMonths,4);
+  assert.ok(e.priceUncertainty>0);
+  assert.ok(e.lowProjectedCost<baseLow);
+  assert.ok(e.highProjectedCost>baseHigh);
+  assert.ok(Math.abs(e.projectedCost-(e.fixed+e.variableRate*e.predictedEnergy))<1e-8);
+});
+
+test('financial target scenario converts kWh target gap into modeled cost impact',()=>{
+  const api=loadApp();
+  api.state.months=[{monthKey:'2026-09',enabled:true,energyTargetKwh:40}];
+  const s=api.financialTargetScenario('2026-09',{modelType:'tariff',predictedEnergy:50,projectedCost:600,fixed:300,variableRate:6});
+  assert.ok(s);
+  assert.equal(s.energyDifference,10);
+  assert.equal(s.targetCost,540);
+  assert.equal(s.forecastCost,600);
+  assert.equal(s.difference,60);
+});
+
+test('forecast snapshots persist finance model provenance for future backtests',()=>{
+  assert.match(app,/costModelType:estimate\.modelType\|\|null/);
+  assert.match(app,/financeConfidence:Number\.isFinite\(estimate\.confidence\)/);
+  assert.match(app,/priceUncertainty:Number\.isFinite\(estimate\.priceUncertainty\)/);
+  assert.match(app,/tariffSourceMonth:estimate\.tariffSourceMonth\|\|null/);
+  assert.match(app,/tariffAgeMonths:Number\.isFinite\(estimate\.tariffAgeMonths\)/);
+});
+
+test('cost forecast UI surfaces price uncertainty and target financial impact',()=>{
+  assert.match(app,/Cenová nejistota modelu/);
+  assert.match(app,/forecast-target-impact/);
+  assert.match(app,/modelovaný rozdíl nákladů/);
+  assert.match(app,/nákladová rezerva/);
+});
+
+
+test('forecast accuracy UI shows finance model provenance when snapshot metadata exists',()=>{
+  assert.match(app,/cenový model:/);
+  assert.match(app,/tariffSourceMonth/);
+  assert.match(app,/cenová nejistota ±/);
+  assert.match(app,/accuracy-model/);
 });
