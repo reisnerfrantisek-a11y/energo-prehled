@@ -1027,7 +1027,7 @@ function predictMonthEnergy(monthKey,points=historicalEnergyPoints(monthKey)){
   let gapEnergy=0,remainderToday=0,futureEnergy=0;
   for(const k of allDates){
     const expectedDay=Math.max(.0001,(baseline[weekdayFromDateKey(k)]||overall)*scale),actualDay=currentDaily.get(k)||0,count=currentCounts.get(k)||0,expectedCount=expectedIntervalsForDate(k);
-    if(monthKey<currentMonth||k<today){
+    if(monthKey<currentMonth||k<todayKey){
       if(count<expectedCount)gapEnergy+=estimateMissingDayEnergy(expectedDay,actualDay,count,expectedCount);
     }else if(monthKey===currentMonth&&k===todayKey){
       remainderToday=estimateMissingDayEnergy(expectedDay,actualDay,count,expectedCount);
