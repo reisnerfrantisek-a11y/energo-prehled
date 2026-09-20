@@ -469,7 +469,7 @@ test('automatic monthly report UI is wired to stored historical forecast snapsho
   assert.match(html,/id="monthlyReportCopy"/);
   assert.match(app,/evaluationForecast\(monthKey,history\)/);
   assert.match(app,/REPORT\.buildMonthlyReport/);
-  assert.match(app,/renderAnalysisContext\(rs\);renderMonthlyReport\(\);renderForecastAccuracy\(\)/);
+  assert.match(app,/renderAnalysisContext\(rs\);renderFinanceAnalytics\(\);renderMonthlyReport\(\);renderForecastAccuracy\(\)/);
 });
 
 test('monthly report is available for complete enabled months and keeps old snapshots immutable',()=>{
