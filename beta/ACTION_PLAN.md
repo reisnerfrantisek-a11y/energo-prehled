@@ -11,7 +11,7 @@ Společný desetibodový **Akční plán** je aktivní od verze 1.7.0. Jednotliv
 7. **Detailní finanční model z reálných tarifních složek a PDF faktur — probíhá od 1.6.1.** Lokální E.ON PDF parser, rozpad ceny a ověřený tarif mají přednost před regresí.
 8. **Automatická detekce změny režimu spotřeby a adaptace forecastu — nasazeno v 1.8.0.** Model porovnává posledních 7 dní s robustní historickou základnou, vyžaduje konzistentní změnu napříč dny a při potvrzeném posunu upravuje váhy Forecastu 2.0 směrem k posledním 7/14 dnům.
 9. **Analýza výkonových maxim, výkonových pásem a vztahu k hlavnímu jističi — nasazeno v 1.10.0.** Analýza DCC1 počítá maximum, P95/P99, čas v pásmech relativně k nastavenému jističi a orientační výkonovou rezervu.
-10. **Automatický měsíční report — další etapa.** Skutečnost, historická predikce, odchylka, faktura, maximum a nejsilnější den.
+10. **Automatický měsíční report — nasazeno v 1.11.0.** Pro každý kompletní aktivní měsíc se skládá report ze skutečné spotřeby, skutečně uloženého historického forecastu, odchylky, faktury, maxima DCC1 a nejsilnějšího dne.
 
 ## Verze 1.7.0 — první etapa
 
@@ -80,3 +80,15 @@ Body 5, 8, 9 a 10 budou pokračovat v následujících verzích, aby se do jedno
 - zobrazuje se počet intervalů a doba strávená v jednotlivých pásmech,
 - konfigurace jističe je součástí lokální JSON zálohy; přístupové údaje EG.D nadále součástí zálohy nejsou,
 - aplikace výslovně upozorňuje, že 15minutový průměr DCC1 není měření okamžitého proudu jednotlivých fází a nelze z něj spolehlivě určit vybavení jističe.
+
+
+## Verze 1.11.0 — automatický měsíční report
+
+- pro každý kompletní aktivní měsíc vzniká automatický report bez ručního přepočítávání,
+- skutečná spotřeba se počítá z použitelných DCC1 intervalů,
+- historická predikce se bere výhradně z forecast snapshotu uloženého ještě před koncem měsíce; pokud existuje snapshot přibližně sedm dní před koncem, má přednost,
+- report ukazuje absolutní i procentní odchylku spotřebního forecastu,
+- pokud existuje faktura a historický cenový forecast, vyhodnotí se také odchylka nákladů a zásah predikčního pásma,
+- součástí jsou maximum DCC1, čas maxima, nejsilnější den a případná odchylka od měsíčního cíle,
+- report lze jedním tlačítkem zkopírovat jako text,
+- chybějící historický forecast nebo faktura se výslovně zobrazí jako chybějící údaj; aplikace je zpětně neregeneruje.

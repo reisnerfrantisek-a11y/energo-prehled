@@ -1,7 +1,7 @@
 'use strict';
 
-const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice,TIME=window.EnergoTime,FORECAST=window.EnergoForecast,REGIME=window.EnergoRegime,POWER=window.EnergoPower,INVOICE_PARSER=window.EnergoInvoiceParser;
-if(!CORE||!INVOICE||!TIME||!FORECAST||!REGIME||!POWER||!INVOICE_PARSER)throw new Error('Chybí core moduly Energo aplikace.');
+const CORE=window.EnergoCore,INVOICE=window.EnergoInvoice,TIME=window.EnergoTime,FORECAST=window.EnergoForecast,REGIME=window.EnergoRegime,POWER=window.EnergoPower,REPORT=window.EnergoReport,INVOICE_PARSER=window.EnergoInvoiceParser;
+if(!CORE||!INVOICE||!TIME||!FORECAST||!REGIME||!POWER||!REPORT||!INVOICE_PARSER)throw new Error('Chybí core moduly Energo aplikace.');
 
 const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.11.0';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -1667,6 +1667,57 @@ function renderForecastPanel(rs){
   meta.innerHTML=`<span><strong>${fmt.format(e.cost)} Kč</strong> odhad nákladů dosud</span><span class="scenario-mid"><strong>${fmt.format(e.projectedCost)} Kč</strong> střední scénář</span><span class="scenario-low"><strong>${fmt.format(e.lowProjectedCost)} Kč</strong> nižší scénář</span><span class="scenario-high"><strong>${fmt.format(e.highProjectedCost)} Kč</strong> vyšší scénář</span><span class="forecast-model"><strong>${escapeHtml(modelText)}</strong>${Number.isFinite(rangeWidth)?` · scénářové pásmo ${fmt.format(rangeWidth)} Kč`:''}</span>${energyModel?`<span class="forecast-model">${escapeHtml(energyModel)}</span>`:''}`;
   forecastBandChart(chart,series.data);
 }
+function completeReportMonthKeys(){
+  return state.months.filter(m=>m.enabled!==false&&monthIsComplete(m.monthKey)&&state.records.some(r=>r.monthKey===m.monthKey&&recordUsable(r))).map(m=>m.monthKey).sort().reverse();
+}
+function monthlyReportForMonth(monthKey){
+  const m=monthMeta(monthKey);if(!m||!monthIsComplete(monthKey))return null;
+  const history=forecastHistoryForMonth(m),snapshot=history.length?evaluationForecast(monthKey,history):null;
+  const records=state.records.filter(r=>r.monthKey===monthKey&&recordUsable(r)).map(r=>({dateKey:r.dateKey,timestamp:r.displayTimestamp||r.sourceTimestamp||'',kw:Number(r.dcc1),energy:billingEnergy(r)}));
+  return REPORT.buildMonthlyReport({records,invoiceTotal:monthInvoice(monthKey),targetKwh:monthEnergyTarget(monthKey),snapshot});
+}
+function monthlyReportText(monthKey,report){
+  if(!report)return '';
+  const lines=[`Energo Přehled – měsíční report ${monthLabel(monthKey)}`,`Skutečná spotřeba: ${fmt3.format(report.actualEnergy)} kWh`];
+  if(report.predictedEnergy!==null)lines.push(`Historická predikce: ${fmt3.format(report.predictedEnergy)} kWh (z ${formatDateKey(report.snapshot?.asOfDate)}, ${fmt.format(report.energyErrorPct)} % proti skutečnosti)`);
+  else lines.push('Historická predikce: není k dispozici');
+  lines.push(report.invoiceTotal!==null?`Faktura: ${fmt.format(report.invoiceTotal)} Kč · efektivně ${fmt.format(report.effectivePrice)} Kč/kWh`:'Faktura: není doplněna');
+  if(report.predictedCost!==null&&report.invoiceTotal!==null)lines.push(`Predikce nákladů: ${fmt.format(report.predictedCost)} Kč · odchylka ${report.costError>=0?'+':''}${fmt.format(report.costError)} Kč (${report.costErrorPct>=0?'+':''}${fmt.format(report.costErrorPct)} %)`);
+  if(report.peakKw!==null)lines.push(`Maximum DCC1: ${fmt.format(report.peakKw)} kW · ${report.peakTimestamp||'—'}`);
+  if(report.strongestDay)lines.push(`Nejsilnější den: ${formatDateKey(report.strongestDay.dateKey)} · ${fmt3.format(report.strongestDay.energy)} kWh`);
+  if(report.targetKwh!==null)lines.push(`Cíl: ${fmt3.format(report.targetKwh)} kWh · skutečnost ${report.targetDelta>=0?'+':''}${fmt3.format(report.targetDelta)} kWh proti cíli`);
+  return lines.join('\n');
+}
+function renderMonthlyReport(){
+  const select=$('#monthlyReportMonth'),grid=$('#monthlyReportGrid'),forecastEl=$('#monthlyReportForecast'),copy=$('#monthlyReportCopy');if(!select||!grid||!forecastEl||!copy)return;
+  const keys=completeReportMonthKeys();
+  if(!keys.length){select.innerHTML='<option value="">Bez uzavřeného měsíce</option>';select.disabled=true;copy.disabled=true;grid.innerHTML='<div class="chart-empty">Měsíční report vznikne automaticky po uzavření prvního kompletního měsíce.</div>';forecastEl.innerHTML='';return}
+  const current=select.value,periodKey=state.period==='month'?expectedCurrentMonthKeys()[0]:null,key=keys.includes(periodKey)?periodKey:(keys.includes(current)?current:keys[0]);
+  select.disabled=false;copy.disabled=false;select.innerHTML=keys.map(k=>`<option value="${k}" ${k===key?'selected':''}>${escapeHtml(monthLabel(k))}</option>`).join('');
+  const r=monthlyReportForMonth(key);if(!r){grid.innerHTML='<div class="chart-empty">Report nelze sestavit.</div>';forecastEl.innerHTML='';return}
+  const energyError=r.energyErrorPct===null?'—':`${r.energyErrorPct>=0?'+':''}${fmt.format(r.energyErrorPct)} %`;
+  const invoice=r.invoiceTotal===null?'—':`${fmt.format(r.invoiceTotal)} Kč`,effective=r.effectivePrice===null?'—':`${fmt.format(r.effectivePrice)} Kč/kWh`;
+  const peak=r.peakKw===null?'—':`${fmt.format(r.peakKw)} kW`,strong=r.strongestDay?`${formatDateKey(r.strongestDay.dateKey)} · ${fmt3.format(r.strongestDay.energy)} kWh`:'—';
+  grid.innerHTML=`
+    <article class="monthly-report-kpi"><span>Skutečnost</span><strong>${fmt3.format(r.actualEnergy)} kWh</strong><small>${r.intervalCount.toLocaleString('cs-CZ')} intervalů · ${r.dayCount} dní</small></article>
+    <article class="monthly-report-kpi"><span>Historická predikce</span><strong>${r.predictedEnergy===null?'—':fmt3.format(r.predictedEnergy)+' kWh'}</strong><small>${r.snapshot?.asOfDate?`uložena ${formatDateKey(r.snapshot.asOfDate)} · ${r.snapshot.daysRemaining??'—'} d do konce`:'snapshot není k dispozici'}</small></article>
+    <article class="monthly-report-kpi"><span>Odchylka forecastu</span><strong class="${r.energyErrorPct===null?'':r.energyErrorPct>0?'report-over':'report-under'}">${energyError}</strong><small>${r.energyError===null?'—':`${r.energyError>=0?'+':''}${fmt3.format(r.energyError)} kWh`}</small></article>
+    <article class="monthly-report-kpi"><span>Faktura</span><strong>${invoice}</strong><small>efektivně ${effective}</small></article>
+    <article class="monthly-report-kpi"><span>Maximum DCC1</span><strong>${peak}</strong><small>${escapeHtml(r.peakTimestamp||'—')}</small></article>
+    <article class="monthly-report-kpi"><span>Nejsilnější den</span><strong>${strong}</strong><small>${r.targetKwh===null?'bez měsíčního cíle':`cíl ${fmt3.format(r.targetKwh)} kWh · ${r.targetDelta>=0?'+':''}${fmt3.format(r.targetDelta)} kWh`}</small></article>`;
+  if(r.predictedCost!==null&&r.invoiceTotal!==null){
+    const band=r.costInsideBand===null?'':r.costInsideBand?' · faktura v predikčním pásmu':' · faktura mimo predikční pásmo';
+    forecastEl.innerHTML=`<strong>Nákladový forecast: ${fmt.format(r.predictedCost)} Kč → ${fmt.format(r.invoiceTotal)} Kč</strong><span>odchylka ${r.costError>=0?'+':''}${fmt.format(r.costError)} Kč · ${r.costErrorPct>=0?'+':''}${fmt.format(r.costErrorPct)} %${band}</span>`;
+  }else forecastEl.innerHTML='<strong>Nákladový backtest není kompletní.</strong><span>Pro porovnání je potřeba historický cenový snapshot a uložená faktura.</span>';
+  copy.dataset.monthKey=key;
+}
+async function copyMonthlyReport(){
+  const key=$('#monthlyReportCopy')?.dataset.monthKey,report=key?monthlyReportForMonth(key):null,text=monthlyReportText(key,report);if(!text)return;
+  if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text)}
+  else{const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove()}
+  showToast('Měsíční report zkopírován');
+}
+
 function renderForecastAccuracy(){
   const summary=$('#forecastAccuracySummary'),list=$('#forecastAccuracyList');if(!summary||!list)return;
   const data=forecastAccuracySummary();
@@ -1838,7 +1889,7 @@ function renderOverview(){
   const night=rs.filter(r=>r.hour<6);$('#baseLoadLabel').textContent='Základní odběr';$('#baseLoad').textContent=night.length?`${fmt.format(night.reduce((sum,r)=>sum+val(r),0)/night.length*1000)} W`:'—';$('#baseLoadUnit').textContent='průměr 00–06 h';
 }
 function renderAnalysis(){
-  const rs=currentRange();renderAnalysisContext(rs);renderForecastAccuracy();
+  const rs=currentRange();renderAnalysisContext(rs);renderMonthlyReport();renderForecastAccuracy();
   if(!rs.length){
     const expected=expectedCurrentMonthKeys(),message=expected.length&&keysContainDisabled(expected)?'Zvolené období obsahuje vypnutá data':'Pro zvolené období nejsou aktivní data';
     ['weekdayChart','hourlyChart','heatmap','daypartList','peaksList'].forEach(id=>$('#'+id).innerHTML=`<div class="chart-empty">${message}</div>`);
@@ -2150,6 +2201,8 @@ function bind(){
   $('#energyTargetClear').onclick=()=>{const key=$('#energyTargetInput').dataset.monthKey;if(key)setMonthEnergyTarget(key,'').catch(err=>alert('Cíl se nepodařilo odstranit: '+err.message))};
   $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});
   $('#dayTypeSelect').onchange=renderAnalysis;
+  $('#monthlyReportMonth').onchange=renderMonthlyReport;
+  $('#monthlyReportCopy').onclick=()=>copyMonthlyReport().catch(e=>alert('Report se nepodařilo zkopírovat: '+e.message));
   $$('[data-analysis-mode]').forEach(b=>b.onclick=()=>{state.analysisMode=b.dataset.analysisMode==='raw'?'raw':'robust';localStorage.setItem(ANALYSIS_MODE_KEY,state.analysisMode);renderAnalysis()});
   $$('.daypart-btn').forEach(b=>b.onclick=()=>{state.daypartMode=b.dataset.daypartMode;localStorage.setItem(DAYPART_KEY,state.daypartMode);renderDayparts(currentRange())});
   $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};
