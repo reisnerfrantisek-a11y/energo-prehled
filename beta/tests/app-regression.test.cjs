@@ -20,7 +20,7 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
@@ -28,22 +28,22 @@ return {
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.8.1 files are version-aligned and syntactically valid',()=>{
+test('beta 1.9.0 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.8\.1'/);
-  assert.match(html,/BETA 1\.8\.1/);
-  assert.match(sw,/v1\.8\.1/);
-  assert.match(html,/core\/model\.js\?v=1\.8\.1/);
-  assert.match(html,/core\/time\.js\?v=1\.8\.1/);
-  assert.match(html,/core\/forecast\.js\?v=1\.8\.1/);
-  assert.match(html,/core\/regime\.js\?v=1\.8\.1/);
-  assert.match(html,/core\/invoice\.js\?v=1\.8\.1/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.8\.1/);
-  assert.match(sw,/core\/model\.js\?v=1\.8\.1/);
-  assert.match(sw,/core\/time\.js\?v=1\.8\.1/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.8\.1/);
-  assert.match(sw,/core\/regime\.js\?v=1\.8\.1/);
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.8\.1/);
+  assert.match(app,/APP_VERSION = '1\.9\.0'/);
+  assert.match(html,/BETA 1\.9\.0/);
+  assert.match(sw,/v1\.9\.0/);
+  assert.match(html,/core\/model\.js\?v=1\.9\.0/);
+  assert.match(html,/core\/time\.js\?v=1\.9\.0/);
+  assert.match(html,/core\/forecast\.js\?v=1\.9\.0/);
+  assert.match(html,/core\/regime\.js\?v=1\.9\.0/);
+  assert.match(html,/core\/invoice\.js\?v=1\.9\.0/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.9\.0/);
+  assert.match(sw,/core\/model\.js\?v=1\.9\.0/);
+  assert.match(sw,/core\/time\.js\?v=1\.9\.0/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.9\.0/);
+  assert.match(sw,/core\/regime\.js\?v=1\.9\.0/);
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.9\.0/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -401,4 +401,30 @@ test('audit 1.8.1 ignores unusable EG.D tail for availability and cost forecast 
   const lastUsable=Math.max(...live.filter(r=>api.egdStatusInfo(r.apiStatus).usable).map(r=>r.sortKey));
   assert.equal(payload.month.lastAvailableAt,new Date(lastUsable).toISOString());
   assert.match(app,/function forecastCostSeries\(monthKey\)\{[\s\S]{0,500}state\.records\.filter\(r=>r\.monthKey===monthKey&&recordUsable\(r\)\)/);
+});
+
+
+test('energy target is stored per month and produces daily and cumulative trajectory',()=>{
+  const api=loadApp();api.state.months=[{monthKey:'2026-10',enabled:true,complete:false,source:'egd-api',lastAvailableAt:'2026-10-10T20:00:00Z',energyTargetKwh:62}];api.state.records=[];
+  assert.equal(api.monthEnergyTarget('2026-10'),62);
+  const daily=api.monthTargetSeries('2026-10',false);
+  assert.equal(daily.values.length,31);
+  assert.ok(Math.abs(daily.values.reduce((a,b)=>a+b,0)-62)<1e-9);
+  const cumulative=api.monthTargetSeries('2026-10',true);
+  assert.ok(Math.abs(cumulative.values.at(-1)-62)<1e-9);
+  assert.ok(cumulative.values.every((v,i,a)=>i===0||v>=a[i-1]));
+});
+
+test('energy target input validation and persistence guards are wired',()=>{
+  const api=loadApp();
+  assert.equal(api.parseEnergyTargetInput('45,75'),45.75);
+  assert.equal(api.parseEnergyTargetInput(''),null);
+  assert.throws(()=>api.parseEnergyTargetInput('0'));
+  assert.throws(()=>api.parseEnergyTargetInput('-5'));
+  assert.match(app,/energyTargetKwh:previous\?\.energyTargetKwh\?\?payload\.month\.energyTargetKwh\?\?null/);
+  assert.match(app,/neplatný měsíční cíl spotřeby/);
+  assert.match(html,/id="energyTargetRow"/);
+  assert.match(html,/id="energyTargetInput"/);
+  assert.match(html,/id="energyTargetStatus"/);
+  assert.match(app,/target:monthSeries\.target/);
 });
