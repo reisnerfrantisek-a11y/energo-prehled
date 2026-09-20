@@ -8,6 +8,7 @@ const Time=require('../core/time.js');
 const Forecast=require('../core/forecast.js');
 const Regime=require('../core/regime.js');
 const Power=require('../core/power.js');
+const Report=require('../core/report.js');
 const InvoiceParser=require('../core/invoice-parser.js');
 
 const root=path.resolve(__dirname,'..');
@@ -21,32 +22,34 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput,monthlyReportForMonth,completeReportMonthKeys
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
-  const window={EnergoCore:Core,EnergoInvoice:Invoice,EnergoTime:Time,EnergoForecast:Forecast,EnergoRegime:Regime,EnergoPower:Power,EnergoInvoiceParser:InvoiceParser,scrollTo:()=>{}};
+  const window={EnergoCore:Core,EnergoInvoice:Invoice,EnergoTime:Time,EnergoForecast:Forecast,EnergoRegime:Regime,EnergoPower:Power,EnergoReport:Report,EnergoInvoiceParser:InvoiceParser,scrollTo:()=>{}};
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.10.0 files are version-aligned and syntactically valid',()=>{
+test('beta 1.11.0 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.10\.0'/);
-  assert.match(html,/BETA 1\.10\.0/);
-  assert.match(sw,/v1\.10\.0/);
-  assert.match(html,/core\/model\.js\?v=1\.10\.0/);
-  assert.match(html,/core\/time\.js\?v=1\.10\.0/);
-  assert.match(html,/core\/forecast\.js\?v=1\.10\.0/);
-  assert.match(html,/core\/regime\.js\?v=1\.10\.0/);
-  assert.match(html,/core\/invoice\.js\?v=1\.10\.0/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.10\.0/);
-  assert.match(sw,/core\/model\.js\?v=1\.10\.0/);
-  assert.match(sw,/core\/time\.js\?v=1\.10\.0/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.10\.0/);
-  assert.match(sw,/core\/regime\.js\?v=1\.10\.0/);
-  assert.match(html,/core\/power\.js\?v=1\.10\.0/);
-  assert.match(sw,/core\/power\.js\?v=1\.10\.0/);
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.10\.0/);
+  assert.match(app,/APP_VERSION = '1\.11\.0'/);
+  assert.match(html,/BETA 1\.11\.0/);
+  assert.match(sw,/v1\.11\.0/);
+  assert.match(html,/core\/model\.js\?v=1\.11\.0/);
+  assert.match(html,/core\/time\.js\?v=1\.11\.0/);
+  assert.match(html,/core\/forecast\.js\?v=1\.11\.0/);
+  assert.match(html,/core\/regime\.js\?v=1\.11\.0/);
+  assert.match(html,/core\/invoice\.js\?v=1\.11\.0/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.11\.0/);
+  assert.match(sw,/core\/model\.js\?v=1\.11\.0/);
+  assert.match(sw,/core\/time\.js\?v=1\.11\.0/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.11\.0/);
+  assert.match(sw,/core\/regime\.js\?v=1\.11\.0/);
+  assert.match(html,/core\/power\.js\?v=1\.11\.0/);
+  assert.match(sw,/core\/power\.js\?v=1\.11\.0/);
+  assert.match(html,/core\/report\.js\?v=1\.11\.0/);
+  assert.match(sw,/core\/report\.js\?v=1\.11\.0/);
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.11\.0/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -451,4 +454,35 @@ test('breaker analysis explicitly uses DCC1 and documents 15-minute limitation',
   assert.match(app,/kw:Number\(r\.dcc1\)/);
   assert.match(html,/15minutový průměr činného výkonu/);
   assert.match(html,/nelze určit okamžitý proud jednotlivých fází/);
+});
+
+
+test('automatic monthly report UI is wired to stored historical forecast snapshots',()=>{
+  assert.match(html,/id="monthlyReportCard"/);
+  assert.match(html,/id="monthlyReportMonth"/);
+  assert.match(html,/id="monthlyReportGrid"/);
+  assert.match(html,/id="monthlyReportForecast"/);
+  assert.match(html,/id="monthlyReportCopy"/);
+  assert.match(app,/evaluationForecast\(monthKey,history\)/);
+  assert.match(app,/REPORT\.buildMonthlyReport/);
+  assert.match(app,/renderAnalysisContext\(rs\);renderMonthlyReport\(\);renderForecastAccuracy\(\)/);
+});
+
+test('monthly report is available for complete enabled months and keeps old snapshots immutable',()=>{
+  const api=loadApp();
+  api.state.months=[{
+    monthKey:'2026-08',enabled:true,complete:true,source:'xlsx',count:2,finance:{invoiceTotal:100},
+    forecastHistory:[{asOfDate:'2026-08-24',predictedEnergy:12,projectedCost:110,lowProjectedCost:90,highProjectedCost:120}]
+  }];
+  api.state.records=[
+    {id:'a',monthKey:'2026-08',dateKey:'2026-08-01',sortKey:1,dcc0:0,dcc1:2,intervalMinutes:15,sourceTimestamp:'01.08.2026 10:00'},
+    {id:'b',monthKey:'2026-08',dateKey:'2026-08-02',sortKey:2,dcc0:0,dcc1:4,intervalMinutes:15,sourceTimestamp:'02.08.2026 10:00'}
+  ];
+  assert.deepEqual(api.completeReportMonthKeys(),['2026-08']);
+  const report=api.monthlyReportForMonth('2026-08');
+  assert.ok(report);
+  assert.equal(report.predictedEnergy,12);
+  assert.equal(report.invoiceTotal,100);
+  assert.equal(report.peakKw,4);
+  assert.equal(api.state.months[0].forecastHistory[0].predictedEnergy,12);
 });
