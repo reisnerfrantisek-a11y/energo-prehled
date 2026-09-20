@@ -24,7 +24,7 @@ test('persistent higher consumption is detected as a regime change',()=>{
     const base=1+(i%7)*.015+((i%5)-2)*.008;
     days.push(makeDay(i,base,.18));
   }
-  for(let i=56;i<63;i++){
+  for(let i=56;i<70;i++){
     const base=1+(i%7)*.015;
     days.push(makeDay(i,base*1.38,.50));
   }
@@ -68,4 +68,16 @@ test('forecast adaptation shifts weight from old history toward recent windows',
   ];
   const normal=Regime.reblendForecast(components,base),changed=Regime.reblendForecast(components,adapted);
   assert.ok(changed>normal);
+});
+
+
+test('seven-day shift is candidate until longer window confirms it',()=>{
+  const days=[];
+  for(let i=0;i<56;i++)days.push(makeDay(i,1+((i%5)-2)*.006,.18));
+  for(let i=56;i<63;i++)days.push(makeDay(i,1.42,.48));
+  const r=Regime.detectRegimeShift(days);
+  assert.equal(r.status,'candidate');
+  assert.equal(r.direction,'higher');
+  assert.equal(r.strength,0);
+  assert.equal(r.confirmation.supports,false);
 });
