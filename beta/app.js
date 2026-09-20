@@ -1721,7 +1721,7 @@ function monthlyReportText(monthKey,report){
   if(report.predictedEnergy!==null)lines.push(`Historická predikce: ${fmt3.format(report.predictedEnergy)} kWh (z ${formatDateKey(report.snapshot?.asOfDate)}, ${fmt.format(report.energyErrorPct)} % proti skutečnosti)`);
   else lines.push('Historická predikce: není k dispozici');
   lines.push(report.invoiceTotal!==null?`Faktura: ${fmt.format(report.invoiceTotal)} Kč · efektivně ${fmt.format(report.effectivePrice)} Kč/kWh`:'Faktura: není doplněna');
-  if(report.predictedCost!==null&&report.invoiceTotal!==null)lines.push(`Predikce nákladů: ${fmt.format(report.predictedCost)} Kč · odchylka ${report.costError>=0?'+':''}${fmt.format(report.costError)} Kč (${report.costErrorPct>=0?'+':''}${fmt.format(report.costErrorPct)} %)`);
+  if(report.predictedCost!==null&&report.invoiceTotal!==null){lines.push(`Predikce nákladů: ${fmt.format(report.predictedCost)} Kč · odchylka ${report.costError>=0?'+':''}${fmt.format(report.costError)} Kč (${report.costErrorPct>=0?'+':''}${fmt.format(report.costErrorPct)} %)`);if(report.snapshot?.costModelType){const src=report.snapshot.costModelType==='tariff'&&report.snapshot.tariffSourceMonth?`tarif ${monthLabel(report.snapshot.tariffSourceMonth)}${Number.isFinite(report.snapshot.tariffAgeMonths)?` · stáří ${report.snapshot.tariffAgeMonths} měs.`:''}`:report.snapshot.costModelType==='regression'?'statistická regrese':report.snapshot.costModelType;lines.push(`Zdroj nákladového forecastu: ${src}`)}}
   if(report.peakKw!==null)lines.push(`Maximum DCC1: ${fmt.format(report.peakKw)} kW · ${report.peakTimestamp||'—'}`);
   if(report.strongestDay)lines.push(`Nejsilnější den: ${formatDateKey(report.strongestDay.dateKey)} · ${fmt3.format(report.strongestDay.energy)} kWh`);
   if(report.targetKwh!==null)lines.push(`Cíl: ${fmt3.format(report.targetKwh)} kWh · skutečnost ${report.targetDelta>=0?'+':''}${fmt3.format(report.targetDelta)} kWh proti cíli`);
@@ -1746,7 +1746,8 @@ function renderMonthlyReport(){
     <article class="monthly-report-kpi"><span>Nejsilnější den</span><strong>${strong}</strong><small>${r.targetKwh===null?'bez měsíčního cíle':`cíl ${fmt3.format(r.targetKwh)} kWh · ${r.targetDelta>=0?'+':''}${fmt3.format(r.targetDelta)} kWh`}</small></article>`;
   if(r.predictedCost!==null&&r.invoiceTotal!==null){
     const band=r.costInsideBand===null?'':r.costInsideBand?' · faktura v predikčním pásmu':' · faktura mimo predikční pásmo';
-    forecastEl.innerHTML=`<strong>Nákladový forecast: ${fmt.format(r.predictedCost)} Kč → ${fmt.format(r.invoiceTotal)} Kč</strong><span>odchylka ${r.costError>=0?'+':''}${fmt.format(r.costError)} Kč · ${r.costErrorPct>=0?'+':''}${fmt.format(r.costErrorPct)} %${band}</span>`;
+    const source=r.snapshot?.costModelType==='tariff'&&r.snapshot?.tariffSourceMonth?` · tarif ${monthLabel(r.snapshot.tariffSourceMonth)}${Number.isFinite(r.snapshot.tariffAgeMonths)?` (${r.snapshot.tariffAgeMonths} měs.)`:''}`:r.snapshot?.costModelType==='regression'?' · statistická regrese':'';
+    forecastEl.innerHTML=`<strong>Nákladový forecast: ${fmt.format(r.predictedCost)} Kč → ${fmt.format(r.invoiceTotal)} Kč</strong><span>odchylka ${r.costError>=0?'+':''}${fmt.format(r.costError)} Kč · ${r.costErrorPct>=0?'+':''}${fmt.format(r.costErrorPct)} %${band}${source}</span>`;
   }else forecastEl.innerHTML='<strong>Nákladový backtest není kompletní.</strong><span>Pro porovnání je potřeba historický cenový snapshot a uložená faktura.</span>';
   copy.dataset.monthKey=key;
 }
