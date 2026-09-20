@@ -23,7 +23,7 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput,monthlyReportForMonth,completeReportMonthKeys,latestValidatedTariff,financeAnalyticsInputs,financialTargetScenario
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput,monthlyReportForMonth,completeReportMonthKeys,latestValidatedTariff,financeAnalyticsInputs,financialTargetScenario,predictMonthEnergy,calibrationForecast,historicalEnergyForecastErrors,estimateMissingDayEnergy,completeClosedAnalysisRecords,dailyCostData,costForRecords,historicalMonthCostAllocation
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
@@ -31,29 +31,29 @@ return {
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.13.0 files are version-aligned and syntactically valid',()=>{
+test('beta 1.13.1 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.13\.0'/);
-  assert.match(html,/BETA 1\.13\.0/);
-  assert.match(sw,/v1\.13\.0/);
-  assert.match(html,/core\/model\.js\?v=1\.13\.0/);
-  assert.match(html,/core\/time\.js\?v=1\.13\.0/);
-  assert.match(html,/core\/forecast\.js\?v=1\.13\.0/);
-  assert.match(html,/core\/regime\.js\?v=1\.13\.0/);
-  assert.match(html,/core\/invoice\.js\?v=1\.13\.0/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.13\.0/);
-  assert.match(sw,/core\/model\.js\?v=1\.13\.0/);
-  assert.match(sw,/core\/time\.js\?v=1\.13\.0/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.13\.0/);
-  assert.match(sw,/core\/regime\.js\?v=1\.13\.0/);
-  assert.match(html,/core\/power\.js\?v=1\.13\.0/);
-  assert.match(sw,/core\/power\.js\?v=1\.13\.0/);
-  assert.match(html,/core\/report\.js\?v=1\.13\.0/);
-  assert.match(sw,/core\/report\.js\?v=1\.13\.0/);
-  assert.match(html,/core\/finance-analytics\.js\?v=1\.13\.0/);
-  assert.match(sw,/core\/finance-analytics\.js\?v=1\.13\.0/);
-  assert.ok(html.indexOf('core/invoice.js?v=1.13.0')<html.indexOf('core/finance-analytics.js?v=1.13.0'),'invoice core must load before finance analytics');
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.13\.0/);
+  assert.match(app,/APP_VERSION = '1\.13\.1'/);
+  assert.match(html,/BETA 1\.13\.1/);
+  assert.match(sw,/v1\.13\.1/);
+  assert.match(html,/core\/model\.js\?v=1\.13\.1/);
+  assert.match(html,/core\/time\.js\?v=1\.13\.1/);
+  assert.match(html,/core\/forecast\.js\?v=1\.13\.1/);
+  assert.match(html,/core\/regime\.js\?v=1\.13\.1/);
+  assert.match(html,/core\/invoice\.js\?v=1\.13\.1/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.13\.1/);
+  assert.match(sw,/core\/model\.js\?v=1\.13\.1/);
+  assert.match(sw,/core\/time\.js\?v=1\.13\.1/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.13\.1/);
+  assert.match(sw,/core\/regime\.js\?v=1\.13\.1/);
+  assert.match(html,/core\/power\.js\?v=1\.13\.1/);
+  assert.match(sw,/core\/power\.js\?v=1\.13\.1/);
+  assert.match(html,/core\/report\.js\?v=1\.13\.1/);
+  assert.match(sw,/core\/report\.js\?v=1\.13\.1/);
+  assert.match(html,/core\/finance-analytics\.js\?v=1\.13\.1/);
+  assert.match(sw,/core\/finance-analytics\.js\?v=1\.13\.1/);
+  assert.ok(html.indexOf('core/invoice.js?v=1.13.1')<html.indexOf('core/finance-analytics.js?v=1.13.1'),'invoice core must load before finance analytics');
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.13\.1/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -360,7 +360,7 @@ test('persistent recent shift changes Forecast 2.0 weighting',()=>{
     }
   }
   const start=new Date(Date.UTC(2026,5,1));
-  for(let i=0;i<70;i++){
+  for(let i=0;i<77;i++){
     const d=new Date(start.getTime()+i*86400000),key=d.toISOString().slice(0,10);
     addDay(key,i>=63?1.55:1.0,key>='2026-09-01'?'egd-api':'xlsx');
   }
@@ -621,4 +621,89 @@ test('forecast accuracy UI shows finance model provenance when snapshot metadata
   assert.match(app,/tariffSourceMonth/);
   assert.match(app,/cenová nejistota ±/);
   assert.match(app,/accuracy-model/);
+});
+
+
+test('audit 1.13.1 forecasts a month even without historical months',()=>{
+  const api=loadApp();api.state.months=[{monthKey:'2026-09',enabled:true,complete:false,source:'egd-api',lastAvailableAt:'2026-09-10T21:45:00Z'}];api.state.records=[];
+  const y=2026,m=9;
+  for(let d=1;d<=10;d++)for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){
+    const dateKey=`2026-09-${String(d).padStart(2,'0')}`,wd0=new Date(Date.UTC(y,m-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;
+    api.state.records.push({id:`n-${d}-${h}-${mi}`,monthKey:'2026-09',dateKey,sortKey:Date.UTC(y,m-1,d,h,mi),year:y,month:m,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:1/24/4,source:'egd-api',apiStatus:'W'});
+  }
+  const e=api.predictMonthEnergy('2026-09',[]);
+  assert.equal(e.historyAvailable,false);
+  assert.equal(e.forecastAvailable,true);
+  assert.ok(e.predictedEnergy>e.actualEnergy);
+  assert.ok(e.predictedEnergy>20);
+  assert.ok(e.remainingEnergy>0);
+});
+
+test('audit 1.13.1 calibration uses comparable 5-9 day Forecast 2.0 snapshots only',()=>{
+  const api=loadApp();
+  const history=[
+    {asOfDate:'2026-08-20',predictedEnergy:90,forecastModel:'legacy'},
+    {asOfDate:'2026-08-24',predictedEnergy:100,forecastModel:'ensemble-v2'},
+    {asOfDate:'2026-08-30',predictedEnergy:110,forecastModel:'ensemble-v2'}
+  ];
+  const snap=api.calibrationForecast('2026-08',history);
+  assert.equal(snap.asOfDate,'2026-08-24');
+  assert.equal(snap.daysRemaining,7);
+});
+
+test('audit 1.13.1 missing interval estimate stays positive on an above-baseline day',()=>{
+  const api=loadApp();
+  const missing=api.estimateMissingDayEnergy(10,12,95,96);
+  assert.ok(missing>0);
+  assert.ok(missing<1);
+});
+
+test('audit 1.13.1 complete-day analytics exclude partial closed days',()=>{
+  const api=loadApp();api.state.records=[];api.state.months=[];
+  function add(dateKey,count){
+    const [y,m,d]=dateKey.split('-').map(Number),wd0=new Date(Date.UTC(y,m-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;
+    for(let i=0;i<count;i++){const h=Math.floor(i/4),mi=(i%4)*15;api.state.records.push({id:dateKey+'-'+i,monthKey:dateKey.slice(0,7),dateKey,sortKey:Date.UTC(y,m-1,d,h,mi),year:y,month:m,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:1,source:'xlsx'})}
+  }
+  add('2026-08-10',96);add('2026-08-11',48);
+  const rows=api.completeClosedAnalysisRecords(api.state.records);
+  assert.equal(new Set(rows.map(r=>r.dateKey)).size,1);
+  assert.equal(rows.length,96);
+  assert.equal(rows[0].dateKey,'2026-08-10');
+});
+
+test('audit 1.13.1 historical PDF tariff allocates fixed cost by time, not consumption',()=>{
+  const api=loadApp();
+  api.state.months=[{monthKey:'2026-08',enabled:true,complete:true,finance:{
+    invoiceTotal:64,source:'pdf',
+    tariff:{validated:true,fixedGrossPerMonth:40,variableGrossPerKwh:6,sourceMonthKey:'2026-08'},
+    invoiceMeta:{extractionConfidence:1}
+  }}];
+  api.state.records=[
+    {id:'a',monthKey:'2026-08',dateKey:'2026-08-01',sortKey:1,dcc1:4,intervalMinutes:15,source:'xlsx'},
+    {id:'b',monthKey:'2026-08',dateKey:'2026-08-02',sortKey:2,dcc1:12,intervalMinutes:15,source:'xlsx'}
+  ];
+  const partial=api.costForRecords([api.state.records[0]]);
+  assert.ok(Math.abs(partial.total-26)<1e-9);
+  const daily=api.dailyCostData(api.state.records);
+  assert.ok(Math.abs(daily.get('2026-08-01')-26)<1e-9);
+  assert.ok(Math.abs(daily.get('2026-08-02')-38)<1e-9);
+  assert.ok(Math.abs([...daily.values()].reduce((a,b)=>a+b,0)-64)<1e-9);
+});
+
+test('audit 1.13.1 tariff age and parser quality are separate uncertainty inputs',()=>{
+  const fresh=FinanceAnalytics.priceUncertainty({modelType:'tariff',ageMonths:1,extractionConfidence:1});
+  const old=FinanceAnalytics.priceUncertainty({modelType:'tariff',ageMonths:6,extractionConfidence:1});
+  assert.equal(fresh,0);
+  assert.equal(old,.05);
+});
+
+test('audit 1.13.1 zero-confidence cost regression has zero dynamic blend',()=>{
+  const model=Core.weightedCostModel([
+    {energy:10,cost:100,weight:1},
+    {energy:10,cost:120,weight:2},
+    {energy:10,cost:140,weight:3}
+  ]);
+  assert.equal(model.confidence,0);
+  assert.equal(model.blend,0);
+  assert.equal(Core.modeledRateAtEnergy(model,12),model.fallbackRate);
 });
