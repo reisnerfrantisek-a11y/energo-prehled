@@ -707,3 +707,19 @@ test('audit 1.13.1 zero-confidence cost regression has zero dynamic blend',()=>{
   assert.equal(model.blend,0);
   assert.equal(Core.modeledRateAtEnergy(model,12),model.fallbackRate);
 });
+
+
+test('audit 1.13.1 legacy validated tariff without parser confidence defaults to full extraction quality',()=>{
+  const api=loadApp();
+  api.state.months=[{monthKey:'2026-06',enabled:true,complete:true,finance:{
+    invoiceTotal:600,source:'pdf',
+    metering:{ean:'859000000000000001'},
+    tariff:{validated:true,fixedGrossPerMonth:300,variableGrossPerKwh:6,sourceMonthKey:'2026-06'},
+    invoiceMeta:{extractionConfidence:null}
+  }}];
+  api.state.records=[{monthKey:'2026-09',ean:'859000000000000001',dateKey:'2026-09-01',dcc1:1,intervalMinutes:15}];
+  const tariff=api.latestValidatedTariff('2026-09');
+  assert.equal(tariff.extractionConfidence,1);
+  assert.equal(tariff.ageMonths,3);
+  assert.equal(tariff.confidence,.75);
+});
