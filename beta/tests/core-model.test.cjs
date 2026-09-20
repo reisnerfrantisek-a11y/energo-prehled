@@ -113,3 +113,16 @@ test('robust mean handles zero-MAD repeated baselines',()=>{
   assert.equal(r.value,0);
   assert.equal(r.affected,1);
 });
+
+
+test('target trajectory preserves total and cumulative monotonicity',()=>{
+  const weights=[96,96,92,96];
+  const daily=Forecast.targetTrajectory(40,weights,false);
+  assert.equal(daily.length,4);
+  assert.ok(Math.abs(daily.reduce((a,b)=>a+b,0)-40)<1e-12);
+  assert.ok(daily[2]<daily[1]);
+  const cumulative=Forecast.targetTrajectory(40,weights,true);
+  assert.ok(Math.abs(cumulative.at(-1)-40)<1e-12);
+  assert.ok(cumulative.every((v,i,a)=>i===0||v>=a[i-1]));
+  assert.deepEqual(Forecast.targetTrajectory(null,weights),[]);
+});
