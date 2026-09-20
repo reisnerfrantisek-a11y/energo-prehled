@@ -20,7 +20,7 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,forecastCostSeries
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
@@ -401,6 +401,6 @@ test('audit 1.8.1 ignores unusable EG.D tail for availability and cost forecast 
   const lastUsable=Math.max(...live.filter(r=>api.egdStatusInfo(r.apiStatus).usable).map(r=>r.sortKey));
   assert.equal(payload.month.lastAvailableAt,new Date(lastUsable).toISOString());
   api.state.compareMode='none';api.state.chartMode='daily';
-  const cost=api.prepareCostChartSeries(key);
-  assert.equal(cost.data.find(d=>d.date==='2026-09-19').kind,'forecast');
+  const costForecast=api.forecastCostSeries(key);
+  assert.equal(costForecast.lastObserved,'2026-09-18');
 });
