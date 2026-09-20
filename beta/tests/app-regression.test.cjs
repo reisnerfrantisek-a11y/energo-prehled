@@ -614,3 +614,11 @@ test('cost forecast UI surfaces price uncertainty and target financial impact',(
   assert.match(app,/modelovaný rozdíl nákladů/);
   assert.match(app,/nákladová rezerva/);
 });
+
+
+test('forecast accuracy UI shows finance model provenance when snapshot metadata exists',()=>{
+  assert.match(app,/cenový model:/);
+  assert.match(app,/tariffSourceMonth/);
+  assert.match(app,/cenová nejistota ±/);
+  assert.match(app,/accuracy-model/);
+});
