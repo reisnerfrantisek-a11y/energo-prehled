@@ -75,7 +75,8 @@
     const m=f.invoiceMeta&&typeof f.invoiceMeta==='object'?f.invoiceMeta:{};
     for(const k of Object.keys(base.invoiceMeta)){
       if(k==='extractionConfidence'){
-        const n=Number(m[k]);base.invoiceMeta[k]=Number.isFinite(n)?Math.max(0,Math.min(1,n)):null;
+        const raw=m[k];if(raw===null||raw===undefined||raw==='')base.invoiceMeta[k]=null;
+        else{const n=Number(raw);base.invoiceMeta[k]=Number.isFinite(n)?Math.max(0,Math.min(1,n)):null}
       }else base.invoiceMeta[k]=String(m[k]??base.invoiceMeta[k]);
     }
     return base;
