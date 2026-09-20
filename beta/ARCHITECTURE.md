@@ -134,3 +134,29 @@ Nová funkce `FinanceAnalytics.expandCostBand()` přidává druhou osu nejistoty
 Finanční dopad měsíčního cíle používá tentýž cenový model jako hlavní forecast. U validovaného tarifu se proto mění pouze variabilní část `V × E`; fixní složka `F` zůstává v obou scénářích. To zabraňuje nadhodnocování potenciální úspory při nižší spotřebě.
 
 Forecast snapshot od 1.13.0 navíc ukládá `costModelType`, `financeConfidence`, `priceUncertainty`, `tariffSourceMonth` a `tariffAgeMonths`. Tyto hodnoty jsou auditní metadata a neovlivňují zpětně starší snapshoty. Měsíční report je pouze čte a zobrazuje.
+
+
+## Model audit a metodické opravy (1.13.1)
+
+### Forecast bez historie
+Pokud ještě neexistuje kompletní historický měsíc, Forecast 2.0 již nevrací pouze dosavadní skutečnost jako údajnou celoměsíční predikci. Baseline se odvodí z kompletních dní aktuálního měsíce; pokud ani ty nejsou, použije se průběžné intervalové tempo. Historická weekday komponenta zůstává v ensemble skutečně nedostupná a nevstupuje do vah jako nula.
+
+### Kalibrace predikčního pásma
+Kalibrační backtest je oddělen od reportového výběru snapshotu. Pro kalibraci se používají pouze snapshoty s `forecastModel = ensemble-v2` a horizontem 5–9 dní před koncem měsíce, preferenčně co nejblíže 7 dnům. Používá se omezená poslední historie, aby velmi staré generace chování nerozmělňovaly aktuální model. Měsíční report nadále smí použít nejlepší dostupný snapshot i tehdy, když přesný sedmidenní neexistuje.
+
+### Mezery v uzavřených dnech
+Dopočet chybějících intervalů není omezen výrazem `max(0, expectedDay - actualDay)`. Chybějící počet slotů dostane kladný odhad založený na kombinaci typické energie na slot a již pozorovaného tempa dne. Tím nadprůměrný den s jedním chybějícím intervalem nedostane implicitní nulu.
+
+### Kompletní dny v analytice
+Metriky, které interpretují celý den — dny v týdnu, části dne, denní robustní dopad a denní anomálie — používají jen kompletní uzavřené dny s očekávanými 92/96/100 intervaly podle DST. Hodinové a intervalové analýzy mohou nadále pracovat s dostupnými jednotlivými intervaly.
+
+### Potvrzení režimu
+`core/regime.js` rozlišuje `candidate` a `changed`. Krátké 7denní okno může vytvořit kandidáta, ale `strength` zůstává nulová a Forecast 2.0 váhy nemění. Stav `changed` vznikne až tehdy, když delší potvrzovací okno podporuje stejný směr a dostatečnou konzistenci.
+
+### Historická alokace skutečných nákladů
+U kompletního měsíce s validovaným PDF tarifem se historický náklad rozděluje jako `V × E_selected + F × timeFraction`. Rozdíl mezi modelovaným `F + V × E` a skutečnou fakturou se alokuje časově. Tím se zachová přesný měsíční součet faktury, ale fixní platby se už nerozdělují podle spotřeby. Bez validovaného tarifu zůstává fallback efektivní Kč/kWh.
+
+### Finanční confidence
+Stáří tarifu a kvalita PDF extrakce jsou oddělené veličiny. Stáří ovlivňuje `agePart`, zatímco `extractionConfidence` ovlivňuje pouze quality část cenové nejistoty. Zobrazená celková confidence může stále kombinovat kvalitu a freshness, ale výpočet nejistoty věk nezapočítává podruhé.
+
+U historické cenové regrese platí `blend = confidence`. Pokud je confidence nulová, dynamická regresní složka má nulovou váhu a výpočet používá fallback efektivní sazbu.
