@@ -1756,11 +1756,14 @@ function renderFinanceAnalytics(){
     bridgeEl.innerHTML=`<div class="finance-subhead"><strong>Proč se změnila faktura · ${escapeHtml(monthLabel(bridge.previous.monthKey))} → ${escapeHtml(monthLabel(bridge.current.monthKey))}</strong><span>tarifní most nad dvěma ověřenými PDF tarify</span></div><div class="finance-bridge-grid">${items.map(([label,value])=>`<article><span>${escapeHtml(label)}</span><strong class="${value>0?'finance-up':value<0?'finance-down':''}">${financeSignedMoney(value)}</strong></article>`).join('')}</div><div class="finance-bridge-note">Modelovaná změna ${financeSignedMoney(bridge.modeledDelta)} · skutečná změna faktury ${financeSignedMoney(bridge.invoiceDelta)}${Number.isFinite(bridge.residual)&&Math.abs(bridge.residual)>.05?` · nevysvětlený rozdíl ${financeSignedMoney(bridge.residual)}`:''}. Spotřeba ${financeSignedPct(bridge.energyDeltaPct)}, variabilní tarif ${financeSignedPct(bridge.variableRateDeltaPct)}, fix ${financeSignedPct(bridge.fixedDeltaPct)}.</div>`;
   }else bridgeEl.innerHTML='<div class="finance-empty-detail"><strong>Tarifní most zatím nelze sestavit.</strong><span>Potřebuje dvě uzavřené faktury s ověřeným PDF tarifem.</span></div>';
 
-  const targetKey=state.period==='month'?expectedCurrentMonthKeys()[0]:(state.anchorMonth||latest.monthKey),tariff=latestValidatedTariff(targetKey);
+  const liveKey=state.months.filter(m=>m.enabled!==false&&monthIsLivePartial(m.monthKey)).sort((a,b)=>a.monthKey.localeCompare(b.monthKey)).at(-1)?.monthKey;
+  const latestIdx=monthIndex(latest.monthKey),targetKey=liveKey||(latestIdx===null?latest.monthKey:monthKeyFromIndex(latestIdx+1)),tariff=latestValidatedTariff(targetKey);
   if(tariff){
     const age=tariff.ageMonths??FINANCE_ANALYTICS.tariffAgeMonths(targetKey,tariff.sourceMonthKey),fresh=age<=1?'aktuální':age<=2?'stále čerstvý':age<=6?'starší':'zastaralý';
+    const sourceEconomics=FINANCE_ANALYTICS.invoiceEconomics({monthKey:tariff.sourceMonthKey,energyKwh:monthBillingEnergy(tariff.sourceMonthKey),finance:tariff.finance});
+    const split=Number.isFinite(sourceEconomics.fixedShare)?` · v referenční faktuře fix ${fmt.format(sourceEconomics.fixedShare*100)} %`:'';
     tariffEl.className='finance-tariff-status '+(age>2?'finance-tariff-stale':'');
-    tariffEl.innerHTML=`<strong>Predikční tarif: ${fmt.format(tariff.fixed)} Kč/měs. + ${fmt3.format(tariff.variableRate)} Kč/kWh</strong><span>zdroj ${escapeHtml(monthLabel(tariff.sourceMonthKey))} · stáří ${age} ${age===1?'měsíc':'měsíce'} · ${fresh} · důvěra ${Math.round(tariff.confidence*100)} %</span>`;
+    tariffEl.innerHTML=`<strong>Predikční tarif: ${fmt.format(tariff.fixed)} Kč/měs. + ${fmt3.format(tariff.variableRate)} Kč/kWh</strong><span>zdroj ${escapeHtml(monthLabel(tariff.sourceMonthKey))} · stáří ${age} ${age===1?'měsíc':'měsíce'} · ${fresh} · důvěra ${Math.round(tariff.confidence*100)} %${split}</span>`;
   }else{
     tariffEl.className='finance-tariff-status finance-tariff-stale';
     tariffEl.innerHTML='<strong>Pro živou predikci není k dispozici ověřený PDF tarif.</strong><span>Náklady se proto odvozují statisticky z historie faktur.</span>';
