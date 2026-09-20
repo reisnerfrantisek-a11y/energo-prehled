@@ -33,7 +33,7 @@
       strongestDay:strongest?{dateKey:strongest[0],energy:strongest[1]}:null,
       invoiceTotal:invoice,effectivePrice:invoice!==null&&actualEnergy>0?invoice/actualEnergy:null,
       targetKwh:target,targetDelta:target!==null?actualEnergy-target:null,targetDeltaPct:target!==null&&target>0?(actualEnergy-target)/target*100:null,
-      snapshot:snap?{asOfDate:snap.asOfDate||null,daysRemaining:finite(snap.daysRemaining),predictedEnergy,predictedCost,lowCost,highCost}:null,
+      snapshot:snap?{asOfDate:snap.asOfDate||null,daysRemaining:finite(snap.daysRemaining),predictedEnergy,predictedCost,lowCost,highCost,costModelType:String(snap.costModelType||''),tariffSourceMonth:String(snap.tariffSourceMonth||''),tariffAgeMonths:finite(snap.tariffAgeMonths),priceUncertainty:finite(snap.priceUncertainty),financeConfidence:finite(snap.financeConfidence)}:null,
       predictedEnergy,energyError,energyErrorPct,predictedCost,costError,costErrorPct,costInsideBand
     };
   }
