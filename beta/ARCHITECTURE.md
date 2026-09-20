@@ -11,6 +11,7 @@ Verze 1.7 navazuje na modularizaci 1.6 a zahajuje Akční plán. Výpočetní lo
 - `core/forecast.js` – Forecast 2.0 ensemble, kalibrace nejistoty z backtestů, rozdělení měsíční predikce do dní a kumulativní transformace.
 - `core/power.js` – čistá analýza 15minutového DCC1 výkonu, percentilů, výkonových pásem a orientační reference hlavního jističe.
 - `core/report.js` – čistá agregace uzavřeného měsíce pro automatický report a vyhodnocení historického forecast snapshotu.
+- `core/finance-analytics.js` – čistá finanční analytika nad fakturami: efektivní cena, fixní/variabilní ekonomika, rozpad složek, stáří tarifu a tarifní most.
 - `core/invoice.js` – zpětně kompatibilní finanční schéma, detailní cenové složky a ověřený tarif.
 - `core/invoice-parser.js` – lokální textový parser podporovaných PDF faktur a validační pravidla.
 - `app.js` – orchestrace IndexedDB, EG.D, UI a vykreslování. Čisté výpočty deleguje do core modulů.
@@ -107,3 +108,18 @@ Nastavení jističe se ukládá do IndexedDB pod klíčem `power-config` a je so
 Historický forecast se nikdy negeneruje zpětně. `app.js` předává modulu snapshot vybraný funkcí `evaluationForecast()`, tedy přednostně zhruba sedm dní před koncem měsíce. Pokud snapshot neexistuje, report tuto část označí jako nedostupnou. Tím se zachovává auditovatelnost backtestu.
 
 Report je odvozený pohled nad existujícími daty a nevytváří nový persistentní zdroj pravdy. Kopírovaný text se generuje až v UI z aktuálního reportového objektu.
+
+
+## Finance Analytics 2.0 (1.12.0)
+
+`core/finance-analytics.js` závisí pouze na `core/invoice.js` a nepracuje s DOM. Vstupem je skutečná měsíční DCC1 spotřeba a normalizované finanční schéma. Ručně zadaná celková faktura proto dovoluje spočítat efektivní cenu, ale detailní fixní/variabilní ekonomika se aktivuje jen tehdy, když `Invoice.hasValidatedTariff()` potvrzuje ověřený tarif.
+
+Pro dva po sobě použitelné validované tarify modul počítá aditivní tarifní most:
+
+- vliv spotřeby = předchozí variabilní sazba × změna kWh,
+- vliv variabilní ceny = změna sazby za kWh × aktuální spotřeba,
+- vliv fixu = změna měsíční fixní částky.
+
+Součet těchto tří vlivů přesně odpovídá změně modelované faktury `F + V × E`. Rozdíl proti skutečné změně faktury zůstává explicitní jako reziduum a neskrývá se v žádné komponentě.
+
+Stáří zdrojového PDF tarifu se počítá v kalendářních měsících. Nemění spotřební Forecast 2.0 ani samotnou tarifní rovnici, ale snižuje zobrazovanou důvěru finančního odhadu: nejnovější tarif má plnou důvěru, starší tarif postupně menší. Zdrojový měsíc a stáří jsou viditelné v UI.

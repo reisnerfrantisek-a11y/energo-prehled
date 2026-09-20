@@ -8,7 +8,7 @@ Společný desetibodový **Akční plán** je aktivní od verze 1.7.0. Jednotliv
 4. **Rozšířený srovnávací režim — nasazeno v 1.7.0, rozšířeno v 1.7.1.** Hlavní měsíční graf umí bez srovnání, minulý měsíc a stejný měsíc předchozího roku; od 1.7.1 stejné možnosti fungují i v nákladové části včetně oranžové predikce.
 5. **Další kumulativní pohledy a cílové trajektorie spotřeby — nasazeno v 1.9.0.** Uživatel může pro konkrétní měsíc zadat cíl v kWh. Denní i kumulativní graf zobrazují samostatnou cílovou trajektorii a stav proti cíli; cíl nijak nemění Forecast 2.0.
 6. **Datový health score — nasazeno v 1.7.0.** Měsíční přehled hodnotí kompletnost uzavřených intervalů, použitelnost dat a aktuálnost zdroje.
-7. **Detailní finanční model z reálných tarifních složek a PDF faktur — probíhá od 1.6.1.** Lokální E.ON PDF parser, rozpad ceny a ověřený tarif mají přednost před regresí.
+7. **Detailní finanční model z reálných tarifních složek a PDF faktur — rozšířeno ve 1.12.0.** Lokální E.ON PDF parser, rozpad ceny a ověřený tarif mají přednost před regresí; Finance Analytics 2.0 nově odděluje skutečnou efektivní cenu, fixní/variabilní tarif, rozpad faktury a vysvětlení meziměsíční změny nákladů.
 8. **Automatická detekce změny režimu spotřeby a adaptace forecastu — nasazeno v 1.8.0.** Model porovnává posledních 7 dní s robustní historickou základnou, vyžaduje konzistentní změnu napříč dny a při potvrzeném posunu upravuje váhy Forecastu 2.0 směrem k posledním 7/14 dnům.
 9. **Analýza výkonových maxim, výkonových pásem a vztahu k hlavnímu jističi — nasazeno v 1.10.0.** Analýza DCC1 počítá maximum, P95/P99, čas v pásmech relativně k nastavenému jističi a orientační výkonovou rezervu.
 10. **Automatický měsíční report — nasazeno v 1.11.0.** Pro každý kompletní aktivní měsíc se skládá report ze skutečné spotřeby, skutečně uloženého historického forecastu, odchylky, faktury, maxima DCC1 a nejsilnějšího dne.
@@ -92,3 +92,17 @@ Body 5, 8, 9 a 10 budou pokračovat v následujících verzích, aby se do jedno
 - součástí jsou maximum DCC1, čas maxima, nejsilnější den a případná odchylka od měsíčního cíle,
 - report lze jedním tlačítkem zkopírovat jako text,
 - chybějící historický forecast nebo faktura se výslovně zobrazí jako chybějící údaj; aplikace je zpětně neregeneruje.
+
+
+## Verze 1.12.0 — Finance Analytics 2.0
+
+- nová analytická vrstva pracuje nad uzavřenými fakturami a skutečnou DCC1 spotřebou,
+- souhrn ukazuje celkové náklady, celkovou energii a váženou efektivní cenu v Kč/kWh,
+- u podporovaných PDF faktur se rozpad zobrazí po kategoriích: silová elektřina, distribuce a služby sítě, daň + POZE, stálé platby, ostatní a DPH,
+- validovaný tarif se vyhodnocuje jako fixní část v Kč/měsíc + variabilní část v Kč/kWh,
+- aplikace ukazuje podíl fixní části v referenční faktuře,
+- mezi dvěma validovanými tarify vzniká „tarifní most“, který rozloží změnu faktury na vliv spotřeby, změnu ceny za kWh a změnu fixních plateb,
+- případný rozdíl mezi modelovanou a skutečnou změnou faktury zůstává viditelný jako nevysvětlený zbytek,
+- ručně zadaná faktura se používá pro efektivní cenu a trend, ale nikdy se nevydává za detailní tarif,
+- stáří PDF tarifu snižuje důvěru finanční predikce a je zobrazené v Analýze i u živého měsíce,
+- spotřební Forecast 2.0 se těmito změnami nemění.
