@@ -10,7 +10,7 @@
   <title>Energo Přehled</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=1.5.1" />
+  <link rel="stylesheet" href="styles.css?v=1.5.2" />
 </head>
 <body>
   <div id="app">
@@ -75,7 +75,10 @@
                 <button data-metric="dcc0" class="metric-btn">DCC0</button>
               </div>
             </div>
-            <div id="mainChart" class="chart-box"></div>
+            <div class="hero-chart-wrap">
+              <div id="mainChart" class="chart-box"></div>
+              <button class="chart-detail-btn" id="dailyTableBtn" type="button" aria-label="Zobrazit tabulku denních dat"><span aria-hidden="true">▦</span> Denní data</button>
+            </div>
           </section>
 
           <div class="kpi-grid">
@@ -236,7 +239,21 @@
         <div class="modal-actions"><button class="secondary-btn" id="cancelReplace">Zrušit</button><button class="danger-btn" id="confirmReplace">Nahradit</button></div>
       </div>
     </div>
+
+    <div class="modal-backdrop hidden" id="dailyDetailModal" role="dialog" aria-modal="true" aria-labelledby="dailyDetailTitle">
+      <div class="modal daily-detail-modal">
+        <div class="daily-detail-head">
+          <div>
+            <h3 id="dailyDetailTitle">Denní přehled</h3>
+            <p id="dailyDetailSubtitle">—</p>
+          </div>
+          <button class="daily-close-btn" id="dailyDetailClose" type="button" aria-label="Zavřít">×</button>
+        </div>
+        <div class="daily-detail-summary" id="dailyDetailSummary">—</div>
+        <div class="daily-table-wrap" id="dailyDetailBody"></div>
+      </div>
+    </div>
   </div>
-  <script src="app.js?v=1.5.1" defer></script>
+  <script src="app.js?v=1.5.2" defer></script>
 </body>
 </html>
