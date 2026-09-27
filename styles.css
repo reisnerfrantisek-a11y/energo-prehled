@@ -108,3 +108,24 @@
 .forecast-meta .scenario-low strong{color:#24945a}.forecast-meta .scenario-mid strong{color:var(--accent)}.forecast-meta .scenario-high strong{color:#b96f12}
 .forecast-meta .forecast-model{grid-column:1/-1}
 @media(max-width:480px){.forecast-meta .forecast-model{grid-column:auto}}
+
+
+/* v1.5.2 — denní detail hlavního grafu */
+.hero-chart-wrap{position:relative}
+.chart-detail-btn{position:absolute;top:18px;right:2px;z-index:14;display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:7px 10px;background:rgba(11,18,32,.48);color:#fff;font-size:11px;font-weight:800;line-height:1;backdrop-filter:blur(10px);box-shadow:0 5px 16px rgba(0,0,0,.12)}
+.chart-detail-btn span{font-size:13px;line-height:1}.chart-detail-btn:disabled{opacity:.42;cursor:default}
+.daily-detail-modal{max-height:min(82vh,720px);display:flex;flex-direction:column;overflow:hidden}
+.daily-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.daily-detail-head h3{margin:0 0 4px}.daily-detail-head p{margin:0;color:var(--muted);font-size:12px}
+.daily-close-btn{flex:0 0 auto;width:34px;height:34px;border:0;border-radius:11px;background:var(--bg);color:var(--text);font-size:25px;line-height:1}
+.daily-detail-summary{margin:14px 0 8px;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--bg);font-size:12px;font-weight:750;color:var(--text)}
+.daily-table-wrap{overflow:auto;overscroll-behavior:contain;border:1px solid var(--border);border-radius:13px}
+.daily-table{width:100%;border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}
+.daily-table th{position:sticky;top:0;z-index:2;padding:9px 11px;background:var(--surface);border-bottom:1px solid var(--border);color:var(--muted);font-size:10px;font-weight:800;text-align:right;white-space:nowrap}
+.daily-table th:first-child{text-align:left}
+.daily-table td{padding:10px 11px;border-bottom:1px solid var(--border);font-size:13px;font-weight:760;text-align:right;white-space:nowrap}
+.daily-table tbody tr:last-child td{border-bottom:0}.daily-table td:first-child{text-align:left}
+.daily-table td:first-child strong{display:block;font-size:12px}.daily-table td small{font-size:9px;color:var(--muted);font-weight:700}
+.daily-table td:first-child small{display:block;margin-top:2px}.daily-status{display:inline-flex;margin-left:6px;padding:2px 5px;border-radius:999px;background:color-mix(in srgb,#f0a23a 14%,var(--surface));color:#b96f12;font-size:8px!important;font-weight:850!important}
+.daily-empty{padding:28px 16px;text-align:center;color:var(--muted);font-size:13px}
+@media(max-width:420px){.chart-detail-btn{top:16px;right:0;padding:6px 9px}.daily-detail-modal{max-height:86vh;padding:18px}.daily-table th,.daily-table td{padding-left:9px;padding-right:9px}}
