@@ -7,16 +7,16 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Energo Beta" />
-  <title>Energo Přehled Beta 1.13.2</title>
+  <title>Energo Přehled Beta 1.13.3</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="../icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=1.13.2" />
+  <link rel="stylesheet" href="styles.css?v=1.13.3" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
       <div>
-        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.13.2</div>
+        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.13.3</div>
         <h1 id="screenTitle">Přehled</h1>
       </div>
       <button class="icon-btn" id="importBtn" aria-label="Importovat report">＋</button>
@@ -71,9 +71,12 @@
                 <div class="hero-value"><span id="heroKwh">0,00</span> <small id="heroUnit">kWh</small></div>
                 <div class="delta" id="heroDelta">—</div>
               </div>
-              <div class="metric-toggle" id="metricToggle">
-                <button data-metric="dcc1" class="metric-btn active">DCC1</button>
-                <button data-metric="dcc0" class="metric-btn">DCC0</button>
+              <div class="hero-actions">
+                <div class="metric-toggle" id="metricToggle">
+                  <button data-metric="dcc1" class="metric-btn active">DCC1</button>
+                  <button data-metric="dcc0" class="metric-btn">DCC0</button>
+                </div>
+                <button class="chart-detail-btn" id="dailyTableBtn" type="button" aria-label="Zobrazit denní data"><span aria-hidden="true">▦</span> Denní data</button>
               </div>
             </div>
             <div class="energy-chart-controls" id="energyChartControls">
@@ -95,10 +98,7 @@
               <button class="energy-target-clear" id="energyTargetClear" type="button">Odstranit</button>
               <div class="energy-target-status" id="energyTargetStatus">Nastav měsíční cíl.</div>
             </div>
-            <div class="hero-chart-wrap">
-              <div id="mainChart" class="chart-box"></div>
-              <button class="chart-detail-btn" id="dailyTableBtn" type="button" aria-label="Zobrazit denní data"><span aria-hidden="true">▦</span> Denní data</button>
-            </div>
+            <div id="mainChart" class="chart-box"></div>
           </section>
 
           <section class="data-health-card hidden" id="dataHealthCard" aria-label="Kvalita dat">
@@ -394,15 +394,15 @@
       </div>
     </div>
   </div>
-  <script src="core/model.js?v=1.13.2" defer></script>
-  <script src="core/time.js?v=1.13.2" defer></script>
-  <script src="core/forecast.js?v=1.13.2" defer></script>
-  <script src="core/regime.js?v=1.13.2" defer></script>
-  <script src="core/power.js?v=1.13.2" defer></script>
-  <script src="core/report.js?v=1.13.2" defer></script>
-  <script src="core/invoice.js?v=1.13.2" defer></script>
-  <script src="core/finance-analytics.js?v=1.13.2" defer></script>
-  <script src="core/invoice-parser.js?v=1.13.2" defer></script>
-  <script src="app.js?v=1.13.2" defer></script>
+  <script src="core/model.js?v=1.13.3" defer></script>
+  <script src="core/time.js?v=1.13.3" defer></script>
+  <script src="core/forecast.js?v=1.13.3" defer></script>
+  <script src="core/regime.js?v=1.13.3" defer></script>
+  <script src="core/power.js?v=1.13.3" defer></script>
+  <script src="core/report.js?v=1.13.3" defer></script>
+  <script src="core/invoice.js?v=1.13.3" defer></script>
+  <script src="core/finance-analytics.js?v=1.13.3" defer></script>
+  <script src="core/invoice-parser.js?v=1.13.3" defer></script>
+  <script src="app.js?v=1.13.3" defer></script>
 </body>
 </html>
