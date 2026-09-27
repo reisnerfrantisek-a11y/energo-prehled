@@ -281,8 +281,8 @@
 
 
 /* v1.13.2 — detail jednotlivých dnů z hlavního grafu */
-.hero-chart-wrap{position:relative}
-.chart-detail-btn{position:absolute;top:17px;right:2px;z-index:14;display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:7px 10px;background:rgba(11,18,32,.58);color:#fff;font-size:11px;font-weight:800;line-height:1;backdrop-filter:blur(10px);box-shadow:0 5px 16px rgba(0,0,0,.14)}
+.hero-actions{display:flex;flex-direction:column;align-items:flex-end;gap:10px;flex:0 0 auto}
+.chart-detail-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:7px 11px;background:rgba(255,255,255,.08);color:#fff;font-size:11px;font-weight:800;line-height:1;white-space:nowrap;backdrop-filter:blur(10px);box-shadow:0 5px 16px rgba(0,0,0,.12)}
 .chart-detail-btn span{font-size:13px;line-height:1}.chart-detail-btn:disabled{opacity:.42;cursor:default}
 .daily-detail-modal{max-height:min(84vh,760px);display:flex;flex-direction:column;overflow:hidden}
 .daily-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
@@ -301,4 +301,4 @@
 .daily-status.live{background:color-mix(in srgb,var(--accent) 13%,var(--surface));color:var(--accent)}
 .daily-status.incomplete{background:color-mix(in srgb,#f0a23a 14%,var(--surface));color:#b96f12}
 .daily-empty{padding:28px 16px;text-align:center;color:var(--muted);font-size:13px}
-@media(max-width:420px){.chart-detail-btn{top:15px;right:0;padding:6px 9px}.daily-detail-modal{max-height:88vh;padding:18px}.daily-table th,.daily-table td{padding-left:9px;padding-right:9px}}
+@media(max-width:420px){.hero-actions{gap:8px}.chart-detail-btn{padding:6px 9px;font-size:10px}.daily-detail-modal{max-height:88vh;padding:18px}.daily-table th,.daily-table td{padding-left:9px;padding-right:9px}}
