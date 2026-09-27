@@ -9,7 +9,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.5.2';
+const APP_VERSION = '1.5.1';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -660,40 +660,6 @@ function latestMonthKey(){return state.months.length?[...state.months].sort((a,b
 function earliestDateKey(){const all=sortedRecords();return all.length?all[0].dateKey:''}
 function latestDateKey(){const all=sortedRecords();return all.length?all.at(-1).dateKey:''}
 function formatDateKey(k){if(!k)return '—';const [y,m,d]=k.split('-');return `${d}.${m}.${y}`}
-function closeDailyDetail(){const modal=$('#dailyDetailModal');if(modal)modal.classList.add('hidden')}
-function renderDailyDetail(){
-  const modal=$('#dailyDetailModal'),body=$('#dailyDetailBody'),summary=$('#dailyDetailSummary'),subtitle=$('#dailyDetailSubtitle');
-  if(!modal||!body||!summary||!subtitle)return;
-  const rs=currentRange(),costMode=state.dashboardMode==='cost',byDay=new Map();
-  for(const r of rs){
-    const d=byDay.get(r.dateKey)||{dateKey:r.dateKey,monthKey:r.monthKey,weekday:r.weekday,metricEnergy:0,billingEnergy:0,minutes:0};
-    d.metricEnergy+=energy(r);d.billingEnergy+=billingEnergy(r);d.minutes+=Number(r.intervalMinutes)||15;byDay.set(r.dateKey,d);
-  }
-  const costs=costMode?dailyCostData(rs):new Map(),rows=[...byDay.values()].sort((a,b)=>a.dateKey.localeCompare(b.dateKey));
-  const latest=rows.at(-1)?.dateKey||'',liveLatest=!!latest&&rs.some(r=>r.dateKey===latest&&monthIsLivePartial(r.monthKey));
-  subtitle.textContent=`${selectedPeriodLabel()} · ${costMode?'DCC1 + náklady':state.metric.toUpperCase()}`;
-  if(!rows.length){
-    summary.textContent='Ve zvoleném období nejsou denní data.';
-    body.innerHTML='<div class="daily-empty">Zatím nejsou data k zobrazení.</div>';
-    modal.classList.remove('hidden');return;
-  }
-  const totalEnergy=rows.reduce((s,r)=>s+(costMode?r.billingEnergy:r.metricEnergy),0);
-  if(costMode){
-    const availableCosts=rows.map(r=>costs.get(r.dateKey)).filter(Number.isFinite),totalCost=availableCosts.reduce((s,v)=>s+v,0);
-    summary.textContent=`${rows.length} dní · ${fmt.format(totalEnergy)} kWh${availableCosts.length?' · '+fmt.format(totalCost)+' Kč':''}`;
-    body.innerHTML=`<table class="daily-table"><thead><tr><th>Datum</th><th>Spotřeba</th><th>Náklad</th></tr></thead><tbody>${rows.map(r=>{
-      const cost=costs.get(r.dateKey),partial=r.minutes<1380,status=partial?(r.dateKey===latest&&liveLatest?'průběžný':'neúplný'):'';
-      return `<tr><td><strong>${escapeHtml(formatDateKey(r.dateKey))}</strong><small>${escapeHtml(WEEK[r.weekday]||'')}${status?'<span class="daily-status">'+escapeHtml(status)+'</span>':''}</small></td><td>${escapeHtml(fmt.format(r.billingEnergy))} <small>kWh</small></td><td>${Number.isFinite(cost)?escapeHtml(fmt.format(cost))+' <small>Kč</small>':'—'}</td></tr>`;
-    }).join('')}</tbody></table>`;
-  }else{
-    summary.textContent=`${rows.length} dní · ${fmt.format(totalEnergy)} kWh · ${state.metric.toUpperCase()}`;
-    body.innerHTML=`<table class="daily-table"><thead><tr><th>Datum</th><th>Spotřeba</th></tr></thead><tbody>${rows.map(r=>{
-      const partial=r.minutes<1380,status=partial?(r.dateKey===latest&&liveLatest?'průběžný':'neúplný'):'';
-      return `<tr><td><strong>${escapeHtml(formatDateKey(r.dateKey))}</strong><small>${escapeHtml(WEEK[r.weekday]||'')}${status?'<span class="daily-status">'+escapeHtml(status)+'</span>':''}</small></td><td>${escapeHtml(fmt.format(r.metricEnergy))} <small>kWh</small></td></tr>`;
-    }).join('')}</tbody></table>`;
-  }
-  modal.classList.remove('hidden');
-}
 function persistPeriodState(){
   localStorage.setItem(PERIOD_KEY,state.period);
   if(state.anchorMonth)localStorage.setItem(ANCHOR_KEY,state.anchorMonth);
@@ -940,7 +906,6 @@ function renderOverview(){
   }
 
   let rs=currentRange();
-  const dailyTableBtn=$('#dailyTableBtn');if(dailyTableBtn)dailyTableBtn.disabled=!rs.length;
   const rangeHasApi=rs.some(r=>r.source==='egd-api');
   const dcc0Btn=$('.metric-btn[data-metric="dcc0"]');if(dcc0Btn)dcc0Btn.disabled=rangeHasApi;
   if(rangeHasApi&&state.metric==='dcc0'){
@@ -1255,10 +1220,6 @@ function bind(){
   $('#customFrom').onchange=updateCustom;$('#customTo').onchange=updateCustom;
   $$('.dashboard-mode-btn').forEach(b=>b.onclick=()=>{state.dashboardMode=b.dataset.dashboardMode;localStorage.setItem(DASHBOARD_MODE_KEY,state.dashboardMode);renderOverview()});
   $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});
-  $('#dailyTableBtn').onclick=renderDailyDetail;
-  $('#dailyDetailClose').onclick=closeDailyDetail;
-  $('#dailyDetailModal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeDailyDetail()});
-  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDailyDetail()});
   $('#dayTypeSelect').onchange=renderAnalysis;
   $$('.daypart-btn').forEach(b=>b.onclick=()=>{state.daypartMode=b.dataset.daypartMode;localStorage.setItem(DAYPART_KEY,state.daypartMode);renderDayparts(currentRange())});
   $('#cancelReplace').onclick=()=>{$('#replaceModal').classList.add('hidden');state.pendingImport=null};
