@@ -31,7 +31,7 @@ return {
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.13.2 files are version-aligned and syntactically valid',()=>{
+test('beta 1.13.3 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
   assert.match(app,/APP_VERSION = '1\.13\.1'/);
   assert.match(html,/BETA 1\.13\.1/);
@@ -52,7 +52,7 @@ test('beta 1.13.2 files are version-aligned and syntactically valid',()=>{
   assert.match(sw,/core\/report\.js\?v=1\.13\.1/);
   assert.match(html,/core\/finance-analytics\.js\?v=1\.13\.1/);
   assert.match(sw,/core\/finance-analytics\.js\?v=1\.13\.1/);
-  assert.ok(html.indexOf('core/invoice.js?v=1.13.2')<html.indexOf('core/finance-analytics.js?v=1.13.2'),'invoice core must load before finance analytics');
+  assert.ok(html.indexOf('core/invoice.js?v=1.13.3')<html.indexOf('core/finance-analytics.js?v=1.13.3'),'invoice core must load before finance analytics');
   assert.match(sw,/core\/invoice-parser\.js\?v=1\.13\.1/);
 });
 
@@ -639,7 +639,7 @@ test('forecast accuracy UI shows finance model provenance when snapshot metadata
 });
 
 
-test('audit 1.13.2 forecasts a month even without historical months',()=>{
+test('audit 1.13.3 forecasts a month even without historical months',()=>{
   const api=loadApp();api.state.months=[{monthKey:'2026-09',enabled:true,complete:false,source:'egd-api',lastAvailableAt:'2026-09-10T21:45:00Z'}];api.state.records=[];
   const y=2026,m=9;
   for(let d=1;d<=10;d++)for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){
@@ -654,7 +654,7 @@ test('audit 1.13.2 forecasts a month even without historical months',()=>{
   assert.ok(e.remainingEnergy>0);
 });
 
-test('audit 1.13.2 calibration uses comparable 5-9 day Forecast 2.0 snapshots only',()=>{
+test('audit 1.13.3 calibration uses comparable 5-9 day Forecast 2.0 snapshots only',()=>{
   const api=loadApp();
   const history=[
     {asOfDate:'2026-08-20',predictedEnergy:90,forecastModel:'legacy'},
@@ -666,14 +666,14 @@ test('audit 1.13.2 calibration uses comparable 5-9 day Forecast 2.0 snapshots on
   assert.equal(snap.daysRemaining,7);
 });
 
-test('audit 1.13.2 missing interval estimate stays positive on an above-baseline day',()=>{
+test('audit 1.13.3 missing interval estimate stays positive on an above-baseline day',()=>{
   const api=loadApp();
   const missing=api.estimateMissingDayEnergy(10,12,95,96);
   assert.ok(missing>0);
   assert.ok(missing<1);
 });
 
-test('audit 1.13.2 complete-day analytics exclude partial closed days',()=>{
+test('audit 1.13.3 complete-day analytics exclude partial closed days',()=>{
   const api=loadApp();api.state.records=[];api.state.months=[];
   function add(dateKey,count){
     const [y,m,d]=dateKey.split('-').map(Number),wd0=new Date(Date.UTC(y,m-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;
@@ -686,7 +686,7 @@ test('audit 1.13.2 complete-day analytics exclude partial closed days',()=>{
   assert.equal(rows[0].dateKey,'2026-08-10');
 });
 
-test('audit 1.13.2 historical PDF tariff allocates fixed cost by time, not consumption',()=>{
+test('audit 1.13.3 historical PDF tariff allocates fixed cost by time, not consumption',()=>{
   const api=loadApp();
   api.state.months=[{monthKey:'2026-08',enabled:true,complete:true,finance:{
     invoiceTotal:64,source:'pdf',
@@ -705,14 +705,14 @@ test('audit 1.13.2 historical PDF tariff allocates fixed cost by time, not consu
   assert.ok(Math.abs([...daily.values()].reduce((a,b)=>a+b,0)-64)<1e-9);
 });
 
-test('audit 1.13.2 tariff age and parser quality are separate uncertainty inputs',()=>{
+test('audit 1.13.3 tariff age and parser quality are separate uncertainty inputs',()=>{
   const fresh=FinanceAnalytics.priceUncertainty({modelType:'tariff',ageMonths:1,extractionConfidence:1});
   const old=FinanceAnalytics.priceUncertainty({modelType:'tariff',ageMonths:6,extractionConfidence:1});
   assert.equal(fresh,0);
   assert.equal(old,.05);
 });
 
-test('audit 1.13.2 zero-confidence cost regression has zero dynamic blend',()=>{
+test('audit 1.13.3 zero-confidence cost regression has zero dynamic blend',()=>{
   const model=Core.weightedCostModel([
     {energy:10,cost:100,weight:1},
     {energy:10,cost:120,weight:2},
@@ -724,7 +724,7 @@ test('audit 1.13.2 zero-confidence cost regression has zero dynamic blend',()=>{
 });
 
 
-test('audit 1.13.2 legacy validated tariff without parser confidence defaults to full extraction quality',()=>{
+test('audit 1.13.3 legacy validated tariff without parser confidence defaults to full extraction quality',()=>{
   const api=loadApp();
   api.state.months=[{monthKey:'2026-06',enabled:true,complete:true,finance:{
     invoiceTotal:600,source:'pdf',
