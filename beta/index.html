@@ -7,16 +7,16 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Energo Beta" />
-  <title>Energo Přehled Beta 1.13.1</title>
+  <title>Energo Přehled Beta 1.13.2</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="../icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=1.13.1" />
+  <link rel="stylesheet" href="styles.css?v=1.13.2" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
       <div>
-        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.13.1</div>
+        <div class="eyebrow">ENERGO PŘEHLED · BETA 1.13.2</div>
         <h1 id="screenTitle">Přehled</h1>
       </div>
       <button class="icon-btn" id="importBtn" aria-label="Importovat report">＋</button>
@@ -95,7 +95,10 @@
               <button class="energy-target-clear" id="energyTargetClear" type="button">Odstranit</button>
               <div class="energy-target-status" id="energyTargetStatus">Nastav měsíční cíl.</div>
             </div>
-            <div id="mainChart" class="chart-box"></div>
+            <div class="hero-chart-wrap">
+              <div id="mainChart" class="chart-box"></div>
+              <button class="chart-detail-btn" id="dailyTableBtn" type="button" aria-label="Zobrazit denní data"><span aria-hidden="true">▦</span> Denní data</button>
+            </div>
           </section>
 
           <section class="data-health-card hidden" id="dataHealthCard" aria-label="Kvalita dat">
@@ -365,6 +368,20 @@
       </div>
     </div>
 
+    <div class="modal-backdrop hidden" id="dailyDetailModal" role="dialog" aria-modal="true" aria-labelledby="dailyDetailTitle">
+      <div class="modal daily-detail-modal">
+        <div class="daily-detail-head">
+          <div>
+            <h3 id="dailyDetailTitle">Denní přehled</h3>
+            <p id="dailyDetailSubtitle">—</p>
+          </div>
+          <button class="daily-close-btn" id="dailyDetailClose" type="button" aria-label="Zavřít">×</button>
+        </div>
+        <div class="daily-detail-summary" id="dailyDetailSummary">—</div>
+        <div class="daily-table-wrap" id="dailyDetailBody"></div>
+      </div>
+    </div>
+
     <div class="modal-backdrop hidden" id="invoiceReviewModal">
       <div class="modal invoice-review-modal">
         <h3 id="invoiceReviewTitle">Kontrola PDF faktury</h3>
@@ -377,15 +394,15 @@
       </div>
     </div>
   </div>
-  <script src="core/model.js?v=1.13.1" defer></script>
-  <script src="core/time.js?v=1.13.1" defer></script>
-  <script src="core/forecast.js?v=1.13.1" defer></script>
-  <script src="core/regime.js?v=1.13.1" defer></script>
-  <script src="core/power.js?v=1.13.1" defer></script>
-  <script src="core/report.js?v=1.13.1" defer></script>
-  <script src="core/invoice.js?v=1.13.1" defer></script>
-  <script src="core/finance-analytics.js?v=1.13.1" defer></script>
-  <script src="core/invoice-parser.js?v=1.13.1" defer></script>
-  <script src="app.js?v=1.13.1" defer></script>
+  <script src="core/model.js?v=1.13.2" defer></script>
+  <script src="core/time.js?v=1.13.2" defer></script>
+  <script src="core/forecast.js?v=1.13.2" defer></script>
+  <script src="core/regime.js?v=1.13.2" defer></script>
+  <script src="core/power.js?v=1.13.2" defer></script>
+  <script src="core/report.js?v=1.13.2" defer></script>
+  <script src="core/invoice.js?v=1.13.2" defer></script>
+  <script src="core/finance-analytics.js?v=1.13.2" defer></script>
+  <script src="core/invoice-parser.js?v=1.13.2" defer></script>
+  <script src="app.js?v=1.13.2" defer></script>
 </body>
 </html>
