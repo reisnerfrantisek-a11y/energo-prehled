@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.13.3';
+const APP_VERSION = '1.13.4';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -656,20 +656,32 @@ function incrementalEgdBounds(monthKey,bounds){
   const fromMs=Math.max(bounds.start-1000,lastMs+15*60000-1000);
   return {...bounds,from:new Date(fromMs).toISOString(),incremental:true,existing,lastExistingMs:lastMs};
 }
-async function repairMissingEgdIntervals(token,monthKey,profile,records,maxGaps=12){
+function egdRepairDayRanges(gaps,maxDays=7){
+  const dateKeys=[...new Set((gaps||[]).map(g=>g?.dateKey).filter(Boolean))].sort().slice(0,Math.max(1,maxDays));
+  return dateKeys.map(dateKey=>{
+    const [year,month,day]=String(dateKey).split('-').map(Number);
+    if(!year||!month||!day)return null;
+    const nextDate=new Date(Date.UTC(year,month-1,day+1));
+    const start=pragueUtcCandidates(parseCzTimestamp(`${String(day).padStart(2,'0')}.${String(month).padStart(2,'0')}.${year} 00:00:00`))[0];
+    const next=pragueUtcCandidates(parseCzTimestamp(`${String(nextDate.getUTCDate()).padStart(2,'0')}.${String(nextDate.getUTCMonth()+1).padStart(2,'0')}.${nextDate.getUTCFullYear()} 00:00:00`))[0];
+    if(!Number.isFinite(start)||!Number.isFinite(next)||next<=start)return null;
+    return {dateKey,from:new Date(start-1000).toISOString(),to:new Date(next-1000).toISOString()};
+  }).filter(Boolean);
+}
+async function repairMissingEgdIntervals(token,monthKey,profile,records,maxDays=7){
   const gaps=closedIntervalGaps(records,monthKey);
-  if(!gaps.length)return {records,attempted:0,recovered:0,remaining:0};
-  const targets=gaps.slice(0,maxGaps),rawPayloads=[];
-  for(const gap of targets){
-    const from=new Date(gap.sortKey-1000).toISOString(),to=new Date(gap.sortKey+1000).toISOString();
-    try{rawPayloads.push(await fetchEgdRange(token,from,to,profile))}
-    catch(e){console.warn('EG.D oprava chybějícího intervalu selhala',gap.sourceTimestamp,e)}
+  if(!gaps.length)return {records,attempted:0,attemptedDays:0,recovered:0,remaining:0};
+  const ranges=egdRepairDayRanges(gaps,maxDays),rawPayloads=[];
+  for(const range of ranges){
+    try{rawPayloads.push(await fetchEgdRange(token,range.from,range.to,profile))}
+    catch(e){console.warn('EG.D oprava chybějícího dne selhala',range.dateKey,e)}
   }
+  const attemptedDates=new Set(ranges.map(r=>r.dateKey)),attempted=gaps.filter(g=>attemptedDates.has(g.dateKey)).length;
   const group=mergeEgdPayloads(rawPayloads,profile);
-  if(!group?.data?.length)return {records,attempted:targets.length,recovered:0,remaining:gaps.length};
+  if(!group?.data?.length)return {records,attempted,attemptedDays:ranges.length,recovered:0,remaining:gaps.length};
   const seen=new Map(),fresh=group.data.map(x=>apiLocalRecord(state.egd.ean,profile,String(group.units||''),x,seen)).filter(Boolean).filter(r=>r.monthKey===monthKey);
   const merged=mergeEgdRecords(records,fresh),remaining=closedIntervalGaps(merged,monthKey).length;
-  return {records:merged,attempted:targets.length,recovered:Math.max(0,gaps.length-remaining),remaining};
+  return {records:merged,attempted,attemptedDays:ranges.length,recovered:Math.max(0,gaps.length-remaining),remaining};
 }
 function apiLocalRecord(ean,profile,units,item,seen){
   const ms=Date.parse(item.timestamp);if(!Number.isFinite(ms))return null;
@@ -680,10 +692,10 @@ function apiLocalRecord(ean,profile,units,item,seen){
 }
 async function fetchEgdMonth(token,monthKey,profile=state.egd.profile){
   const fullBounds=pragueMonthQueryBounds(monthKey),bounds=incrementalEgdBounds(monthKey,fullBounds);
-  if(Date.parse(bounds.to)<Date.parse(bounds.from)){
+  if(Date.parse(bounds.to)<=Date.parse(bounds.from)){
     if(bounds.existing.length){
       const repair=await repairMissingEgdIntervals(token,monthKey,profile,bounds.existing);
-      return buildEgdMonthPayload(monthKey,repair.records,{incremental:true,noNewRange:true,activeProfile:profile,gapRepairAttempted:repair.attempted,gapRepairRecovered:repair.recovered,gapRepairRemaining:repair.remaining});
+      return buildEgdMonthPayload(monthKey,repair.records,{incremental:true,noNewRange:true,activeProfile:profile,gapRepairAttempted:repair.attempted,gapRepairAttemptedDays:repair.attemptedDays,gapRepairRecovered:repair.recovered,gapRepairRemaining:repair.remaining});
     }
     return null;
   }
@@ -709,14 +721,17 @@ async function fetchEgdMonth(token,monthKey,profile=state.egd.profile){
   }
   const group=mergeEgdPayloads(payloads,profile);
   if(!group||!Array.isArray(group.data)||!group.data.length){
-    if(bounds.existing.length)return buildEgdMonthPayload(monthKey,bounds.existing,{incremental:true,noNewData:true,chunkFallback:usedChunkFallback,activeProfile:profile});
+    if(bounds.existing.length){
+      const repair=await repairMissingEgdIntervals(token,monthKey,profile,bounds.existing);
+      return buildEgdMonthPayload(monthKey,repair.records,{incremental:true,noNewData:true,chunkFallback:usedChunkFallback,activeProfile:profile,gapRepairAttempted:repair.attempted,gapRepairAttemptedDays:repair.attemptedDays,gapRepairRecovered:repair.recovered,gapRepairRemaining:repair.remaining});
+    }
     return null;
   }
   const units=String(group.units||''),seen=new Map(),fresh=group.data.map(x=>apiLocalRecord(state.egd.ean,profile,units,x,seen)).filter(Boolean).filter(r=>r.monthKey===monthKey);
   let records=mergeEgdRecords(bounds.existing,fresh);
   const repair=await repairMissingEgdIntervals(token,monthKey,profile,records);
   records=repair.records;
-  return buildEgdMonthPayload(monthKey,records,{incremental:bounds.incremental,chunkFallback:usedChunkFallback,dailyFallback:usedDailyFallback,refreshedFrom:bounds.from,apiUnits:units,activeProfile:profile,gapRepairAttempted:repair.attempted,gapRepairRecovered:repair.recovered,gapRepairRemaining:repair.remaining});
+  return buildEgdMonthPayload(monthKey,records,{incremental:bounds.incremental,chunkFallback:usedChunkFallback,dailyFallback:usedDailyFallback,refreshedFrom:bounds.from,apiUnits:units,activeProfile:profile,gapRepairAttempted:repair.attempted,gapRepairAttemptedDays:repair.attemptedDays,gapRepairRecovered:repair.recovered,gapRepairRemaining:repair.remaining});
 }
 function buildEgdMonthPayload(monthKey,records,extra={}){
   if(!records.length)return null;
@@ -744,14 +759,21 @@ function currentAndPreviousMonthKeys(){
   const p=pragueParts(Date.now()),idx=monthIndex(`${p.year}-${String(p.month).padStart(2,'0')}`);
   return [monthKeyFromIndex(idx-1),monthKeyFromIndex(idx)];
 }
+function egdSyncMonthKeys(){
+  const base=currentAndPreviousMonthKeys(),currentKey=base.at(-1);
+  const historical=state.months
+    .filter(m=>m?.source==='egd-api'&&m.complete!==true&&String(m.monthKey||'')<currentKey)
+    .map(m=>m.monthKey).filter(Boolean).sort().slice(-12);
+  return [...new Set([...historical,...base])].sort();
+}
 async function syncEgdData({silent=false}={}){
   await saveEgdSelections();
   if(!state.egd.clientId||!state.egd.clientSecret||!state.egd.ean||!state.egd.profile)throw new Error('Nejdřív ověř EG.D připojení a vyber odběrné místo a profil.');
   const localEans=[...new Set(state.records.map(r=>r.ean).filter(Boolean))];
   if(localEans.length&&(!localEans.includes(state.egd.ean)||localEans.length>1))throw new Error(`Lokální databáze patří EAN ${localEans.join(', ')}. Vybrané EG.D odběrné místo ${state.egd.ean} nelze do stejné databáze přimíchat.`);
-  setEgdUiState('warn','Synchronizuji…','Aktuální měsíc aktualizuji přírůstkově; existující data zůstávají zachována.');
+  setEgdUiState('warn','Synchronizuji…','Aktuální měsíc aktualizuji přírůstkově a neúplné starší EG.D měsíce zkontroluji na chybějící intervaly. Existující data zůstávají zachována.');
   try{
-    const token=state.egd.proxyUrl?null:await egdToken(),results=[],keys=currentAndPreviousMonthKeys(),currentKey=keys.at(-1);
+    const token=state.egd.proxyUrl?null:await egdToken(),results=[],keys=egdSyncMonthKeys(),currentKey=currentAndPreviousMonthKeys().at(-1);
     for(const key of keys){
       const existing=monthMeta(key);
       if(key!==currentKey&&existing?.complete===true){
