@@ -23,7 +23,7 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput,monthlyReportForMonth,completeReportMonthKeys,latestValidatedTariff,financeAnalyticsInputs,financialTargetScenario,predictMonthEnergy,calibrationForecast,historicalEnergyForecastErrors,estimateMissingDayEnergy,completeClosedAnalysisRecords,dailyCostData,costForRecords,historicalMonthCostAllocation,dailyDetailRows
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput,monthlyReportForMonth,completeReportMonthKeys,latestValidatedTariff,financeAnalyticsInputs,financialTargetScenario,predictMonthEnergy,calibrationForecast,historicalEnergyForecastErrors,estimateMissingDayEnergy,completeClosedAnalysisRecords,dailyCostData,costForRecords,historicalMonthCostAllocation,dailyDetailRows,egdRepairDayRanges,egdSyncMonthKeys
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
@@ -31,29 +31,29 @@ return {
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.13.3 files are version-aligned and syntactically valid',()=>{
+test('beta 1.13.4 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.13\.1'/);
-  assert.match(html,/BETA 1\.13\.1/);
-  assert.match(sw,/v1\.13\.1/);
-  assert.match(html,/core\/model\.js\?v=1\.13\.1/);
-  assert.match(html,/core\/time\.js\?v=1\.13\.1/);
-  assert.match(html,/core\/forecast\.js\?v=1\.13\.1/);
-  assert.match(html,/core\/regime\.js\?v=1\.13\.1/);
-  assert.match(html,/core\/invoice\.js\?v=1\.13\.1/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.13\.1/);
-  assert.match(sw,/core\/model\.js\?v=1\.13\.1/);
-  assert.match(sw,/core\/time\.js\?v=1\.13\.1/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.13\.1/);
-  assert.match(sw,/core\/regime\.js\?v=1\.13\.1/);
-  assert.match(html,/core\/power\.js\?v=1\.13\.1/);
-  assert.match(sw,/core\/power\.js\?v=1\.13\.1/);
-  assert.match(html,/core\/report\.js\?v=1\.13\.1/);
-  assert.match(sw,/core\/report\.js\?v=1\.13\.1/);
-  assert.match(html,/core\/finance-analytics\.js\?v=1\.13\.1/);
-  assert.match(sw,/core\/finance-analytics\.js\?v=1\.13\.1/);
-  assert.ok(html.indexOf('core/invoice.js?v=1.13.3')<html.indexOf('core/finance-analytics.js?v=1.13.3'),'invoice core must load before finance analytics');
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.13\.1/);
+  assert.match(app,/APP_VERSION = '1\.13\.4'/);
+  assert.match(html,/BETA 1\.13\.4/);
+  assert.match(sw,/v1\.13\.4/);
+  assert.match(html,/core\/model\.js\?v=1\.13\.4/);
+  assert.match(html,/core\/time\.js\?v=1\.13\.4/);
+  assert.match(html,/core\/forecast\.js\?v=1\.13\.4/);
+  assert.match(html,/core\/regime\.js\?v=1\.13\.4/);
+  assert.match(html,/core\/invoice\.js\?v=1\.13\.4/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.13\.4/);
+  assert.match(sw,/core\/model\.js\?v=1\.13\.4/);
+  assert.match(sw,/core\/time\.js\?v=1\.13\.4/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.13\.4/);
+  assert.match(sw,/core\/regime\.js\?v=1\.13\.4/);
+  assert.match(html,/core\/power\.js\?v=1\.13\.4/);
+  assert.match(sw,/core\/power\.js\?v=1\.13\.4/);
+  assert.match(html,/core\/report\.js\?v=1\.13\.4/);
+  assert.match(sw,/core\/report\.js\?v=1\.13\.4/);
+  assert.match(html,/core\/finance-analytics\.js\?v=1\.13\.4/);
+  assert.match(sw,/core\/finance-analytics\.js\?v=1\.13\.4/);
+  assert.ok(html.indexOf('core/invoice.js?v=1.13.4')<html.indexOf('core/finance-analytics.js?v=1.13.4'),'invoice core must load before finance analytics');
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.13\.4/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -95,6 +95,36 @@ test('EG.D quality and ICQ2 conversion regression',()=>{
   assert.equal(api.egdStatusInfo('W').usable,true);
   assert.equal(api.egdStatusInfo('IU014').usable,false);
   assert.equal(api.apiValueToKw(0.25,'kWh',15),1);
+});
+
+test('EG.D gap repair batches many missing intervals by affected day',()=>{
+  const api=loadApp();
+  const gaps=Array.from({length:60},(_,i)=>({dateKey:'2026-09-17',sortKey:Date.UTC(2026,8,17,6,0)+i*15*60000}));
+  const ranges=api.egdRepairDayRanges(gaps);
+  assert.equal(ranges.length,1);
+  assert.equal(ranges[0].dateKey,'2026-09-17');
+  assert.equal(Date.parse(ranges[0].to)-Date.parse(ranges[0].from),24*60*60*1000);
+});
+
+test('EG.D closed-month sync reaches gap repair even when the incremental tail has no new range',()=>{
+  assert.match(app,/Date\.parse\(bounds\.to\)<=Date\.parse\(bounds\.from\)/);
+  const fetchStart=app.indexOf('async function fetchEgdMonth');
+  const noDataStart=app.indexOf('if(!group||!Array.isArray(group.data)||!group.data.length){',fetchStart);
+  assert.ok(noDataStart>fetchStart);
+  assert.match(app.slice(noDataStart,noDataStart+900),/repairMissingEgdIntervals\(token,monthKey,profile,bounds\.existing\)/);
+});
+
+test('EG.D sync keeps historical incomplete API months in the healing queue',()=>{
+  const api=loadApp();
+  api.state.months=[
+    {monthKey:'2020-01',source:'egd-api',complete:false},
+    {monthKey:'2020-02',source:'egd-api',complete:true},
+    {monthKey:'2020-03',source:'xlsx',complete:false}
+  ];
+  const keys=api.egdSyncMonthKeys();
+  assert.ok(keys.includes('2020-01'));
+  assert.ok(!keys.includes('2020-02'));
+  assert.ok(!keys.includes('2020-03'));
 });
 
 test('old finance records remain backward compatible',()=>{
