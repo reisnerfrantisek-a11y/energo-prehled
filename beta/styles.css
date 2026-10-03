@@ -302,3 +302,35 @@
 .daily-status.incomplete{background:color-mix(in srgb,#f0a23a 14%,var(--surface));color:#b96f12}
 .daily-empty{padding:28px 16px;text-align:center;color:var(--muted);font-size:13px}
 @media(max-width:420px){.hero-actions{gap:8px}.chart-detail-btn{padding:6px 9px;font-size:10px}.daily-detail-modal{max-height:88vh;padding:18px}.daily-table th,.daily-table td{padding-left:9px;padding-right:9px}}
+
+
+/* v1.13.5 — hodinový drill-down v denním přehledu */
+.daily-row{cursor:pointer}
+.daily-row:focus{outline:none}
+.daily-row:hover td,.daily-row:focus-visible td,.daily-row.open td{background:color-mix(in srgb,var(--accent) 5%,var(--surface))}
+.daily-date-line{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.daily-chevron{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;border-radius:7px;background:var(--bg);color:var(--muted);font-size:13px;font-weight:900;line-height:1;transition:transform .15s ease}
+.daily-row.open .daily-chevron{color:var(--accent)}
+.daily-hour-row>td{padding:0!important;text-align:left!important;white-space:normal!important;background:color-mix(in srgb,var(--accent) 3%,var(--surface))}
+.hourly-detail-host{width:100%}
+.hourly-detail{padding:10px 10px 13px}
+.hourly-detail-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:2px 2px 9px;color:var(--text);font-size:11px}
+.hourly-detail-head strong{font-size:11px}
+.hourly-detail-head span{color:var(--muted);font-weight:800;white-space:nowrap}
+.hourly-table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface);font-variant-numeric:tabular-nums}
+.daily-table .hourly-table th{position:static;z-index:auto;padding:7px 9px;background:var(--bg);border-bottom:1px solid var(--border);font-size:9px;text-align:right}
+.daily-table .hourly-table th:first-child{text-align:left}
+.daily-table .hourly-table td{padding:8px 9px;border-bottom:1px solid var(--border);background:transparent;font-size:11px;text-align:right;white-space:nowrap}
+.daily-table .hourly-table td:first-child{text-align:left}
+.daily-table .hourly-table tr:last-child td{border-bottom:0}
+.hourly-table td:first-child strong{display:block;font-size:10px}
+.hourly-table td:first-child small{display:block;margin-top:2px;font-size:8px}
+.hourly-status{display:inline-flex;margin-left:6px;padding:2px 5px;border-radius:999px;font-size:7px!important;font-weight:850!important}
+.hourly-status.missing,.hourly-status.incomplete{background:color-mix(in srgb,#f0a23a 14%,var(--surface));color:#b96f12}
+.hourly-missing td,.hourly-incomplete td{background:color-mix(in srgb,#f0a23a 4%,var(--surface))!important}
+.hourly-empty{padding:18px 10px;text-align:center;color:var(--muted);font-size:11px}
+@media(max-width:420px){
+  .hourly-detail{padding:8px 7px 11px}
+  .hourly-detail-head{font-size:10px}
+  .daily-table .hourly-table th,.daily-table .hourly-table td{padding-left:7px;padding-right:7px}
+}

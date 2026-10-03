@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.13.4';
+const APP_VERSION = '1.13.5';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -1531,23 +1531,84 @@ function dailyDetailRows(rs,costMode=state.dashboardMode==='cost'){
     return {dateKey:d.dateKey,weekday:d.weekday,energyKwh:d.energyKwh,cost:Number.isFinite(cost)?cost:null,status,count,expected};
   });
 }
+function expectedIntervalsForHour(dateKey,hour){
+  const [year,month,day]=String(dateKey||'').split('-').map(Number),h=Number(hour);
+  if(!year||!month||!day||!Number.isInteger(h)||h<0||h>23)return 0;
+  let count=0;
+  for(let minute=0;minute<60;minute+=15){
+    const ts=parseCzTimestamp(sourceStamp(year,month,day,h,minute));
+    count+=pragueUtcCandidates(ts).length;
+  }
+  return count;
+}
+function hourlyDetailRows(rs,dateKey,costMode=state.dashboardMode==='cost'){
+  const source=(Array.isArray(rs)?rs:[]).filter(r=>recordUsable(r)&&r.dateKey===dateKey),byHour=new Map();
+  for(const r of source){
+    const hour=Number(r.hour);
+    if(!Number.isInteger(hour)||hour<0||hour>23)continue;
+    const h=byHour.get(hour)||{hour,energyKwh:0,slots:new Set()};
+    h.energyKwh+=costMode?billingEnergy(r):energy(r);
+    if(Number.isFinite(Number(r.sortKey)))h.slots.add(Number(r.sortKey));
+    byHour.set(hour,h);
+  }
+  const today=pragueDayKeyFromMs(Date.now()),closed=dateKey<today;
+  const hours=closed
+    ?Array.from({length:24},(_,hour)=>hour).filter(hour=>expectedIntervalsForHour(dateKey,hour)>0||byHour.has(hour))
+    :[...byHour.keys()].sort((a,b)=>a-b);
+  return hours.map(hour=>{
+    const d=byHour.get(hour),expected=expectedIntervalsForHour(dateKey,hour),count=d?.slots.size||0;
+    const status=closed?(count===0?'missing':(count<expected?'incomplete':'')):'';
+    const next=(hour+1)%24,label=`${String(hour).padStart(2,'0')}:00–${String(next).padStart(2,'0')}:00`;
+    return {dateKey,hour,label,energyKwh:d?.energyKwh||0,count,expected,status,hasData:count>0};
+  });
+}
+function hourlyDetailMarkup(dateKey,costMode=state.dashboardMode==='cost'){
+  const rows=hourlyDetailRows(currentRange(),dateKey,costMode),total=rows.reduce((sum,r)=>sum+r.energyKwh,0);
+  if(!rows.length)return '<div class="hourly-empty">Pro tento den nejsou dostupná hodinová data.</div>';
+  const statusLabel=s=>s==='missing'?'chybí':s==='incomplete'?'neúplná':'';
+  return `<div class="hourly-detail">
+    <div class="hourly-detail-head"><strong>Hodinová spotřeba · ${escapeHtml(formatDateKey(dateKey))}</strong><span>${escapeHtml(fmt3.format(total))} kWh</span></div>
+    <table class="hourly-table"><thead><tr><th>Hodina</th><th>Spotřeba</th></tr></thead><tbody>${rows.map(r=>{
+      const status=statusLabel(r.status),intervals=r.expected?`${r.count}/${r.expected} × 15 min`:`${r.count} intervalů`;
+      return `<tr class="${r.status?'hourly-'+r.status:''}"><td><strong>${escapeHtml(r.label)}</strong><small>${escapeHtml(intervals)}${status?'<span class="hourly-status '+r.status+'">'+escapeHtml(status)+'</span>':''}</small></td><td>${r.hasData?escapeHtml(fmt3.format(r.energyKwh))+' <small>kWh</small>':'—'}</td></tr>`;
+    }).join('')}</tbody></table>
+  </div>`;
+}
 function closeDailyDetail(){const modal=$('#dailyDetailModal');if(modal)modal.classList.add('hidden')}
+function toggleDailyHourDetail(row){
+  const body=$('#dailyDetailBody');if(!body||!row)return;
+  const detail=row.nextElementSibling;
+  if(!detail||!detail.classList.contains('daily-hour-row'))return;
+  const opening=detail.classList.contains('hidden');
+  body.querySelectorAll('.daily-row.open').forEach(other=>{
+    if(other===row)return;
+    other.classList.remove('open');other.setAttribute('aria-expanded','false');
+    const otherDetail=other.nextElementSibling;if(otherDetail?.classList.contains('daily-hour-row'))otherDetail.classList.add('hidden');
+  });
+  row.classList.toggle('open',opening);row.setAttribute('aria-expanded',opening?'true':'false');detail.classList.toggle('hidden',!opening);
+  const chevron=row.querySelector('.daily-chevron');if(chevron)chevron.textContent=opening?'⌃':'⌄';
+  if(opening&&detail.dataset.loaded!=='1'){
+    const host=detail.querySelector('.hourly-detail-host');
+    if(host)host.innerHTML=hourlyDetailMarkup(row.dataset.dateKey,state.dashboardMode==='cost');
+    detail.dataset.loaded='1';
+  }
+}
 function renderDailyDetail(){
   const modal=$('#dailyDetailModal'),body=$('#dailyDetailBody'),summary=$('#dailyDetailSummary'),subtitle=$('#dailyDetailSubtitle');
   if(!modal||!body||!summary||!subtitle)return;
   const costMode=state.dashboardMode==='cost',rows=dailyDetailRows(currentRange(),costMode);
-  subtitle.textContent=`${selectedPeriodLabel()} · ${costMode?'DCC1 + náklady':state.metric.toUpperCase()}`;
+  subtitle.textContent=`${selectedPeriodLabel()} · ${costMode?'DCC1 + náklady':state.metric.toUpperCase()} · klepni na den pro hodinový detail`;
   if(!rows.length){
     summary.textContent='Ve zvoleném období nejsou denní data.';
     body.innerHTML='<div class="daily-empty">Zatím nejsou data k zobrazení.</div>';
     modal.classList.remove('hidden');return;
   }
-  const totalEnergy=rows.reduce((sum,r)=>sum+r.energyKwh,0),knownCosts=rows.map(r=>r.cost).filter(Number.isFinite),totalCost=knownCosts.reduce((sum,v)=>sum+v,0);
+  const totalEnergy=rows.reduce((sum,r)=>sum+r.energyKwh,0),knownCosts=rows.map(r=>r.cost).filter(Number.isFinite),totalCost=knownCosts.reduce((sum,v)=>sum+v,0),cols=costMode?3:2;
   summary.textContent=`${rows.length} dní · ${fmt3.format(totalEnergy)} kWh${costMode&&knownCosts.length?' · '+fmt.format(totalCost)+' Kč':''}`;
   const statusLabel=s=>s==='live'?'průběžný':s==='incomplete'?'neúplný':'';
   body.innerHTML=`<table class="daily-table"><thead><tr><th>Datum</th><th>Spotřeba</th>${costMode?'<th>Náklad</th>':''}</tr></thead><tbody>${rows.map(r=>{
     const status=statusLabel(r.status);
-    return `<tr><td><strong>${escapeHtml(formatDateKey(r.dateKey))}</strong><small>${escapeHtml(WEEK[r.weekday]||'')}${status?'<span class="daily-status '+r.status+'">'+escapeHtml(status)+'</span>':''}</small></td><td>${escapeHtml(fmt3.format(r.energyKwh))} <small>kWh</small></td>${costMode?`<td>${Number.isFinite(r.cost)?escapeHtml(fmt.format(r.cost))+' <small>Kč</small>':'—'}</td>`:''}</tr>`;
+    return `<tr class="daily-row" data-date-key="${escapeHtml(r.dateKey)}" tabindex="0" role="button" aria-expanded="false"><td><div class="daily-date-line"><strong>${escapeHtml(formatDateKey(r.dateKey))}</strong><span class="daily-chevron" aria-hidden="true">⌄</span></div><small>${escapeHtml(WEEK[r.weekday]||'')}${status?'<span class="daily-status '+r.status+'">'+escapeHtml(status)+'</span>':''}</small></td><td>${escapeHtml(fmt3.format(r.energyKwh))} <small>kWh</small></td>${costMode?`<td>${Number.isFinite(r.cost)?escapeHtml(fmt.format(r.cost))+' <small>Kč</small>':'—'}</td>`:''}</tr><tr class="daily-hour-row hidden" data-hour-detail="${escapeHtml(r.dateKey)}"><td colspan="${cols}"><div class="hourly-detail-host"></div></td></tr>`;
   }).join('')}</tbody></table>`;
   modal.classList.remove('hidden');
 }
@@ -2443,6 +2504,8 @@ function bind(){
   $$('.metric-btn').forEach(b=>b.onclick=()=>{state.metric=b.dataset.metric;localStorage.setItem(METRIC_KEY,state.metric);renderAll()});
   $('#dailyTableBtn').onclick=renderDailyDetail;
   $('#dailyDetailClose').onclick=closeDailyDetail;
+  $('#dailyDetailBody').addEventListener('click',e=>{const row=e.target.closest('.daily-row[data-date-key]');if(row)toggleDailyHourDetail(row)});
+  $('#dailyDetailBody').addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;const row=e.target.closest('.daily-row[data-date-key]');if(!row)return;e.preventDefault();toggleDailyHourDetail(row)});
   $('#dailyDetailModal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeDailyDetail()});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#dailyDetailModal').classList.contains('hidden'))closeDailyDetail()});
   $('#dayTypeSelect').onchange=renderAnalysis;

@@ -23,7 +23,7 @@ function loadApp(){
   const source=app.slice(0,cut)+`
 return {
   state,egdStatusInfo,apiValueToKw,expectedIntervalsForDate,totalExpectedIntervals,
-  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput,monthlyReportForMonth,completeReportMonthKeys,latestValidatedTariff,financeAnalyticsInputs,financialTargetScenario,predictMonthEnergy,calibrationForecast,historicalEnergyForecastErrors,estimateMissingDayEnergy,completeClosedAnalysisRecords,dailyCostData,costForRecords,historicalMonthCostAllocation,dailyDetailRows,egdRepairDayRanges,egdSyncMonthKeys
+  monthDateKeys,weightedCostModel,normalizeFinance,prepareEnergyChartSeries,prepareCostChartSeries,estimateRateForMonth,monthDataHealth,comparisonMonthEnergySeries,comparisonMonthCostSeries,analysisAverageStats,analysisContext,completeDailyRegimeRows,regimeAnalysisForRange,buildEgdMonthPayload,monthEnergyTarget,monthTargetSeries,parseEnergyTargetInput,monthlyReportForMonth,completeReportMonthKeys,latestValidatedTariff,financeAnalyticsInputs,financialTargetScenario,predictMonthEnergy,calibrationForecast,historicalEnergyForecastErrors,estimateMissingDayEnergy,completeClosedAnalysisRecords,dailyCostData,costForRecords,historicalMonthCostAllocation,dailyDetailRows,expectedIntervalsForHour,hourlyDetailRows,egdRepairDayRanges,egdSyncMonthKeys
 };`;
   const localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const document={querySelector:()=>null,querySelectorAll:()=>[]};
@@ -31,29 +31,29 @@ return {
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.13.4 files are version-aligned and syntactically valid',()=>{
+test('beta 1.13.5 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.13\.4'/);
-  assert.match(html,/BETA 1\.13\.4/);
-  assert.match(sw,/v1\.13\.4/);
-  assert.match(html,/core\/model\.js\?v=1\.13\.4/);
-  assert.match(html,/core\/time\.js\?v=1\.13\.4/);
-  assert.match(html,/core\/forecast\.js\?v=1\.13\.4/);
-  assert.match(html,/core\/regime\.js\?v=1\.13\.4/);
-  assert.match(html,/core\/invoice\.js\?v=1\.13\.4/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.13\.4/);
-  assert.match(sw,/core\/model\.js\?v=1\.13\.4/);
-  assert.match(sw,/core\/time\.js\?v=1\.13\.4/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.13\.4/);
-  assert.match(sw,/core\/regime\.js\?v=1\.13\.4/);
-  assert.match(html,/core\/power\.js\?v=1\.13\.4/);
-  assert.match(sw,/core\/power\.js\?v=1\.13\.4/);
-  assert.match(html,/core\/report\.js\?v=1\.13\.4/);
-  assert.match(sw,/core\/report\.js\?v=1\.13\.4/);
-  assert.match(html,/core\/finance-analytics\.js\?v=1\.13\.4/);
-  assert.match(sw,/core\/finance-analytics\.js\?v=1\.13\.4/);
-  assert.ok(html.indexOf('core/invoice.js?v=1.13.4')<html.indexOf('core/finance-analytics.js?v=1.13.4'),'invoice core must load before finance analytics');
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.13\.4/);
+  assert.match(app,/APP_VERSION = '1\.13\.5'/);
+  assert.match(html,/BETA 1\.13\.5/);
+  assert.match(sw,/v1\.13\.5/);
+  assert.match(html,/core\/model\.js\?v=1\.13\.5/);
+  assert.match(html,/core\/time\.js\?v=1\.13\.5/);
+  assert.match(html,/core\/forecast\.js\?v=1\.13\.5/);
+  assert.match(html,/core\/regime\.js\?v=1\.13\.5/);
+  assert.match(html,/core\/invoice\.js\?v=1\.13\.5/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.13\.5/);
+  assert.match(sw,/core\/model\.js\?v=1\.13\.5/);
+  assert.match(sw,/core\/time\.js\?v=1\.13\.5/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.13\.5/);
+  assert.match(sw,/core\/regime\.js\?v=1\.13\.5/);
+  assert.match(html,/core\/power\.js\?v=1\.13\.5/);
+  assert.match(sw,/core\/power\.js\?v=1\.13\.5/);
+  assert.match(html,/core\/report\.js\?v=1\.13\.5/);
+  assert.match(sw,/core\/report\.js\?v=1\.13\.5/);
+  assert.match(html,/core\/finance-analytics\.js\?v=1\.13\.5/);
+  assert.match(sw,/core\/finance-analytics\.js\?v=1\.13\.5/);
+  assert.ok(html.indexOf('core/invoice.js?v=1.13.5')<html.indexOf('core/finance-analytics.js?v=1.13.5'),'invoice core must load before finance analytics');
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.13\.5/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -78,6 +78,40 @@ test('daily dashboard detail aggregates days and flags incomplete closed data',(
   assert.equal(rows[0].status,'');
   assert.equal(rows[1].energyKwh,24);
   assert.equal(rows[1].status,'incomplete');
+});
+
+test('daily detail drills into hourly consumption and marks partial/missing hours',()=>{
+  const api=loadApp();api.state.records=[];api.state.metric='dcc1';
+  const dateKey='2026-08-10',y=2026,m=8,d=10,wd0=new Date(Date.UTC(y,m-1,d)).getUTCDay(),wd=wd0===0?6:wd0-1;
+  for(let h=0;h<24;h++)for(let mi=0;mi<60;mi+=15){
+    api.state.records.push({id:`${dateKey}-${h}-${mi}`,monthKey:'2026-08',dateKey,sortKey:Date.UTC(y,m-1,d,h,mi),year:y,month:m,day:d,hour:h,minute:mi,weekday:wd,intervalMinutes:15,dcc1:1,source:'xlsx'});
+  }
+  api.state.records=api.state.records.filter(r=>!(r.hour===12&&r.minute===15)&&r.hour!==13);
+  const rows=api.hourlyDetailRows(api.state.records,dateKey,false);
+  assert.equal(rows.length,24);
+  assert.equal(rows[0].energyKwh,1);
+  assert.equal(rows[0].count,4);
+  assert.equal(rows[0].expected,4);
+  assert.equal(rows[12].energyKwh,.75);
+  assert.equal(rows[12].count,3);
+  assert.equal(rows[12].status,'incomplete');
+  assert.equal(rows[13].energyKwh,0);
+  assert.equal(rows[13].count,0);
+  assert.equal(rows[13].status,'missing');
+});
+
+test('hourly detail respects Prague DST hour cardinality',()=>{
+  const api=loadApp();
+  assert.equal(api.expectedIntervalsForHour('2026-03-29',2),0);
+  assert.equal(api.expectedIntervalsForHour('2026-10-25',2),8);
+});
+
+test('daily detail UI exposes keyboard-accessible expandable day rows',()=>{
+  assert.match(app,/class="daily-row"/);
+  assert.match(app,/aria-expanded="false"/);
+  assert.match(app,/dailyDetailBody'\)\.addEventListener\('click'/);
+  assert.match(app,/dailyDetailBody'\)\.addEventListener\('keydown'/);
+  assert.match(app,/hourlyDetailMarkup\(row\.dataset\.dateKey/);
 });
 
 test('DST interval counts stay 92/96/100',()=>{
