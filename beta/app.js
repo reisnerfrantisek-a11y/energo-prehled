@@ -12,7 +12,7 @@ const WEEK = ['Ne','Po','Út','St','Čt','Pá','So'];
 const WEEK_MON = ['Po','Út','St','Čt','Pá','So','Ne'];
 
 let db;
-const APP_VERSION = '1.13.5';
+const APP_VERSION = '1.13.6';
 const IS_BETA = location.pathname.includes('/beta/');
 const DB_NAME = IS_BETA ? 'energo-prehled-beta' : 'energo-prehled';
 const METRIC_KEY = IS_BETA ? 'metric-beta' : 'metric';
@@ -1608,7 +1608,7 @@ function renderDailyDetail(){
   const statusLabel=s=>s==='live'?'průběžný':s==='incomplete'?'neúplný':'';
   body.innerHTML=`<table class="daily-table"><thead><tr><th>Datum</th><th>Spotřeba</th>${costMode?'<th>Náklad</th>':''}</tr></thead><tbody>${rows.map(r=>{
     const status=statusLabel(r.status);
-    return `<tr class="daily-row" data-date-key="${escapeHtml(r.dateKey)}" tabindex="0" role="button" aria-expanded="false"><td><div class="daily-date-line"><strong>${escapeHtml(formatDateKey(r.dateKey))}</strong><span class="daily-chevron" aria-hidden="true">⌄</span></div><small>${escapeHtml(WEEK[r.weekday]||'')}${status?'<span class="daily-status '+r.status+'">'+escapeHtml(status)+'</span>':''}</small></td><td>${escapeHtml(fmt3.format(r.energyKwh))} <small>kWh</small></td>${costMode?`<td>${Number.isFinite(r.cost)?escapeHtml(fmt.format(r.cost))+' <small>Kč</small>':'—'}</td>`:''}</tr><tr class="daily-hour-row hidden" data-hour-detail="${escapeHtml(r.dateKey)}"><td colspan="${cols}"><div class="hourly-detail-host"></div></td></tr>`;
+    return `<tr class="daily-row" data-date-key="${escapeHtml(r.dateKey)}" tabindex="0" role="button" aria-expanded="false"><td><div class="daily-date-line"><strong>${escapeHtml(formatDateKey(r.dateKey))}</strong><span class="daily-chevron" aria-hidden="true">⌄</span></div><small>${escapeHtml(WEEK_MON[r.weekday]||'')}${status?'<span class="daily-status '+r.status+'">'+escapeHtml(status)+'</span>':''}</small></td><td>${escapeHtml(fmt3.format(r.energyKwh))} <small>kWh</small></td>${costMode?`<td>${Number.isFinite(r.cost)?escapeHtml(fmt.format(r.cost))+' <small>Kč</small>':'—'}</td>`:''}</tr><tr class="daily-hour-row hidden" data-hour-detail="${escapeHtml(r.dateKey)}"><td colspan="${cols}"><div class="hourly-detail-host"></div></td></tr>`;
   }).join('')}</tbody></table>`;
   modal.classList.remove('hidden');
 }
