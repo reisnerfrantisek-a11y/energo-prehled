@@ -31,29 +31,29 @@ return {
   return new Function('window','document','location','localStorage',source)(window,document,{pathname:'/beta/'},localStorage);
 }
 
-test('beta 1.13.5 files are version-aligned and syntactically valid',()=>{
+test('beta 1.13.6 files are version-aligned and syntactically valid',()=>{
   assert.doesNotThrow(()=>new Function(app));
-  assert.match(app,/APP_VERSION = '1\.13\.5'/);
-  assert.match(html,/BETA 1\.13\.5/);
-  assert.match(sw,/v1\.13\.5/);
-  assert.match(html,/core\/model\.js\?v=1\.13\.5/);
-  assert.match(html,/core\/time\.js\?v=1\.13\.5/);
-  assert.match(html,/core\/forecast\.js\?v=1\.13\.5/);
-  assert.match(html,/core\/regime\.js\?v=1\.13\.5/);
-  assert.match(html,/core\/invoice\.js\?v=1\.13\.5/);
-  assert.match(html,/core\/invoice-parser\.js\?v=1\.13\.5/);
-  assert.match(sw,/core\/model\.js\?v=1\.13\.5/);
-  assert.match(sw,/core\/time\.js\?v=1\.13\.5/);
-  assert.match(sw,/core\/forecast\.js\?v=1\.13\.5/);
-  assert.match(sw,/core\/regime\.js\?v=1\.13\.5/);
-  assert.match(html,/core\/power\.js\?v=1\.13\.5/);
-  assert.match(sw,/core\/power\.js\?v=1\.13\.5/);
-  assert.match(html,/core\/report\.js\?v=1\.13\.5/);
-  assert.match(sw,/core\/report\.js\?v=1\.13\.5/);
-  assert.match(html,/core\/finance-analytics\.js\?v=1\.13\.5/);
-  assert.match(sw,/core\/finance-analytics\.js\?v=1\.13\.5/);
-  assert.ok(html.indexOf('core/invoice.js?v=1.13.5')<html.indexOf('core/finance-analytics.js?v=1.13.5'),'invoice core must load before finance analytics');
-  assert.match(sw,/core\/invoice-parser\.js\?v=1\.13\.5/);
+  assert.match(app,/APP_VERSION = '1\.13\.6'/);
+  assert.match(html,/BETA 1\.13\.6/);
+  assert.match(sw,/v1\.13\.6/);
+  assert.match(html,/core\/model\.js\?v=1\.13\.6/);
+  assert.match(html,/core\/time\.js\?v=1\.13\.6/);
+  assert.match(html,/core\/forecast\.js\?v=1\.13\.6/);
+  assert.match(html,/core\/regime\.js\?v=1\.13\.6/);
+  assert.match(html,/core\/invoice\.js\?v=1\.13\.6/);
+  assert.match(html,/core\/invoice-parser\.js\?v=1\.13\.6/);
+  assert.match(sw,/core\/model\.js\?v=1\.13\.6/);
+  assert.match(sw,/core\/time\.js\?v=1\.13\.6/);
+  assert.match(sw,/core\/forecast\.js\?v=1\.13\.6/);
+  assert.match(sw,/core\/regime\.js\?v=1\.13\.6/);
+  assert.match(html,/core\/power\.js\?v=1\.13\.6/);
+  assert.match(sw,/core\/power\.js\?v=1\.13\.6/);
+  assert.match(html,/core\/report\.js\?v=1\.13\.6/);
+  assert.match(sw,/core\/report\.js\?v=1\.13\.6/);
+  assert.match(html,/core\/finance-analytics\.js\?v=1\.13\.6/);
+  assert.match(sw,/core\/finance-analytics\.js\?v=1\.13\.6/);
+  assert.ok(html.indexOf('core/invoice.js?v=1.13.6')<html.indexOf('core/finance-analytics.js?v=1.13.6'),'invoice core must load before finance analytics');
+  assert.match(sw,/core\/invoice-parser\.js\?v=1\.13\.6/);
 });
 
 test('HTML ids referenced by literal selectors exist and are unique',()=>{
@@ -78,6 +78,13 @@ test('daily dashboard detail aggregates days and flags incomplete closed data',(
   assert.equal(rows[0].status,'');
   assert.equal(rows[1].energyKwh,24);
   assert.equal(rows[1].status,'incomplete');
+});
+
+test('daily detail renders weekday labels with Monday-based weekday indexing',()=>{
+  assert.match(app,/WEEK_MON\[r\.weekday\]/);
+  assert.doesNotMatch(app,/WEEK\[r\.weekday\]/);
+  const monday=new Date(Date.UTC(2026,7,10)).getUTCDay();
+  assert.equal(monday,1);
 });
 
 test('daily detail drills into hourly consumption and marks partial/missing hours',()=>{
